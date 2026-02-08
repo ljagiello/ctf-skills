@@ -2,6 +2,7 @@
 name: ctf-web
 description: Web exploitation techniques for CTF challenges. Use when solving web security challenges involving XSS, SQLi, CSRF, file upload bypasses, JWT attacks, Web3/blockchain exploits, or other web vulnerabilities.
 user-invocable: false
+allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFetch", "WebSearch"]
 ---
 
 # CTF Web Exploitation

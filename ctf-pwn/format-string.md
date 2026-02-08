@@ -68,6 +68,36 @@ payload = test + p64(0xDEADBEEF)
 - Target functions called AFTER the format string vulnerability
 - Check call order in disassembly to pick best target
 
+## Argument Retargeting (Non-Positional %n Trick)
+
+Use this when you cannot embed addresses (input filtering, newline issues) but can still use `%n` and a stack pointer is available as an argument.
+
+**Key idea:** Non-positional specifiers consume arguments in order. You can overwrite a *future* argument (which is itself a pointer) before it is used, then use it as an arbitrary write target.
+
+**Why non-positional:** Positional formats (`%22$hn`) are cached up front by glibc, so changing the underlying stack slot after parsing won’t change the pointer. Non-positional `%n` avoids that cache.
+
+**Workflow (example):**
+1. Leak offsets: find a stack pointer argument you can overwrite (e.g., saved `rbp` on the stack).
+2. Advance the argument index with `%c` (each `%c` consumes one argument).
+3. Use `%n` to write a 4-byte value into that pointer slot (e.g., make arg22 point to `exit@GOT`).
+4. Print additional chars and use `%hn` to write the low 2 bytes to the now-retargeted pointer.
+
+**Pattern (conceptual):**
+```text
+%c%c%c...%c      # consume args to reach pointer slot
+%<big>c%n        # overwrite pointer slot to target_addr (e.g., exit@GOT)
+%<delta>c%hn     # write low 2 bytes of win to that GOT entry
+```
+
+**Compute widths:**
+- After writing `target_addr` with `%n`, the printed count is `C`.
+- To write low 2 bytes `W` with `%hn`, print:
+  - `delta = (W - (C % 65536)) mod 65536`
+
+**When it works well:**
+- No PIE / Partial RELRO (GOT writable)
+- You can afford large outputs (millions of chars)
+
 **Stack layout discovery (find your input offset):**
 ```
 %1$p %2$p %3$p ... %50$p
