@@ -12,14 +12,15 @@ npx skills add ljagiello/ctf-skills
 
 | Skill | Description |
 |-------|-------------|
-| **ctf-web** | SQLi, XSS, SSTI, SSRF, JWT, prototype pollution, Web3, CVEs |
-| **ctf-pwn** | Buffer overflow, format string, heap, seccomp bypass, kernel |
-| **ctf-crypto** | RSA, AES, ECC, PRNG, hashing, ZKP, historical ciphers |
-| **ctf-reverse** | Binary analysis, game clients, obfuscated code, esoteric languages |
-| **ctf-forensics** | Disk images, memory dumps, event logs, network captures, blockchain |
-| **ctf-osint** | Social media, geolocation, public records |
-| **ctf-malware** | Obfuscated scripts, C2 traffic, protocol analysis |
-| **ctf-misc** | Pyjails, bash jails, encodings, RF/SDR, automation |
+| **ctf-web** | SQLi, XSS, SSTI, SSRF, JWT, prototype pollution, file upload RCE, Node.js VM escape, Web3/Solidity, CVEs |
+| **ctf-pwn** | Buffer overflow, format string, ROP chains, heap exploitation, seccomp bypass, kernel pwn, race conditions |
+| **ctf-crypto** | RSA, AES, ECC, PRNG, ZKP, S-box collision, Manger's oracle, GF(2) CRT, affine ciphers, historical ciphers |
+| **ctf-reverse** | Binary analysis, custom VMs, WASM, game clients, anti-debug bypass, Godot assets, .NET/Android RE |
+| **ctf-forensics** | Disk images, memory dumps, Windows event logs, 3D printing, network captures, PDF stego, blockchain |
+| **ctf-osint** | Social media, geolocation, username enumeration, DNS recon, archive research |
+| **ctf-malware** | Obfuscated scripts, C2 traffic, custom crypto protocols, .NET malware, PyInstaller unpacking |
+| **ctf-misc** | Pyjails, bash jails, encodings, RF/SDR, DNS exploitation, Unicode stego, floating-point tricks |
+| **find-skills** | Discover and install additional agent skills from the open ecosystem |
 | **solve-challenge** | Orchestrator skill — analyzes challenge and delegates to category skills |
 
 ## Usage
