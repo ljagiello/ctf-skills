@@ -78,3 +78,30 @@ char_to_code = {
 }
 # Code 27 = FIGS shift, Code 31 = LTRS shift
 ```
+
+---
+
+## Book Cipher Brute Force (Nullcon 2026)
+
+**Pattern (Booking Key):** Book cipher encodes password as list of "steps forward" in reference text.
+
+**Key insight:** Charset constraint drastically reduces candidate starting positions:
+```python
+def decode_book_cipher(cipher_distances, book_text, valid_chars):
+    """Brute-force starting position; filter by charset."""
+    candidates = []
+    for start_key in range(len(book_text)):
+        pos = start_key
+        password = []
+        valid = True
+        for dist in cipher_distances:
+            pos = (pos + dist) % len(book_text)
+            ch = book_text[pos]
+            if ch not in valid_chars:
+                valid = False
+                break
+            password.append(ch)
+        if valid:
+            candidates.append((start_key, ''.join(password)))
+    return candidates  # Typically 3-4 candidates out of ~56k positions
+```

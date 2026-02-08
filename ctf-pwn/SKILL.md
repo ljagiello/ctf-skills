@@ -12,7 +12,7 @@ Quick reference for pwn challenges. For detailed techniques, see supporting file
 ## Additional Resources
 
 - [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass)
-- [advanced.md](advanced.md) - Advanced techniques (heap, JIT, esoteric GOT, custom allocators, DNS overflow)
+- [advanced.md](advanced.md) - Advanced techniques (heap, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, .fini_array, shell tricks, ASAN)
 
 ---
 
@@ -467,42 +467,25 @@ See [advanced.md](advanced.md) for: conditional buffer address restrictions, she
 
 ## Global Buffer Overflow (CSV Injection)
 
-**Pattern (Spreadsheet):** Adjacent global variables exploitable via overflow.
+**Pattern (Spreadsheet):** Overflow adjacent global variables via extra CSV delimiters to change filename pointer. See [advanced.md](advanced.md) for full exploit pattern.
 
-**Exploitation:**
-1. Identify global array adjacent to filename pointer in memory
-2. Overflow array bounds by injecting extra delimiters (commas in CSV)
-3. Overflowed pointer lands on filename variable
-4. Change filename to `flag.txt`, then trigger read operation
+## MD5 Preimage Gadget Construction
 
-```python
-# Edit last cell with comma-separated overflow
-edit_cell("J10", "whatever,flag.txt")
-save()   # CSV row now has 11 columns
-load()   # Column 11 overwrites savefile pointer with ptr to "flag.txt"
-load()   # Now reads flag.txt into spreadsheet
-print_spreadsheet()  # Shows flag
-```
+**Pattern (Hashchain, Nullcon 2026):** Brute-force MD5 preimages with `eb 0c` prefix (jmp +12) to skip middle bytes, using bytes 14-15 as 2-byte i386 instructions. Build syscall chains from gadgets like `31c0` (xor eax), `cd80` (int 0x80).
+
+See [advanced.md](advanced.md) for C brute-force code, gadget list, and v2 (4-byte prefix) technique.
+
+## .fini_array Hijack
+
+**When to use:** Writable `.fini_array` + arbitrary write primitive. When `main()` returns, entries called as function pointers. Works even with Full RELRO. Overwrite with `%hn` writes to shellcode/win address.
+
+See [advanced.md](advanced.md) for implementation details.
 
 ## Shell Tricks
 
-**File descriptor redirection (no reverse shell needed):**
-```bash
-# Redirect stdin/stdout to client socket (fd 3 common for network)
-exec <&3; sh >&3 2>&3
+**Quick reference:**
+- `exec<&3;sh>&3` - redirect stdin/stdout to fd 3 (common network socket)
+- `ls -la /proc/self/fd` - find correct fd
+- `sh<&3 >&3` or `$0` instead of `sh` - minimal alternatives
 
-# Or as single command string
-exec<&3;sh>&3
-```
-- Network servers often have client connection on fd 3
-- Avoids firewall issues with outbound connections
-- Works when you have command exec but limited chars
-
-**Find correct fd:**
-```bash
-ls -la /proc/self/fd           # List open file descriptors
-```
-
-**Short shellcode alternatives:**
-- `sh<&3 >&3` - minimal shell redirect
-- Use `$0` instead of `sh` in some shells
+See [advanced.md](advanced.md) for more details.

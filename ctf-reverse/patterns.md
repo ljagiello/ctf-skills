@@ -463,3 +463,111 @@ for opcode, args in instructions:
 ```
 
 Compile with `-O3` for constant folding.
+
+---
+
+## Code Coverage Side-Channel Attack
+
+**Pattern (Coverup, Nullcon 2026):** PHP challenge provides XDebug code coverage data alongside encrypted output.
+
+**How it works:**
+- PHP code uses `xdebug_start_code_coverage(XDEBUG_CC_UNUSED | XDEBUG_CC_DEAD_CODE | XDEBUG_CC_BRANCH_CHECK)`
+- Encryption uses data-dependent branches: `if ($xored == chr(0)) ... if ($xored == chr(1)) ...`
+- Coverage JSON reveals which branches were executed during encryption
+- This leaks the set of XOR intermediate values that occurred
+
+**Exploitation:**
+```python
+import json
+
+# Load coverage data
+with open('coverage.json') as f:
+    cov = json.load(f)
+
+# Extract executed XOR values from branch coverage
+executed_xored = set()
+for line_no, hit_count in cov['encrypt.php']['lines'].items():
+    if hit_count > 0:
+        # Map line numbers to the chr(N) value in the if-statement
+        executed_xored.add(extract_value_from_line(line_no))
+
+# For each position, filter candidates
+for pos in range(len(ciphertext)):
+    candidates = []
+    for key_byte in range(256):
+        xored = plaintext_byte ^ key_byte  # or reverse S-box lookup
+        if xored in executed_xored:
+            candidates.append(key_byte)
+    # Combined with known plaintext prefix, this uniquely determines key
+```
+
+**Key insight:** Code coverage is a powerful oracle — it tells you which conditional paths were taken. Any encryption with data-dependent branching leaks information through coverage.
+
+**Mitigation detection:** Look for branchless/constant-time crypto implementations that defeat this attack.
+
+---
+
+## Functional Language Reversing (OPAL)
+
+**Pattern (Opalist, Nullcon 2026):** Binary compiled from OPAL (Optimized Applicative Language), a purely functional language.
+
+**Recognition markers:**
+- `.impl` (implementation) and `.sign` (signature) source files
+- `IMPLEMENTATION` / `SIGNATURE` keywords
+- Nested `IF..THEN..ELSE..FI` structures
+- Functions named `f1`, `f2`, ... `fN` (numeric naming)
+- Heavy use of `seq[nat]`, `string`, `denotation` types
+
+**Reversing approach:**
+1. Pure functions are mathematically invertible — reverse each step in the pipeline
+2. Identify the transformation chain: `f_final(f_n(...f_2(f_1(input))...))`
+3. For each function, build the inverse
+
+**Aggregate brute-force for scramble functions:**
+When a transformation accumulates state that depends on original (unknown) values:
+```python
+# Example: f8 adds cumulative offset based on parity of original bytes
+# offset contribution per element depends on whether pre-scramble value is even/odd
+# Total offset S = sum of contributions, but S mod 256 has only 256 possibilities
+
+decoded = base64_decode(target)
+for total_offset_S in range(256):
+    candidate = [(b - total_offset_S) % 256 for b in decoded]
+    # Verify: recompute S from candidate values
+    recomputed_S = sum(contribution(i, candidate[i]) for i in range(len(candidate))) % 256
+    if recomputed_S == total_offset_S:
+        # Apply remaining inverse steps
+        result = apply_inverse_substitution(candidate)
+        if all(32 <= c < 127 for c in result):
+            print(bytes(result))
+```
+
+**Key lesson:** When a scramble function has a chicken-and-egg dependency (result depends on original, which is unknown), brute-force the aggregate effect (often mod 256 = 256 possibilities) rather than all possible states (exponential).
+
+---
+
+## Non-Bijective Substitution Cipher Reversing
+
+**Pattern (Coverup, Nullcon 2026):** S-box/substitution table has collisions (multiple inputs map to same output).
+
+**Detection:**
+```python
+sbox = [...]  # substitution table
+if len(set(sbox)) < len(sbox):
+    print("Non-bijective! Collisions exist.")
+```
+
+**Building reverse lookup:**
+```python
+from collections import defaultdict
+rev_sub = defaultdict(list)
+for i, v in enumerate(sbox):
+    rev_sub[v].append(i)
+# rev_sub[output] = [list of possible inputs]
+```
+
+**Disambiguation strategies:**
+1. Known plaintext format (e.g., `ENO{`, `flag{`) fixes key bytes at known positions
+2. Side-channel data (code coverage, timing) eliminates impossible candidates
+3. Printable ASCII constraint (32-126) reduces candidate space
+4. Re-encrypt candidates and verify against known ciphertext

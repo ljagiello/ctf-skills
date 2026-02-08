@@ -270,6 +270,42 @@ for pos in remaining_unknowns:
 
 ---
 
+## Polynomial Arithmetic in GF(2)[x]
+
+**Key operations for CTF crypto:**
+```python
+def poly_add(a, b):
+    """Addition in GF(2)[x] = XOR of coefficient integers."""
+    return a ^ b
+
+def poly_mul(a, b):
+    """Carry-less multiplication in GF(2)[x]."""
+    result = 0
+    while b:
+        if b & 1:
+            result ^= a
+        a <<= 1
+        b >>= 1
+    return result
+
+def poly_divmod(a, b):
+    """Division with remainder in GF(2)[x]."""
+    if b == 0:
+        raise ZeroDivisionError
+    deg_a, deg_b = a.bit_length() - 1, b.bit_length() - 1
+    q = 0
+    while deg_a >= deg_b and a:
+        shift = deg_a - deg_b
+        q ^= (1 << shift)
+        a ^= (b << shift)
+        deg_a = a.bit_length() - 1
+    return q, a  # quotient, remainder
+```
+
+**Applications:** CRT in GF(2)[x] for recovering secrets from polynomial remainders, Reed-Solomon-like error correction.
+
+---
+
 ## RSA Signing Bug
 
 **Vulnerability:** Using wrong exponent for signing
@@ -286,4 +322,120 @@ from sympy import integer_nthroot
 forged_sig, exact = integer_nthroot(message, e)
 if exact:
     print(f"Forged signature: {forged_sig}")
+```
+
+---
+
+## Non-Permutation S-box Collision Attack (Nullcon 2026)
+
+**Detection:** Check if S-box is a permutation:
+```python
+sbox = [...]  # 256 entries
+if len(set(sbox)) < 256:
+    from collections import Counter
+    counts = Counter(sbox)
+    for val, cnt in counts.items():
+        if cnt > 1:
+            colliders = [i for i in range(256) if sbox[i] == val]
+            delta = colliders[0] ^ colliders[1]
+            print(f"S[{hex(colliders[0])}] = S[{hex(colliders[1])}] = {hex(val)}, delta = {hex(delta)}")
+```
+
+**Attack:** For each key byte position k (0-15):
+1. Try all 256 values v: encrypt two plaintexts differing by `delta` at position k
+2. When `ct1 == ct2`: S-box input at position k was in the collision set `{c0, c1}`
+3. Deduce: `key[k] = v ^ round_const` OR `key[k] = v ^ round_const ^ delta`
+4. 2-way ambiguity per byte -> 2^16 = 65,536 candidates, brute-force locally
+
+**Total oracle queries:** 16 x 256 + 1 = 4,097 (reference ciphertext + probes).
+
+**Key lessons:**
+- SAT/SMT solvers time out on 15+ rounds of symbolic AES even with simplified S-box
+- Integral/square attacks fail because non-permutation S-box breaks balance property
+- Always check S-box for non-permutation FIRST before attempting complex cryptanalysis
+
+---
+
+## Polynomial CRT in GF(2)[x] (Nullcon 2026)
+
+**Pattern:** Server gives `r = flag mod f` where `f` is a random polynomial over GF(2).
+
+**Attack:** Chinese Remainder Theorem in polynomial ring GF(2)[x]:
+1. Collect ~20 pairs `(r_i, f_i)` from server (each `f_i` is ~32-bit random polynomial)
+2. Filter for coprime pairs using polynomial GCD
+3. Apply CRT to combine: `flag = r_i (mod f_i)` for all i
+4. With ~13-20 coprime 32-bit moduli (>= 400 bits combined), flag is unique
+
+```python
+def poly_crt(remainders, moduli):
+    """CRT in GF(2)[x]: combine (r_i, f_i) pairs."""
+    result, mod = remainders[0], moduli[0]
+    for i in range(1, len(remainders)):
+        g, s, t = poly_xgcd(mod, moduli[i])
+        combined_mod = poly_mul(mod, moduli[i])
+        result = poly_add(poly_mul(poly_mul(remainders[i], s), mod),
+                         poly_mul(poly_mul(result, t), moduli[i]))
+        result = poly_mod(result, combined_mod)
+        mod = combined_mod
+    return result, mod
+```
+
+---
+
+## Manger's RSA Padding Oracle Attack (Nullcon 2026)
+
+**Setup:**
+- Key `k < 2^64` (small), RSA modulus `n` is large (1337+ bits)
+- Oracle: "invalid padding" = `decrypt < threshold`, "error" = `decrypt >= threshold`
+- No modular wrap-around because `k << n`
+
+**Attack (simplified Manger's):**
+```python
+# Phase 1: Find f1 where k * f1 >= threshold
+f1 = 1
+while oracle(encrypt(f1)) == "below":  # multiply ciphertext by f1^e mod n
+    f1 *= 2
+# f1/2 < threshold/k <= f1, so k is in [threshold/f1, threshold/(f1/2)]
+
+# Phase 2: Binary search for exact key
+lo, hi = 0, threshold
+while lo < hi:
+    mid = (lo + hi) // 2
+    f_test = ceil(threshold, mid + 1)  # f such that k*f >= threshold iff k > mid
+    if oracle(encrypt(f_test)) == "above":
+        hi = mid
+    else:
+        lo = mid + 1
+key = lo  # ~64 queries for 64-bit key
+```
+
+**Total queries:** ~128 (64 for phase 1 + 64 for phase 2).
+
+---
+
+## Affine Cipher over Non-Prime Modulus (Nullcon 2026)
+
+**Pattern:** `c = A @ p + b (mod m)` where A is nxn matrix, m may not be prime (e.g., 65).
+
+**Chosen-plaintext attack:**
+1. Send n+1 crafted inputs to get n+1 ciphertext blocks
+2. Difference attack: `c_i - c_0 = A @ (p_i - p_0) (mod m)`
+3. Build difference matrices D (plaintext) and E (ciphertext)
+4. Solve: `A = E @ D^{-1} (mod m)` using Gauss-Jordan with GCD invertibility checks
+5. Recover: `b = c_0 - A @ p_0 (mod m)`
+
+**CRT approach for composite modulus (preferred):**
+```python
+def crt2(r1, m1, r2, m2):
+    """CRT: x = r1 (mod m1) and x = r2 (mod m2)"""
+    m1_inv = pow(m1, m2 - 2, m2)  # Fermat's little theorem
+    t = ((r2 - r1) * m1_inv) % m2
+    return (r1 + m1 * t) % (m1 * m2)
+
+# For m=65=5x13: Gaussian elimination in GF(5) and GF(13) separately
+A5, b5 = A % 5, rhs % 5
+A13, b13 = A % 13, rhs % 13
+x5 = gauss_elim(A5, b5, mod=5)
+x13 = gauss_elim(A13, b13, mod=13)
+x = [crt2(x5[i], 5, x13[i], 13) for i in range(len(x5))]
 ```

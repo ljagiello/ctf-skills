@@ -98,6 +98,66 @@ strings document.pdf | grep -i flag
 binwalk document.pdf         # Embedded files
 ```
 
+### Advanced PDF Steganography (Nullcon 2026 rdctd series)
+
+Six distinct hiding techniques in a single PDF:
+
+**1. Invisible text separators:** Underscores rendered as invisible line segments. Extract with `pdftotext -layout` and normalize whitespace to underscores.
+
+**2. URI annotations with escaped braces:** Link annotations contain flag in URI with `\{` and `\}` escapes:
+```python
+import pikepdf
+pdf = pikepdf.Pdf.open(pdf_path)
+for page in pdf.pages:
+    for annot in (page.get("/Annots") or []):
+        obj = annot.get_object()
+        if obj.get("/Subtype") == pikepdf.Name("/Link"):
+            uri = str(obj.get("/A").get("/URI")).replace(r"\{", "{").replace(r"\}", "}")
+            # Check for flag pattern
+```
+
+**3. Blurred/redacted image with Wiener deconvolution:**
+```python
+from skimage.restoration import wiener
+import numpy as np
+
+def gaussian_psf(sigma):
+    k = int(sigma * 6 + 1) | 1
+    ax = np.arange(-(k//2), k//2 + 1, dtype=np.float32)
+    xx, yy = np.meshgrid(ax, ax)
+    psf = np.exp(-(xx**2 + yy**2) / (2 * sigma * sigma))
+    return psf / psf.sum()
+
+img_arr = np.asarray(img.convert("L")).astype(np.float32) / 255.0
+deconv = wiener(img_arr, gaussian_psf(3.0), balance=0.003, clip=False)
+```
+
+**4. Vector rectangle QR code:** Hundreds of tiny filled rectangles (e.g., 1.718×1.718 units) forming a QR code. Parse PDF content stream for `re` operators, extract centers, render as grid, decode with `zbarimg`.
+
+**5. Compressed object streams:** Use `mutool clean -d -c -m input.pdf output.pdf` to decompress all streams, then `strings` to search.
+
+**6. Document metadata:** Check Producer, Author, Keywords fields: `pdfinfo doc.pdf` or `exiftool doc.pdf`.
+
+## ZFS Forensics (Nullcon 2026)
+
+**Pattern:** Corrupted ZFS pool image with encrypted dataset.
+
+**Recovery workflow:**
+1. **Label reconstruction:** All 4 ZFS labels may be zeroed. Find packed nvlist data elsewhere in the image using `strings` + offset searching.
+2. **MOS object repair:** Copy known-good nvlist bytes to block locations, recompute Fletcher4 checksums:
+```python
+def fletcher4(data):
+    a = b = c = d = 0
+    for i in range(0, len(data), 4):
+        a = (a + int.from_bytes(data[i:i+4], 'little')) & 0xffffffff
+        b = (b + a) & 0xffffffff
+        c = (c + b) & 0xffffffff
+        d = (d + c) & 0xffffffff
+    return (d << 96) | (c << 64) | (b << 32) | a
+```
+3. **Encryption cracking:** Extract PBKDF2 parameters (iterations, salt) from ZAP objects. GPU-accelerate with PyOpenCL for PBKDF2-HMAC-SHA1, verify AES-256-GCM unwrap on CPU.
+4. **Passphrase list:** rockyou.txt or similar. GPU rate: ~24k passwords/sec.
+
 ## Memory Forensics
 
 ```bash

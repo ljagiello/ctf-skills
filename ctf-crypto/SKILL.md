@@ -372,3 +372,37 @@ for rotation in range(len(outer)):
     if decrypted.startswith("METACTF{"):
         print(decrypted)
 ```
+
+## Non-Permutation S-box Collision Attack
+
+**Pattern (Tetraes, Nullcon 2026):** Custom AES-like cipher with S-box collisions.
+
+**Detection:** `len(set(sbox)) < 256` means collisions exist. Find collision pairs and their XOR delta.
+
+**Attack:** For each key byte, try 256 plaintexts differing by delta. When `ct1 == ct2`, S-box input was in collision set. 2-way ambiguity per byte, 2^16 brute-force. Total: 4,097 oracle queries.
+
+See [advanced-math.md](advanced-math.md) for full S-box collision analysis code.
+
+## Polynomial CRT in GF(2)[x]
+
+**Pattern (Going in Circles, Nullcon 2026):** `r = flag mod f` where f is random GF(2) polynomial. Collect ~20 pairs, filter coprime, CRT combine.
+
+See [advanced-math.md](advanced-math.md) for GF(2)[x] polynomial arithmetic and CRT implementation.
+
+## Manger's RSA Padding Oracle Attack
+
+**Pattern (TLS, Nullcon 2026):** RSA-encrypted key with threshold oracle. Phase 1: double f until `k*f >= threshold`. Phase 2: binary search. ~128 total queries for 64-bit key.
+
+See [advanced-math.md](advanced-math.md) for full implementation.
+
+## Book Cipher Brute Force
+
+**Pattern (Booking Key, Nullcon 2026):** Book cipher with "steps forward" encoding. Brute-force starting position with charset filtering reduces ~56k candidates to 3-4.
+
+See [historical.md](historical.md) for implementation.
+
+## Affine Cipher over Non-Prime Modulus
+
+**Pattern (Matrixfun, Nullcon 2026):** `c = A @ p + b (mod m)` with composite m. Chosen-plaintext difference attack. For composite modulus, solve via CRT in each prime factor field separately.
+
+See [advanced-math.md](advanced-math.md) for CRT approach and Gauss-Jordan implementation.
