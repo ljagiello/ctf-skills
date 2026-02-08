@@ -465,6 +465,14 @@ See [advanced.md](advanced.md) for: conditional buffer address restrictions, she
 - If binary opens flag file but doesn't close fd, read via `/proc/self/fd/3`
 - fd 0=stdin, 1=stdout, 2=stderr, 3=first opened file
 
+## Signed Integer Bypass (Negative Quantity)
+
+**Pattern (PascalCTF 2026):** `scanf("%d")` for quantity without sign check. Negative input → `qty * price` negative → bypasses `balance >= total_cost`. **Red flag:** `scanf("%d")` or `atoi()` for quantities.
+
+## Canary-Aware Partial Overflow
+
+**Pattern (MyGit, PascalCTF 2026):** Overflow `valid` flag (offset 32) without touching canary (offset 40). Use `./` as no-op path padding for precise length control. See [advanced.md](advanced.md) for full exploit chain.
+
 ## Global Buffer Overflow (CSV Injection)
 
 **Pattern (Spreadsheet):** Overflow adjacent global variables via extra CSV delimiters to change filename pointer. See [advanced.md](advanced.md) for full exploit pattern.

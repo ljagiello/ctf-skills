@@ -12,7 +12,7 @@ Quick reference for forensics challenges. For detailed techniques, see supportin
 ## Additional Resources
 
 - [3d-printing.md](3d-printing.md) - 3D printing forensics (PrusaSlicer binary G-code, QOIF, heatshrink)
-- [windows.md](windows.md) - Windows forensics (registry, SAM, event logs, recycle bin)
+- [windows.md](windows.md) - Windows forensics (registry, SAM, event logs, recycle bin, USN journal, PowerShell history, Defender MPLog, WMI persistence, Amcache)
 - [network.md](network.md) - Network forensics (PCAP, SMB3, WordPress, credentials)
 
 ---
@@ -87,6 +87,27 @@ If attacker cleared event logs, use these alternative sources:
 steghide extract -sf image.jpg
 zsteg image.png              # PNG/BMP analysis
 stegsolve                    # Visual analysis
+```
+
+### Binary Border Steganography
+
+**Pattern (Framer, PascalCTF 2026):** Message encoded as black/white pixels in 1-pixel border around image.
+
+```python
+from PIL import Image
+
+img = Image.open('output.jpg')
+w, h = img.size
+bits = []
+
+# Read border clockwise: top → right → bottom (reversed) → left (reversed)
+for x in range(w): bits.append(0 if sum(img.getpixel((x, 0))[:3]) < 384 else 1)
+for y in range(1, h): bits.append(0 if sum(img.getpixel((w-1, y))[:3]) < 384 else 1)
+for x in range(w-2, -1, -1): bits.append(0 if sum(img.getpixel((x, h-1))[:3]) < 384 else 1)
+for y in range(h-2, 0, -1): bits.append(0 if sum(img.getpixel((0, y))[:3]) < 384 else 1)
+
+# Convert bits to ASCII
+msg = ''.join(chr(int(''.join(map(str, bits[i:i+8])), 2)) for i in range(0, len(bits)-7, 8))
 ```
 
 ## PDF Analysis

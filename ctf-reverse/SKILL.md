@@ -12,7 +12,8 @@ Quick reference for RE challenges. For detailed techniques, see supporting files
 ## Additional Resources
 
 - [tools.md](tools.md) - Tool-specific commands (GDB, Ghidra, radare2, IDA)
-- [patterns.md](patterns.md) - Common patterns, VMs, obfuscation, anti-debugging
+- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas
+- [languages.md](languages.md) - Language/platform-specific: Python bytecode & opcode remapping, DOS stubs, Unity IL2CPP, Brainfuck/esolangs, UEFI, transpilation to C, code coverage side-channel, OPAL functional reversing, non-bijective substitution
 
 ---
 
@@ -407,6 +408,38 @@ readelf -S binary | grep debug    # Debug sections present?
 2. Understand mangle: processes pairs with running state value
 3. Write inverse function (process in reverse, undo each operation)
 4. Feed target bytes through inverse → recovers flag
+
+## Rust serde_json Schema Recovery
+
+**Pattern (Curly Crab, PascalCTF 2026):** Rust binary reads JSON from stdin, deserializes via serde_json, prints success/failure emoji.
+
+**Approach:**
+1. Disassemble serde-generated `Visitor` implementations
+2. Each visitor's `visit_map` / `visit_seq` reveals expected keys and types
+3. Look for string literals in deserializer code (field names like `"pascal"`, `"CTF"`)
+4. Reconstruct nested JSON schema from visitor call hierarchy
+5. Identify value types from visitor method names: `visit_str` = string, `visit_u64` = number, `visit_bool` = boolean, `visit_seq` = array
+
+```json
+{"pascal":"CTF","CTF":2026,"crab":{"I_":true,"cr4bs":1337,"crabby":{"l0v3_":["rust"],"r3vv1ng_":42}}}
+```
+
+**Key insight:** Flag is the concatenation of JSON keys in schema order. Reading field names in order reveals the flag.
+
+## Position-Based Transformation Reversing
+
+**Pattern (PascalCTF 2026):** Binary transforms input by adding/subtracting position index.
+
+**Reversing:**
+```python
+expected = [...]  # Extract from .rodata
+flag = ''
+for i, b in enumerate(expected):
+    if i % 2 == 0:
+        flag += chr(b - i)   # Even: input = output - i
+    else:
+        flag += chr(b + i)   # Odd: input = output + i
+```
 
 ## Hex-Encoded String Comparison
 

@@ -3,6 +3,7 @@ name: solve-challenge
 description: Solve CTF challenges by analyzing files, connecting to services, and applying exploitation techniques. Orchestrates category-specific CTF skills.
 user-invocable: true
 argument-hint: "[challenge description, URL, or category]"
+allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFetch", "WebSearch", "Skill"]
 ---
 
 # CTF Challenge Solver
