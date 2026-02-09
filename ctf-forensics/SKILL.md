@@ -7,13 +7,16 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFet
 
 # CTF Forensics & Blockchain
 
-Quick reference for forensics challenges. For detailed techniques, see supporting files.
+Quick reference for forensics CTF challenges. Each technique has a one-liner here; see supporting files for full details.
 
 ## Additional Resources
 
 - [3d-printing.md](3d-printing.md) - 3D printing forensics (PrusaSlicer binary G-code, QOIF, heatshrink)
 - [windows.md](windows.md) - Windows forensics (registry, SAM, event logs, recycle bin, USN journal, PowerShell history, Defender MPLog, WMI persistence, Amcache)
-- [network.md](network.md) - Network forensics (PCAP, SMB3, WordPress, credentials)
+- [network.md](network.md) - Network forensics (PCAP, SMB3, WordPress, credentials, NTLMv2 cracking)
+- [disk-and-memory.md](disk-and-memory.md) - Disk/memory forensics (Volatility, disk mounting/carving, VM/OVA/VMDK, coredumps, deleted partitions, ZFS, VMware snapshots, ransomware analysis)
+- [steganography.md](steganography.md) - Steganography (binary border stego, PDF multi-layer stego, FFT frequency domain, DTMF audio decoding)
+- [linux-forensics.md](linux-forensics.md) - Linux/app forensics (log analysis, Docker image forensics, attack chains, browser credentials, Firefox history, TFTP, TLS weak RSA, USB audio)
 
 ---
 
@@ -38,18 +41,17 @@ vol3 -f memory.dmp windows.pslist
 vol3 -f memory.dmp windows.filescan
 ```
 
+See [disk-and-memory.md](disk-and-memory.md) for full Volatility plugin reference, VM forensics, and coredump analysis.
+
 ## Log Analysis
 
 ```bash
-# Search for flag fragments
-grep -iE "(flag|part|piece|fragment)" server.log
-
-# Reconstruct fragmented flags
-grep "FLAGPART" server.log | sed 's/.*FLAGPART: //' | uniq | tr -d '\n'
-
-# Find anomalies
-sort logfile.log | uniq -c | sort -rn | head
+grep -iE "(flag|part|piece|fragment)" server.log     # Flag fragments
+grep "FLAGPART" server.log | sed 's/.*FLAGPART: //' | uniq | tr -d '\n'  # Reconstruct
+sort logfile.log | uniq -c | sort -rn | head         # Find anomalies
 ```
+
+See [linux-forensics.md](linux-forensics.md) for Linux attack chain analysis and Docker image forensics.
 
 ## Windows Event Logs (.evtx)
 
@@ -71,6 +73,8 @@ with evtx.Evtx("Security.evtx") as log:
         print(record.xml())
 ```
 
+See [windows.md](windows.md) for full event ID tables, registry analysis, SAM parsing, USN journal, and anti-forensics detection.
+
 ## When Logs Are Cleared
 
 If attacker cleared event logs, use these alternative sources:
@@ -81,6 +85,8 @@ If attacker cleared event logs, use these alternative sources:
 5. **Prefetch** - Program execution evidence
 6. **User profile creation** - First login time (profile dir in USN journal)
 
+See [windows.md](windows.md) for detailed parsing code and anti-forensics detection checklist.
+
 ## Steganography
 
 ```bash
@@ -89,26 +95,12 @@ zsteg image.png              # PNG/BMP analysis
 stegsolve                    # Visual analysis
 ```
 
-### Binary Border Steganography
+- **Binary border stego:** Black/white pixels in 1px image border encode bits clockwise
+- **FFT frequency domain:** Image data hidden in 2D FFT magnitude spectrum; try `np.fft.fft2` visualization
+- **DTMF audio:** Phone tones encoding data; decode with `multimon-ng -a DTMF`
+- **Multi-layer PDF:** Check hidden comments, post-EOF data, XOR with keywords, ROT18 final layer
 
-**Pattern (Framer, PascalCTF 2026):** Message encoded as black/white pixels in 1-pixel border around image.
-
-```python
-from PIL import Image
-
-img = Image.open('output.jpg')
-w, h = img.size
-bits = []
-
-# Read border clockwise: top → right → bottom (reversed) → left (reversed)
-for x in range(w): bits.append(0 if sum(img.getpixel((x, 0))[:3]) < 384 else 1)
-for y in range(1, h): bits.append(0 if sum(img.getpixel((w-1, y))[:3]) < 384 else 1)
-for x in range(w-2, -1, -1): bits.append(0 if sum(img.getpixel((x, h-1))[:3]) < 384 else 1)
-for y in range(h-2, 0, -1): bits.append(0 if sum(img.getpixel((0, y))[:3]) < 384 else 1)
-
-# Convert bits to ASCII
-msg = ''.join(chr(int(''.join(map(str, bits[i:i+8])), 2)) for i in range(0, len(bits)-7, 8))
-```
+See [steganography.md](steganography.md) for full code examples and decoding workflows.
 
 ## PDF Analysis
 
@@ -119,107 +111,50 @@ strings document.pdf | grep -i flag
 binwalk document.pdf         # Embedded files
 ```
 
-### Advanced PDF Steganography (Nullcon 2026 rdctd series)
+**Advanced PDF stego (Nullcon 2026 rdctd):** Six techniques -- invisible text separators, URI annotations with escaped braces, Wiener deconvolution on blurred images, vector rectangle QR codes, compressed object streams (`mutool clean -d`), document metadata fields.
 
-Six distinct hiding techniques in a single PDF:
-
-**1. Invisible text separators:** Underscores rendered as invisible line segments. Extract with `pdftotext -layout` and normalize whitespace to underscores.
-
-**2. URI annotations with escaped braces:** Link annotations contain flag in URI with `\{` and `\}` escapes:
-```python
-import pikepdf
-pdf = pikepdf.Pdf.open(pdf_path)
-for page in pdf.pages:
-    for annot in (page.get("/Annots") or []):
-        obj = annot.get_object()
-        if obj.get("/Subtype") == pikepdf.Name("/Link"):
-            uri = str(obj.get("/A").get("/URI")).replace(r"\{", "{").replace(r"\}", "}")
-            # Check for flag pattern
-```
-
-**3. Blurred/redacted image with Wiener deconvolution:**
-```python
-from skimage.restoration import wiener
-import numpy as np
-
-def gaussian_psf(sigma):
-    k = int(sigma * 6 + 1) | 1
-    ax = np.arange(-(k//2), k//2 + 1, dtype=np.float32)
-    xx, yy = np.meshgrid(ax, ax)
-    psf = np.exp(-(xx**2 + yy**2) / (2 * sigma * sigma))
-    return psf / psf.sum()
-
-img_arr = np.asarray(img.convert("L")).astype(np.float32) / 255.0
-deconv = wiener(img_arr, gaussian_psf(3.0), balance=0.003, clip=False)
-```
-
-**4. Vector rectangle QR code:** Hundreds of tiny filled rectangles (e.g., 1.718×1.718 units) forming a QR code. Parse PDF content stream for `re` operators, extract centers, render as grid, decode with `zbarimg`.
-
-**5. Compressed object streams:** Use `mutool clean -d -c -m input.pdf output.pdf` to decompress all streams, then `strings` to search.
-
-**6. Document metadata:** Check Producer, Author, Keywords fields: `pdfinfo doc.pdf` or `exiftool doc.pdf`.
-
-## ZFS Forensics (Nullcon 2026)
-
-**Pattern:** Corrupted ZFS pool image with encrypted dataset.
-
-**Recovery workflow:**
-1. **Label reconstruction:** All 4 ZFS labels may be zeroed. Find packed nvlist data elsewhere in the image using `strings` + offset searching.
-2. **MOS object repair:** Copy known-good nvlist bytes to block locations, recompute Fletcher4 checksums:
-```python
-def fletcher4(data):
-    a = b = c = d = 0
-    for i in range(0, len(data), 4):
-        a = (a + int.from_bytes(data[i:i+4], 'little')) & 0xffffffff
-        b = (b + a) & 0xffffffff
-        c = (c + b) & 0xffffffff
-        d = (d + c) & 0xffffffff
-    return (d << 96) | (c << 64) | (b << 32) | a
-```
-3. **Encryption cracking:** Extract PBKDF2 parameters (iterations, salt) from ZAP objects. GPU-accelerate with PyOpenCL for PBKDF2-HMAC-SHA1, verify AES-256-GCM unwrap on CPU.
-4. **Passphrase list:** rockyou.txt or similar. GPU rate: ~24k passwords/sec.
-
-## Memory Forensics
-
-```bash
-vol3 -f memory.dmp windows.info
-vol3 -f memory.dmp windows.pslist
-vol3 -f memory.dmp windows.cmdline
-vol3 -f memory.dmp windows.netscan
-vol3 -f memory.dmp windows.dumpfiles --physaddr <addr>
-```
+See [steganography.md](steganography.md) for full PDF steganography techniques and code.
 
 ## Disk Image Analysis
 
 ```bash
-# Mount
-sudo mount -o loop,ro image.dd /mnt/evidence
-
-# Autopsy / Sleuth Kit
-fls -r image.dd              # List files
+sudo mount -o loop,ro image.dd /mnt/evidence   # Mount read-only
+fls -r image.dd              # List files (Sleuth Kit)
 icat image.dd <inode>        # Extract by inode
-
-# Carving
-photorec image.dd
-foremost -i image.dd
+photorec image.dd            # Carve deleted files
+foremost -i image.dd         # Alternative carver
 ```
+
+See [disk-and-memory.md](disk-and-memory.md) for VM forensics (OVA/VMDK), deleted partition recovery, and ZFS forensics.
 
 ## VM Forensics (OVA/VMDK)
 
 ```bash
-# OVA = TAR archive
-tar -xvf machine.ova
-
-# 7z reads VMDK directly
-7z l disk.vmdk | head -100
-7z x disk.vmdk -oextracted "Windows/System32/config/SAM" -r
+tar -xvf machine.ova                                    # OVA = TAR archive
+7z l disk.vmdk | head -100                               # List VMDK contents
+7z x disk.vmdk -oextracted "Windows/System32/config/SAM" -r  # Extract specific files
 ```
+
+See [disk-and-memory.md](disk-and-memory.md) for VMware snapshot conversion and malware hunting.
+
+## Memory Forensics
+
+```bash
+vol3 -f memory.dmp windows.pslist     # Process list
+vol3 -f memory.dmp windows.cmdline    # Command lines
+vol3 -f memory.dmp windows.netscan    # Network connections
+vol3 -f memory.dmp windows.dumpfiles --physaddr <addr>  # Extract files
+```
+
+- **String carving:** `strings -a -n 6 memdump.bin | grep -E "FLAG|SSH_CLIENT|SESSION_KEY"`
+- **VMware snapshots:** `vmss2core -W snapshot.vmss snapshot.vmem` to get analyzable dump
+
+See [disk-and-memory.md](disk-and-memory.md) for full plugin reference, ransomware analysis, and MFT key recovery.
 
 ## Windows Password Hashes
 
 ```python
 from impacket.examples.secretsdump import LocalOperations, SAMHashes
-
 localOps = LocalOperations('SYSTEM')
 bootKey = localOps.getBootKey()
 sam = SAMHashes('SAM', bootKey)
@@ -227,9 +162,10 @@ sam.dump()  # username:RID:LM:NTLM:::
 ```
 
 ```bash
-# Crack with hashcat
-hashcat -m 1000 hashes.txt wordlist.txt
+hashcat -m 1000 hashes.txt wordlist.txt   # Crack NTLM
 ```
+
+See [windows.md](windows.md) for SAM database details and [network.md](network.md) for NTLMv2 cracking from PCAP.
 
 ## Bitcoin Tracing
 
@@ -246,6 +182,8 @@ gdb -c core.dump
 (gdb) x/100x $rsp
 (gdb) find 0x0, 0xffffffff, "flag"
 ```
+
+See [disk-and-memory.md](disk-and-memory.md) for more details.
 
 ## Uncommon File Magic Bytes
 
@@ -266,196 +204,70 @@ gdb -c core.dump
 - Log file fragments
 - Memory strings
 
-## VMware Snapshot Forensics
+## WMI Persistence Analysis
 
-**Converting VMware snapshots to memory dumps:**
+**Pattern (Backchimney):** Malware uses WMI event subscriptions for persistence (MITRE T1546.003).
+
 ```bash
-# .vmss (suspended state) + .vmem (memory) → memory.dmp
-vmss2core -W path/to/snapshot.vmss path/to/snapshot.vmem
-# Output: memory.dmp (analyzable with Volatility/MemprocFS)
+python PyWMIPersistenceFinder.py OBJECTS.DATA
 ```
 
-**Malware hunting in snapshots (Armorless):**
-1. Check Amcache for executed binaries near encryption timestamp
-2. Look for deceptive names (Unicode lookalikes: `ṙ` instead of `r`)
-3. Dump suspicious executables from memory
-4. If PyInstaller-packed: `pyinstxtractor` → decompile `.pyc`
-5. If PyArmor-protected: use PyArmor-Unpacker
+- Look for FilterToConsumerBindings with CommandLineEventConsumer
+- Base64-encoded PowerShell in consumer commands
+- Event filters triggered on system events (logon, timer)
 
-**Ransomware key recovery via MFT:**
-- Even if original files deleted, MFT preserves modification timestamps
-- Seed-based encryption: recover mtime → derive key
-```bash
-vol3 -f memory.dmp windows.mftparser | grep flag
-# mtime as Unix epoch → seed for PRNG → derive encryption key
-```
+See [windows.md](windows.md) for WMI repository analysis details.
 
-## TFTP Netascii Decoding
+## Network Forensics Quick Reference
 
-**Problem:** TFTP netascii mode corrupts binary transfers; Wireshark doesn't auto-decode.
+- **TFTP netascii:** Binary transfers corrupted; fix with `data.replace(b'\r\n', b'\n').replace(b'\r\x00', b'\r')`
+- **TLS weak RSA:** Extract cert, factor modulus, generate private key with `rsatool`, add to Wireshark
+- **USB audio:** Extract isochronous data with `tshark -e usb.iso.data`, import as raw PCM in Audacity
+- **NTLMv2 from PCAP:** Extract server challenge + NTProofStr + blob from NTLMSSP_AUTH, brute-force
 
-**Fix exported files:**
-```python
-# Replace netascii sequences:
-# 0d 0a → 0a (CRLF → LF)
-# 0d 00 → 0d (escaped CR)
-with open('file_raw', 'rb') as f:
-    data = f.read()
-data = data.replace(b'\r\n', b'\n').replace(b'\r\x00', b'\r')
-with open('file_fixed', 'wb') as f:
-    f.write(data)
-```
+See [network.md](network.md) for SMB3 decryption, credential extraction, and [linux-forensics.md](linux-forensics.md) for full TLS/TFTP/USB workflows.
 
-## TLS Traffic Decryption via Weak RSA
+## Browser Forensics
 
-**Pattern (Tampered Seal):** TLS 1.2 with `TLS_RSA_WITH_AES_256_CBC_SHA` (no PFS).
+- **Chrome/Edge:** Decrypt `Login Data` SQLite with AES-GCM using DPAPI master key
+- **Firefox:** Query `places.sqlite` -- `SELECT url FROM moz_places WHERE url LIKE '%flag%'`
 
-**Attack flow:**
-1. Extract server certificate from Server Hello packet (Export Packet Bytes → `public.der`)
-2. Get modulus: `openssl x509 -in public.der -inform DER -noout -modulus`
-3. Factor weak modulus (dCode, factordb.com, yafu)
-4. Generate private key: `rsatool -p P -q Q -o private.pem`
-5. Add to Wireshark: Edit → Preferences → TLS → RSA keys list
+See [linux-forensics.md](linux-forensics.md) for full browser credential decryption code.
 
-**After decryption:**
-- Follow TLS streams to see HTTP traffic
-- Export objects (File → Export Objects → HTTP)
-- Look for downloaded executables, API calls
+## Docker Image Forensics
 
-## Browser Credential Decryption
-
-**Chrome/Edge Login Data decryption (requires master_key.txt):**
-```python
-from Crypto.Cipher import AES
-import sqlite3, json, base64
-
-# Load master key (from Local State file, DPAPI-protected)
-with open('master_key.txt', 'rb') as f:
-    master_key = f.read()
-
-conn = sqlite3.connect('Login Data')
-cursor = conn.cursor()
-cursor.execute('SELECT origin_url, username_value, password_value FROM logins')
-for url, user, encrypted_pw in cursor.fetchall():
-    # v10/v11 prefix = AES-GCM encrypted
-    nonce = encrypted_pw[3:15]
-    ciphertext = encrypted_pw[15:-16]
-    tag = encrypted_pw[-16:]
-    cipher = AES.new(master_key, AES.MODE_GCM, nonce=nonce)
-    password = cipher.decrypt_and_verify(ciphertext, tag)
-    print(f"{url}: {user}:{password.decode()}")
-```
-
-## Docker Image Forensics (Pragyan 2026)
-
-**Pattern (Plumbing):** Sensitive data leaked during Docker build but cleaned in later layers.
-
-**Key insight:** Docker image config JSON (`blobs/sha256/<config_hash>`) permanently preserves ALL `RUN` commands in the `history` array, regardless of subsequent cleanup.
+**Key insight:** Config JSON preserves ALL `RUN` commands in `history` array, even if later layers clean up.
 
 ```bash
 tar xf app.tar
-# Find config blob (not layer blobs)
 python3 -m json.tool blobs/sha256/<config_hash> | grep -A2 "created_by"
-# Look for RUN commands with flag data, passwords, secrets
 ```
 
-## Multi-Layer PDF Steganography (Pragyan 2026)
+See [linux-forensics.md](linux-forensics.md) for detailed Docker layer analysis.
 
-**Pattern (epstein files):** Flag hidden across multiple layers in a PDF.
+## Linux Attack Chain Forensics
 
-**Layer checklist:**
-1. `strings file.pdf | grep -i hidden` — hidden comments in PDF objects
-2. Extract hex strings, try XOR with theme-related keywords
-3. Check bytes **after `%%EOF`** marker — may contain GPG/encrypted data
-4. Try ROT18 (ROT13 on letters + ROT5 on digits) as final decode layer
+Check `auth.log`, `.bash_history`, recently modified binaries, and PCAP for exfiltration. Common malware pattern: AES-ECB + XOR with same key.
 
-```bash
-# Extract post-EOF data
-python3 -c "
-data = open('file.pdf','rb').read()
-eof = data.rfind(b'%%EOF')
-print(data[eof+5:].hex())
-"
-```
+See [linux-forensics.md](linux-forensics.md) for full evidence source commands.
 
-## FFT Frequency Domain Steganography (Pragyan 2026)
+## PowerShell Ransomware Analysis
 
-**Pattern (H@rDl4u6H):** Image encodes data in frequency domain via 2D FFT.
+Extract script blocks from minidump (`power_dump.py`), find AES key via regex in strings, decrypt SMTP attachment from PCAP.
 
-**Decoding workflow:**
-```python
-import numpy as np
-from PIL import Image
+See [disk-and-memory.md](disk-and-memory.md) for full analysis workflow.
 
-img = np.array(Image.open("image.png")).astype(float)
-F = np.fft.fftshift(np.fft.fft2(img))
-mag = np.log(1 + np.abs(F))
+## Deleted Partition Recovery
 
-# Look for patterns: concentric rings, dots at specific positions
-# Bright peak = 0 bit, Dark (no peak) = 1 bit
-cy, cx = mag.shape[0]//2, mag.shape[1]//2
-radii = [100 + 69*i for i in range(21)]  # Example spacing
-angles = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5]
-THRESHOLD = 13.0
+`testdisk` or `kpartx -av` to recover partition table from image. Check hidden `.dotfolders` for flag path components.
 
-bits = []
-for r in radii:
-    byte_val = 0
-    for a in angles:
-        fx = cx + r * np.cos(np.radians(a))
-        fy = cy - r * np.sin(np.radians(a))
-        bit = 0 if mag[int(round(fy)), int(round(fx))] > THRESHOLD else 1
-        byte_val = (byte_val << 1) | bit
-    bits.append(byte_val)
-```
+See [disk-and-memory.md](disk-and-memory.md) for full recovery workflow.
 
-**Identification:** Challenge mentions "transform", poem about "frequency", or image looks blank/noisy. Try FFT visualization first.
+## ZFS Forensics
 
-## Memory Dump String Carving (Pragyan 2026)
+Corrupted ZFS pool: reconstruct labels from nvlist data, recompute Fletcher4 checksums, crack PBKDF2 encryption with GPU.
 
-**Pattern (c47chm31fy0uc4n):** Linux memory dump with flag in environment variables or process data.
-
-```bash
-strings -a -n 6 memdump.bin | grep -E "SYNC|FLAG|SSH_CLIENT|SESSION_KEY"
-# SSH artifacts reveal source IP and ephemeral port
-# Environment variables may contain keys/tokens
-```
-
-## NTLMv2 Hash Cracking from PCAP (Pragyan 2026)
-
-**Pattern ($whoami):** SMB2 authentication in packet capture.
-
-**Extraction:** From NTLMSSP_AUTH packet, extract: server challenge, NTProofStr, and blob.
-
-**Brute-force with known password format:**
-```python
-import hashlib, hmac
-from Crypto.Hash import MD4
-
-def try_password(password, username, domain, server_challenge, blob, expected_proof):
-    nt_hash = MD4.new(password.encode('utf-16-le')).digest()
-    identity = (username.upper() + domain).encode('utf-16-le')
-    ntlmv2_hash = hmac.new(nt_hash, identity, hashlib.md5).digest()
-    proof = hmac.new(ntlmv2_hash, server_challenge + blob, hashlib.md5).digest()
-    return proof == expected_proof
-```
-
-## ROT18 Decoding
-
-ROT13 on letters + ROT5 on digits. Common final layer in multi-stage forensics:
-```python
-def rot18(text):
-    result = []
-    for c in text:
-        if c.isalpha():
-            base = ord('a') if c.islower() else ord('A')
-            result.append(chr((ord(c) - base + 13) % 26 + base))
-        elif c.isdigit():
-            result.append(str((int(c) + 5) % 10))
-        else:
-            result.append(c)
-    return ''.join(result)
-```
+See [disk-and-memory.md](disk-and-memory.md) for Fletcher4 code and full recovery workflow.
 
 ## Common Encodings
 
@@ -465,137 +277,4 @@ echo "hexstring" | xxd -r -p
 # ROT13: tr 'A-Za-z' 'N-ZA-Mn-za-m'
 ```
 
-## WMI Persistence Analysis
-
-**Pattern (Backchimney):** Malware uses WMI event subscriptions for persistence (MITRE T1546.003).
-
-**Analysis tool:**
-```bash
-# PyWMIPersistenceFinder on OBJECTS.DATA file
-python PyWMIPersistenceFinder.py OBJECTS.DATA
-```
-
-**What to look for:**
-- FilterToConsumerBindings with CommandLineEventConsumer
-- Base64-encoded PowerShell in consumer commands
-- Event filters triggered on system events (logon, timer)
-
-## Deleted Partition Recovery
-
-**Pattern (Till Delete Do Us Part):** USB image with deleted partition table.
-
-**Recovery workflow:**
-```bash
-# Check for partitions
-fdisk -l image.img              # Shows no partitions
-
-# Recover partition table
-testdisk image.img              # Interactive recovery
-
-# Or use kpartx to map partitions
-kpartx -av image.img            # Maps as /dev/mapper/loop0p1
-
-# Mount recovered partition
-mount /dev/mapper/loop0p1 /mnt/evidence
-
-# Check for hidden directories
-ls -la /mnt/evidence            # Look for .dotfolders
-find /mnt/evidence -name ".*"   # Find hidden files
-```
-
-**Flag hiding:** Path components as flag chars (e.g., `/.Meta/CTF/{f/l/a/g}`)
-
-## USB Audio Extraction from PCAP
-
-**Pattern (Talk To Me):** USB isochronous transfers contain audio data.
-
-**Extraction workflow:**
-```bash
-# Export ISO data with tshark
-tshark -r capture.pcap -T fields -e usb.iso.data > audio_data.txt
-
-# Convert to raw audio and import into Audacity
-# Settings: signed 16-bit PCM, mono, appropriate sample rate
-# Listen for spoken flag characters
-```
-
-**Identification:** USB transfer type URB_ISOCHRONOUS = real-time audio/video
-
-## PowerShell Ransomware Analysis
-
-**Pattern (Email From Krampus):** PowerShell memory dump + network capture.
-
-**Analysis workflow:**
-1. Extract script blocks from minidump:
-```bash
-python power_dump.py powershell.DMP
-# Or: strings powershell.DMP | grep -A5 "function\|Invoke-"
-```
-
-2. Identify encryption (typically AES-CBC with SHA-256 key derivation)
-
-3. Extract encrypted attachment from PCAP:
-```bash
-# Filter SMTP traffic in Wireshark
-# Export attachment, base64 decode
-```
-
-4. Find encryption key in memory dump:
-```bash
-# Key often generated with Get-Random, regex search:
-strings powershell.DMP | grep -E '^[A-Za-z0-9]{24}$' | sort | head
-```
-
-5. Find archive password similarly, decrypt layers
-
-## Linux Attack Chain Forensics
-
-**Pattern (Making the Naughty List):** Full attack timeline from logs + PCAP + malware.
-
-**Evidence sources:**
-```bash
-# SSH session commands
-grep -A2 "session opened" /var/log/auth.log
-
-# User command history
-cat /home/*/.bash_history
-
-# Downloaded malware
-find /usr/bin -newer /var/log/auth.log -name "ms*"
-
-# Network exfiltration
-tshark -r capture.pcap -Y "tftp" -T fields -e tftp.source_file
-```
-
-**Common malware pattern:** AES-ECB encrypt + XOR with same key, save as .enc
-
-## Firefox Browser History (places.sqlite)
-
-**Pattern (Browser Wowser):** Flag hidden in browser history URLs.
-
-```bash
-# Quick method
-strings places.sqlite | grep -i "flag\|MetaCTF"
-
-# Proper forensic method
-sqlite3 places.sqlite "SELECT url FROM moz_places WHERE url LIKE '%flag%'"
-```
-
-**Key tables:** `moz_places` (URLs), `moz_bookmarks`, `moz_cookies`
-
-## DTMF Audio Decoding
-
-**Pattern (Phone Home):** Audio file contains phone dialing tones encoding data.
-
-```bash
-# Decode DTMF tones
-sox phonehome.wav -t raw -r 22050 -e signed-integer -b 16 -c 1 - | \
-    multimon-ng -t raw -a DTMF -
-```
-
-**Post-processing:** Phone number may contain octal-encoded ASCII after delimiter (#):
-```python
-# Convert octal groups to ASCII
-octal_groups = ["115", "145", "164", "141"]  # M, e, t, a
-flag = ''.join(chr(int(g, 8)) for g in octal_groups)
-```
+**ROT18:** ROT13 on letters + ROT5 on digits. Common final layer in multi-stage forensics. See [linux-forensics.md](linux-forensics.md) for implementation.

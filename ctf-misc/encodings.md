@@ -39,6 +39,47 @@ for v in values:
 
 **Key insight:** If challenge gives a list of numbers (mix of integers, decimals, scientific notation), try packing each as IEEE 754 float32 (`struct.pack('>f', v)`) — the 4 bytes often spell ASCII text.
 
+### UTF-16 Endianness Reversal (LACTF 2026)
+
+**Pattern (endians):** Text "turned to Japanese" -- mojibake from UTF-16 endianness mismatch.
+
+**Fix:** Reverse the encoding/decoding order:
+```python
+# If encoded as UTF-16-LE but decoded as UTF-16-BE:
+fixed = mojibake.encode('utf-16-be').decode('utf-16-le')
+
+# If encoded as UTF-16-BE but decoded as UTF-16-LE:
+fixed = mojibake.encode('utf-16-le').decode('utf-16-be')
+```
+
+**Identification:** Text appears as CJK characters (Japanese/Chinese), challenge mentions "translation" or "endian".
+
+### SHA-256 Length Extension Attack (LACTF 2026)
+
+**Pattern (ttyspin):** MAC = `SHA-256(SECRET || message)` with known message and hash. Forge valid MAC for `SECRET || message || padding || extension`.
+
+**Key insight:** SHA-256 (and MD5, SHA-1) are Merkle-Damgard constructions. Knowing `H(SECRET || msg)` lets you compute `H(SECRET || msg || glue_pad || ext)` without knowing SECRET.
+
+**Attack steps:**
+1. Compute glue padding: the padding SHA-256 would apply after `SECRET || msg`
+2. Construct new message: `msg || glue_pad || malicious_extension`
+3. Resume SHA-256 from the known hash state, feed extension bytes
+4. Result is valid MAC for the new message
+
+```bash
+# Using hashpumpy or hlextend:
+pip install hlextend
+```
+```python
+import hlextend
+sha = hlextend.new('sha256')
+new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_hex)
+new_hash = sha.hexdigest()
+# new_data includes original + glue padding + extension
+```
+
+**Common in CTFs:** Game save files, session tokens, API signatures using `H(secret || data)`. Always check if the MAC construction is vulnerable to length extension (SHA-256, MD5, SHA-1 are; HMAC, SHA-3 are NOT).
+
 ### URL Encoding
 ```python
 import urllib.parse
@@ -116,6 +157,17 @@ finder_pattern = [
     [1,1,1,1,1,1,1],
 ]
 ```
+
+### QR Code Chunk Reassembly (LACTF 2026)
+
+**Pattern (error-correction):** QR code split into grid of chunks (e.g., 5x5 of 9x9 pixels), shuffled.
+
+**Solving approach:**
+1. **Fix known chunks:** Use structural patterns -- finder patterns (3 corners), timing patterns, alignment patterns -- to place ~50% of chunks
+2. **Extract codeword constraints:** For each candidate payload length, use QR spec to identify which pixels are invariant across encodings
+3. **Backtracking search:** Assign remaining chunks under pixel constraints until QR decodes successfully
+
+**Tools:** `segno` (Python QR library), `zbarimg` for decoding.
 
 ---
 
