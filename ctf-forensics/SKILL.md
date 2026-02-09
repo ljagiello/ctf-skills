@@ -1,8 +1,10 @@
 ---
 name: ctf-forensics
 description: Digital forensics and blockchain analysis for CTF challenges. Use when analyzing disk images, memory dumps, event logs, network captures, or cryptocurrency transactions.
-user-invocable: false
-allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFetch", "WebSearch"]
+license: MIT
+allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
+metadata:
+  user-invocable: "false"
 ---
 
 # CTF Forensics & Blockchain

@@ -1,8 +1,10 @@
 ---
 name: ctf-misc
 description: Miscellaneous CTF challenge techniques. Use for encoding puzzles, RF/SDR signal processing, Python/bash jails, DNS exploitation, unicode steganography, floating-point tricks, or challenges that don't fit other categories.
-user-invocable: false
-allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFetch", "WebSearch"]
+license: MIT
+allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
+metadata:
+  user-invocable: "false"
 ---
 
 # CTF Miscellaneous

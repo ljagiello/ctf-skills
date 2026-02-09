@@ -1,8 +1,10 @@
 ---
 name: ctf-osint
 description: Open Source Intelligence techniques for CTF challenges. Use when gathering information from public sources, social media, geolocation, or identifying unknown data.
-user-invocable: false
-allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFetch", "WebSearch"]
+license: MIT
+allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
+metadata:
+  user-invocable: "false"
 ---
 
 # CTF OSINT

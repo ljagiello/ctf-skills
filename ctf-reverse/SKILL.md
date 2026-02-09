@@ -1,8 +1,10 @@
 ---
 name: ctf-reverse
 description: Reverse engineering techniques for CTF challenges. Use when analyzing binaries, game clients, obfuscated code, or esoteric languages.
-user-invocable: false
-allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFetch", "WebSearch"]
+license: MIT
+allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
+metadata:
+  user-invocable: "false"
 ---
 
 # CTF Reverse Engineering

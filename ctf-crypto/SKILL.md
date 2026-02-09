@@ -1,8 +1,10 @@
 ---
 name: ctf-crypto
 description: Cryptography techniques for CTF challenges. Use when attacking encryption, hashing, ZKP, signatures, or mathematical crypto problems.
-user-invocable: false
-allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "WebFetch", "WebSearch"]
+license: MIT
+allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
+metadata:
+  user-invocable: "false"
 ---
 
 # CTF Cryptography
