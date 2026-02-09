@@ -135,7 +135,14 @@ with open('file.pyc', 'rb') as f:
 ```bash
 wasm2c checker.wasm -o checker.c
 gcc -O3 checker.c wasm-rt-impl.c -o checker
+
+# WASM patching (game challenges):
+wasm2wat main.wasm -o main.wat    # Binary → text
+# Edit WAT: flip comparisons, change constants
+wat2wasm main.wat -o patched.wasm # Text → binary
 ```
+
+**WASM game patching (Tac Tic Toe, Pragyan 2026):** If proof generation is independent of move quality, patch minimax (flip `i64.lt_s` → `i64.gt_s`, change bestScore sign) to make AI play badly while proofs remain valid. See ctf-misc SKILL.md for full pattern.
 
 ### Android APK
 ```bash

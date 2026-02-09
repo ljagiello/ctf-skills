@@ -406,3 +406,201 @@ See [historical.md](historical.md) for implementation.
 **Pattern (Matrixfun, Nullcon 2026):** `c = A @ p + b (mod m)` with composite m. Chosen-plaintext difference attack. For composite modulus, solve via CRT in each prime factor field separately.
 
 See [advanced-math.md](advanced-math.md) for CRT approach and Gauss-Jordan implementation.
+
+## Deterministic OTP with Load-Balanced Backends (Pragyan 2026)
+
+**Pattern (DumCows):** Service encrypts data with deterministic keystream that resets per connection. Multiple backends with different keystreams behind a load balancer.
+
+**Attack:**
+1. Send known plaintext (e.g., 18 bytes of 'A'), XOR with ciphertext → recover keystream
+2. XOR keystream with target ciphertext → decrypt secret
+3. **Backend matching:** Must connect to same backend for keystream to match. Retry connections until patterns align.
+
+```python
+def recover_keystream(known, ciphertext):
+    return bytes(k ^ c for k, c in zip(known, ciphertext))
+
+def decrypt(keystream, target_ct):
+    return bytes(k ^ c for k, c in zip(keystream, target_ct))
+```
+
+**Key insight:** When encryption is deterministic per connection with no nonce/IV, known-plaintext attack is trivial. The challenge is matching backends.
+
+## Polynomial Hash with Trivial Root (Pragyan 2026)
+
+**Pattern (!!Cand1esaNdCrypt0!!):** RSA signature scheme using polynomial hash `g(x,a,b) = x(x^2 + ax + b) mod P`.
+
+**Vulnerability:** `g(0) = 0` for all parameters `a,b`. RSA signature of 0 is always 0 (`0^d mod n = 0`).
+
+**Exploitation:** Craft message suffix so `bytes_to_long(prefix || suffix) ≡ 0 (mod P)`:
+```python
+P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF61  # 128-bit prime
+# Compute required suffix value mod P
+req = (-prefix_val * pow(256, suffix_len, P)) % P
+# Brute-force partial bytes until all printable ASCII
+while True:
+    high = os.urandom(32).translate(printable_table)
+    low_val = (req - int.from_bytes(high, 'big') * shift) % P
+    low = low_val.to_bytes(16, 'big')
+    if all(32 <= b <= 126 for b in low):
+        suffix = high + low
+        break
+# Signature is simply 0
+```
+
+**General lesson:** Always check if hash function has trivial inputs (0, 1, -1). Factoring the polynomial often reveals these.
+
+## XOR with Rotation: Power-of-2 Bit Isolation (Pragyan 2026)
+
+**Pattern (R0tnoT13):** Given `S XOR ROTR(S, k)` for multiple rotation offsets k, recover S.
+
+**Key insight:** When ALL rotation offsets are powers of 2 (2, 4, 8, 16, 32, 64), even-indexed and odd-indexed bits NEVER mix across any frame. This reduces N-bit recovery to just 2 bits of brute force.
+
+**Algorithm:**
+1. Express every bit of S in terms of two unknowns (s_0 for even bits, s_1 for odd bits) using the k=2 frame
+2. Only 4 candidate states → try all, verify against all frames
+3. XOR valid state with ciphertext → plaintext
+
+## Weak XOR Verification Brute Force (Pragyan 2026)
+
+**Pattern (Dor4_Null5):** Verification XORs all comparison bytes into a single byte instead of checking each individually.
+
+**Vulnerability:** Any fixed response has 1/256 probability of passing. With enough interaction budget (e.g., 4919 attempts), brute-force succeeds with ~256 expected attempts.
+
+```python
+for attempt in range(3000):
+    r.sendlineafter(b"prompt: ", b"00" * 8)  # Fixed zero response
+    result = r.recvline()
+    if b"successful" in result:
+        break
+```
+
+## RSA with Restricted-Digit Primes (LACTF 2026)
+
+**Pattern (six-seven):** RSA primes p, q composed only of digits {6, 7}, ending in 7.
+
+**Digit-by-digit factoring from LSB:**
+```python
+# At each step k, we know p mod 10^k → compute q mod 10^k = n * p^{-1} mod 10^k
+# Prune: only keep candidates where digit k of both p and q is in {6, 7}
+candidates = [(6,), (7,)]  # p ends in 6 or 7
+for k in range(1, num_digits):
+    new_candidates = []
+    for p_digits in candidates:
+        for d in [6, 7]:
+            p_val = sum(p_digits[i] * 10**i for i in range(len(p_digits))) + d * 10**k
+            q_val = (n * pow(p_val, -1, 10**(k+1))) % 10**(k+1)
+            q_digit_k = (q_val // 10**k) % 10
+            if q_digit_k in {6, 7}:
+                new_candidates.append(p_digits + (d,))
+    candidates = new_candidates
+```
+
+**General lesson:** When prime digits are restricted to a small set, digit-by-digit recovery from LSB with modular arithmetic prunes exponentially. Works for any restricted character set.
+
+## Coppersmith for Structured RSA Primes (LACTF 2026)
+
+**Pattern (six-seven-again):** p = base + 10^k · x where base is fully known and x is small (x < N^0.25).
+
+**Attack via SageMath:**
+```python
+# Construct f(x) such that f(x_secret) ≡ 0 (mod p) and thus (mod N)
+# p = base + 10^k * x → x + base * (10^k)^{-1} ≡ 0 (mod p)
+R.<x> = PolynomialRing(Zmod(N))
+f = x + (base * inverse_mod(10**k, N)) % N
+roots = f.small_roots(X=2**70, beta=0.5)  # x < N^0.25
+```
+
+**When to use:** Whenever part of a prime is known and the unknown part is small enough for Coppersmith bounds (< N^{1/e} for degree-e polynomial, approximately N^0.25 for linear).
+
+## Clock Group DLP via Pohlig-Hellman (LACTF 2026)
+
+**Pattern (the-clock):** Diffie-Hellman on unit circle group: x² + y² ≡ 1 (mod p).
+
+**Key facts:**
+- Group law: (x₁,y₁) · (x₂,y₂) = (x₁y₂ + y₁x₂, y₁y₂ - x₁x₂)
+- **Group order = p + 1** (not p - 1!)
+- Isomorphic to GF(p²)* elements of norm 1
+
+**Attack when p+1 is smooth:**
+```python
+# 1. Recover p from points: gcd(x^2 + y^2 - 1) across known points
+# 2. Factor p+1 into small primes
+# 3. Pohlig-Hellman: solve DLP in each small subgroup, CRT combine
+# 4. Compute shared secret, derive AES key (e.g., via MD5)
+```
+
+**Identification:** Challenge mentions "clock", "circle", or gives points satisfying x²+y²≡1. Always check if p+1 (not p-1) is smooth.
+
+## Garbled Circuits: Free XOR Delta Recovery (LACTF 2026)
+
+**Pattern (sisyphus):** Yao's garbled circuit with free XOR optimization. Circuit designed so normal evaluation only reaches one wire label, but the other is needed.
+
+**Free XOR property:** Wire labels satisfy `W_0 ⊕ W_1 = Δ` for global secret Δ.
+
+**Attack:** XOR three of four encrypted truth table entries to cancel AES terms:
+```python
+# Encrypted rows: E_i = AES(key_a_i ⊕ key_b_i, G_out_f(a,b))
+# XOR of three rows where AES inputs differ by Δ causes cancellation
+# Reveals Δ directly, then compute: W_1 = W_0 ⊕ Δ
+```
+
+**General lesson:** In garbled circuits, if you can obtain any two labels for the same wire, you recover Δ and can compute all labels.
+
+## Bigram/Trigram Substitution → Constraint Solving (LACTF 2026)
+
+**Pattern (lazy-bigrams):** Bigram substitution cipher where plaintext has known structure (NATO phonetic alphabet).
+
+**OR-Tools CP-SAT approach:**
+1. Model substitution as injective mapping (IntVar per bigram)
+2. Add crib constraints from known flag prefix
+3. Add **regular language constraint** (automaton) for valid NATO word sequences
+4. Solver finds unique solution
+
+**Pattern (not-so-lazy-trigrams):** "Trigram substitution" that decomposes into three independent monoalphabetic ciphers on positions mod 3.
+
+**Decomposition insight:** If cipher uses `shuffle[pos % n][char]`, each residue class `pos ≡ k (mod n)` is an independent monoalphabetic substitution. Solve each separately with frequency analysis or known-plaintext.
+
+## Shamir Secret Sharing with Deterministic Coefficients (LACTF 2026)
+
+**Pattern (spreading-secrets):** Coefficients `a_1...a_9` are deterministic functions of secret s (via RNG seeded with s). One share (x_0, y_0) is revealed.
+
+**Vulnerability:** Given one share, the equation `y_0 = s + g(s)*x_0 + g²(s)*x_0² + ... + g⁹(s)*x_0⁹` is **univariate** in s.
+
+**Root-finding via Frobenius:**
+```python
+# In GF(p), find roots of h(s) via gcd with x^p - x
+# h(s) = s + g(s)*x_0 + ... + g^9(s)*x_0^9 - y_0
+# Compute x^p mod h(x) via binary exponentiation with polynomial reduction
+# gcd(x^p - x, h(x)) = product of (x - root_i) for all roots
+R.<x> = PolynomialRing(GF(p))
+h = construct_polynomial(x0, y0)
+xp = pow(x, p, h)  # Fast modular exponentiation
+g = gcd(xp - x, h)  # Extract linear factors
+roots = [-g[0]/g[1]] if g.degree() == 1 else g.roots()
+```
+
+**General lesson:** If ALL Shamir coefficients are derived from the secret, a single share creates a univariate equation. This completely breaks the (k,n) threshold scheme.
+
+## Race Condition in Crypto-Protected Endpoints (LACTF 2026)
+
+**Pattern (misdirection):** Endpoint has TOCTOU vulnerability: `if counter < 4` check happens before increment, allowing concurrent requests to all pass the check.
+
+**Exploitation:**
+1. **Cache-bust signatures:** Modify each request slightly (e.g., prepend zeros to nonce) so server can't use cached verification results
+2. **Synchronize requests:** Use multiprocessing with barrier to send ~80 simultaneous requests
+3. All pass `counter < 4` check before any increments → counter jumps past limit
+
+```python
+from multiprocessing import Process, Barrier
+barrier = Barrier(80)
+
+def make_request(barrier, modified_sig):
+    barrier.wait()  # Synchronize all processes
+    requests.post(url, json={"sig": modified_sig})
+
+# Launch 80 processes with unique signature modifications
+processes = [Process(target=make_request, args=(barrier, modify_sig(i))) for i in range(80)]
+```
+
+**Key insight:** TOCTOU in `check-then-act` patterns. Look for read-modify-write without atomicity/locking.

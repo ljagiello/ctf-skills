@@ -489,6 +489,66 @@ See [advanced.md](advanced.md) for C brute-force code, gadget list, and v2 (4-by
 
 See [advanced.md](advanced.md) for implementation details.
 
+## .rela.plt / .dynsym Patching (Format String)
+
+**When to use:** GOT addresses contain bad bytes (e.g., 0x0a with fgets), making direct GOT overwrite impossible. Requires `.rela.plt` and `.dynsym` in writable memory (check first PT_LOAD segment).
+
+**Technique:** Instead of overwriting GOT entries directly, modify the dynamic linking metadata:
+
+1. **Patch `.rela.plt` relocation entry:** Change the symbol index in `r_info` of a PLT entry (e.g., `exit@plt`) to point to a different symbol (e.g., `stdout`, symbol index 11)
+2. **Patch `.dynsym` symbol entry:** Overwrite `st_value` of the target symbol with `win()` address
+3. **Trigger:** When the original function (`exit`) is called, the dynamic linker reads the patched relocation, looks up the patched symbol, and jumps to `win()`
+
+```python
+# Key addresses (from readelf -S)
+REL_SYM_BYTE = 0x4006ec   # .rela.plt[exit].r_info byte containing symbol index
+STDOUT_STVAL_LO = 0x4004e8  # .dynsym[11].st_value low halfword
+STDOUT_STVAL_HI = 0x4004ea  # .dynsym[11].st_value high halfword
+
+# Format string writes via %hhn (8-bit) and %hn (16-bit)
+# 1. Write symbol index 0x0b to r_info byte
+# 2. Write win() address low halfword to st_value
+# 3. Write win() address high halfword to st_value+2
+```
+
+**When GOT has bad bytes but .rela.plt/.dynsym don't:** This technique bypasses all GOT byte restrictions since you never write to GOT directly.
+
+## Python Sandbox Escape (eval/exec Challenges)
+
+**AST bypass via f-strings:** Validators that `pass` on `JoinedStr` (f-string AST nodes) don't recurse into children, allowing arbitrary expressions inside `f"{...}"`:
+```python
+# Bypasses AST validation that blocks Call nodes
+payload = 'f"{().__class__.__mro__[1].__subclasses__()}"'
+```
+
+**Audit hook bypass:** `isinstance(args[0], str)` check bypassed by passing `b'flag.txt'` (bytes) instead of `str`:
+```python
+# Audit hook checks: isinstance(filename, str) → True blocks it
+# Bypass: open(b'flag.txt') → isinstance(b'flag.txt', str) → False
+```
+
+**Builtin recovery chain:**
+```python
+# Walk MRO to recover __builtins__
+B = [c for c in ().__class__.__mro__[1].__subclasses__()
+     if c.__init__.__class__.__name__ == 'function'][0].__init__.__globals__['__builtins__']
+B['open'](b'flag.txt').read()
+```
+
+## VM Exploitation (Custom Bytecode)
+
+**Pattern (TerViMator, Pragyan 2026):** Custom VM with registers, opcodes, syscalls. Full RELRO + NX + PIE.
+
+**Common vulnerabilities in VM syscalls:**
+- **OOB read/write:** `inspect(obj, offset)` and `write_byte(obj, offset, val)` without bounds checking → read/modify object struct data beyond allocated buffer
+- **Struct overflow via name:** `name(obj, length)` writing directly to object struct allows overflowing into adjacent struct fields
+
+**Exploitation pattern:**
+1. Allocate two objects (data + exec)
+2. Use OOB `inspect` to read exec object's XOR-encoded function pointer → leak PIE base
+3. Use `name` overflow to rewrite exec object's pointer with `win() ^ KEY`
+4. `execute(obj)` decodes and calls the patched function pointer
+
 ## Shell Tricks
 
 **Quick reference:**

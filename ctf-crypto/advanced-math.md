@@ -116,6 +116,78 @@ roots = f.small_roots(X=2^128, beta=0.5)  # Adjust bounds
 # x = d2 - d1, recover p from gcd(f(x), N)
 ```
 
+## Coppersmith's Method (Structured Primes, LACTF 2026)
+
+**Pattern (six-seven-again):** p = base + 10^k · x where base is fully known, x is small.
+
+**Condition:** x < N^{1/e} for degree-e polynomial (≈ N^0.25 for linear).
+
+**Attack:**
+```python
+# p = base + 10^k * x, so x ≡ -base * (10^k)^{-1} (mod p)
+# Since p | N, construct polynomial with root x mod N
+R.<x> = PolynomialRing(Zmod(N))
+inv_10k = inverse_mod(10^k, N)
+f = x + (base * inv_10k) % N  # Must be monic!
+roots = f.small_roots(X=2^70, beta=0.5)
+if roots:
+    x_val = int(roots[0])
+    p = base + 10^k * x_val
+    q = N // p
+```
+
+**Key details:**
+- Polynomial MUST be monic (leading coefficient 1)
+- `beta=0.5` means we're looking for a factor ≥ N^0.5
+- `X` parameter is upper bound on root size
+- Works for any "partially known prime" pattern
+
+## Clock Group (x²+y²≡1 mod p) DLP (LACTF 2026)
+
+**Pattern (the-clock):** Diffie-Hellman on the unit circle group.
+
+**Group structure:**
+```python
+# Group law: (x1,y1) * (x2,y2) = (x1*y2 + y1*x2, y1*y2 - x1*x2)
+# Identity: (0, 1)
+# Inverse of (x, y): (-x, y)
+# Group order: p + 1 (NOT p - 1!)
+
+def clock_mul(P, Q, p):
+    x1, y1 = P
+    x2, y2 = Q
+    return ((x1*y2 + y1*x2) % p, (y1*y2 - x1*x2) % p)
+
+def clock_pow(P, n, p):
+    result = (0, 1)  # identity
+    base = P
+    while n > 0:
+        if n & 1:
+            result = clock_mul(result, base, p)
+        base = clock_mul(base, base, p)
+        n >>= 1
+    return result
+```
+
+**Recovering hidden prime p:**
+```python
+# Given points on the curve, p divides (x^2 + y^2 - 1)
+from math import gcd
+vals = [x**2 + y**2 - 1 for x, y in known_points]
+p = reduce(gcd, vals)
+# May need to remove small factors
+```
+
+**Pohlig-Hellman when p+1 is smooth:**
+```python
+order = p + 1
+factors = factor(order)
+# Standard Pohlig-Hellman in the clock group
+# Solve d in each prime-power subgroup, CRT combine
+```
+
+**CRITICAL:** The order is p+1, isomorphic to norm-1 elements of GF(p²)*. This is different from multiplicative group (order p-1) and elliptic curves (order ≈ p).
+
 ## Quaternion RSA
 
 **Pattern:** RSA encryption using Hamilton quaternion algebra over Z/nZ. The plaintext is embedded into quaternion components that are linear combinations of m, p, q, then the quaternion matrix is raised to power e mod n.
