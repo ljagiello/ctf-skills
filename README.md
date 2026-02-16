@@ -20,7 +20,6 @@ npx skills add ljagiello/ctf-skills
 | **ctf-osint** | 3 | Social media, geolocation, username enumeration, DNS recon, archive research, Google dorking, Telegram bots, FEC filings |
 | **ctf-malware** | 3 | Obfuscated scripts, C2 traffic, custom crypto protocols, .NET malware, PyInstaller unpacking, PE analysis, sandbox evasion |
 | **ctf-misc** | 6 | Pyjails, bash jails, encodings, RF/SDR, DNS exploitation, Unicode stego, floating-point tricks, WASM, K8s |
-| **find-skills** | 0 | Discover and install additional agent skills from the open ecosystem |
 | **solve-challenge** | 0 | Orchestrator skill — analyzes challenge and delegates to category skills |
 
 ## Usage
