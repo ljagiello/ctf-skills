@@ -306,3 +306,14 @@ Decode chunk payloads, walk PROP entries for `Source` field, dump `Script.Source
 ```
 
 **Key insight:** Flag is the concatenation of JSON keys in schema order. Reading field names in order reveals the flag.
+
+---
+
+## Prefix-by-Prefix Hash Reversal (Nullcon 2026)
+
+See [patterns.md](patterns.md#prefix-hash-brute-force-nullcon-2026) for the full technique. This section covers language-specific considerations.
+
+**Language-specific notes:**
+- Hash algorithm may be uncommon (MD2, custom) — don't need to identify it, just match outputs by running the binary
+- Use `subprocess.run()` with `timeout=2` to handle binaries that hang on bad input
+- For stripped binaries, check if `ltrace` reveals the hash function name (e.g., `MD2_Update`)

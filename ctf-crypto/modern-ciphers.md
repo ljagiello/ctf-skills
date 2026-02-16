@@ -33,7 +33,8 @@
 
 **Byte-by-byte decryption:**
 ```python
-def decrypt_byte(block, prev_block, position, oracle):
+def decrypt_byte(block, prev_block, position, oracle, known):
+    """known = bytearray(16) tracking recovered intermediate bytes for this block."""
     for guess in range(256):
         modified = bytearray(prev_block)
         # Set known bytes to produce valid padding
@@ -120,3 +121,23 @@ def solve_gf2(A, b):
         x[c] = Aug[r, -1] ^ sum(Aug[r, c2] * x[c2] for c2 in range(c+1, n)) % 2
     return x
 ```
+
+---
+
+## Affine Cipher over Composite Modulus (Nullcon 2026)
+
+Affine encryption `c = A*x + b (mod M)` with composite M: split into prime factor fields, invert independently, CRT recombine. See [advanced-math.md](advanced-math.md#affine-cipher-over-composite-modulus-nullcon-2026) for full chosen-plaintext key recovery and implementation.
+
+---
+
+## Custom Linear MAC Forgery (Nullcon 2026)
+
+**Pattern (Pasty):** Server signs paste IDs with a custom SHA-256-based construction. The signature is linear in three 8-byte secret blocks derived from the key.
+
+**Structure:** For each 8-byte output block `i`:
+- `selector = SHA256(id)[i*8] % 3` → chooses which secret block to use
+- `out[i] = hash_block[i] XOR secret[selector] XOR chain[i-1]`
+
+**Recovery:** Create ~10 pastes to collect `(id, sig)` pairs. Each pair reveals `secret[selector]` for 4 selectors. With ~4-5 pairs, all 3 secret blocks are recovered. Then forge for target ID.
+
+**Key insight:** Linearity in custom crypto constructions (XOR-based signing) makes them trivially forgeable. Always check if the MAC has the property: knowing the secret components lets you compute valid signatures for arbitrary inputs.

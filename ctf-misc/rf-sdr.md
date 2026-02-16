@@ -71,8 +71,8 @@ timing_error = (Re(y[n]-y[n-1]) * Re(d[n-1]) - Re(d[n]-d[n-1]) * Re(y[n-1]))
 ```
 
 ## Key Insights for RF CTF Challenges
-- **Circles in constellation** = frequency offset not corrected
-- **Spirals** = frequency offset + time-varying phase
+- **Circles in constellation** = constant frequency offset (points rotate at fixed rate, forming a ring)
+- **Spirals** = frequency offset that drifts over time (ring radius changes as amplitude/AGC also drifts). If you see points tracing outward arcs rather than closed circles, suspect combined frequency + gain instability
 - **Blobs on grid** = correct sync, just noise
 - **4-fold ambiguity**: DD carrier recovery can lock with 0/90/180/270 rotation - try all 4
 - **Bandwidth vs symbol rate**: BW = Rs x (1 + alpha), where alpha is roll-off factor (0 to 1)

@@ -217,6 +217,30 @@ Cache proxy desync for cookie theft via incomplete POST body. See [client-side.m
 
 `%2f` bypasses nginx route matching but filesystem resolves it. See [server-side.md](server-side.md#path-traversal-url-encoded-slash-bypass).
 
+## WeasyPrint SSRF & File Read (CVE-2024-28184)
+
+`<a rel="attachment" href="file:///flag.txt">` or `<link rel="attachment" href="http://127.0.0.1/admin">` -- WeasyPrint embeds fetched content as PDF attachments, bypassing header checks. Boolean oracle via `/Type /EmbeddedFile` presence. See [server-side.md](server-side.md#weasyprint-ssrf--file-read-cve-2024-28184-nullcon-2026) and [cves.md](cves.md#cve-2024-28184-weasyprint-attachment-ssrf--file-read).
+
+## MongoDB Regex / $where Blind Injection
+
+Break out of `/.../i` with `a^/)||(<condition>)&&(/a^`. Binary search `charCodeAt()` for extraction. See [server-side.md](server-side.md#mongodb-regex-injection--where-blind-oracle-nullcon-2026).
+
+## Pongo2 / Go Template Injection
+
+`{% include "/flag.txt" %}` in uploaded file + path traversal in template parameter. See [server-side.md](server-side.md#pongo2--go-template-injection-via-path-traversal-nullcon-2026).
+
+## ZIP Upload with PHP Webshell
+
+Upload ZIP containing `.php` file → extract to web-accessible dir → `file_get_contents('/flag.txt')`. See [server-side.md](server-side.md#zip-upload-with-php-webshell-nullcon-2026).
+
+## basename() Bypass for Hidden Files
+
+`basename()` only strips dirs, doesn't filter `.lock` or hidden files in same directory. See [server-side.md](server-side.md#basename-bypass-for-hidden-files-nullcon-2026).
+
+## Custom Linear MAC Forgery
+
+Linear XOR-based signing with secret blocks → recover from known pairs → forge for target. See [auth-and-access.md](auth-and-access.md#custom-linear-macsignature-forgery-nullcon-2026).
+
 ## Common Flag Locations
 
 ```

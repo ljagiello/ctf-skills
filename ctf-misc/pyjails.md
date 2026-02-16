@@ -171,7 +171,7 @@ vars(''.__class__)
 ### Octal Escapes
 ```python
 # \141 = 'a', \142 = 'b', etc.
-all_letters = '\\141\\142\\143...'
+all_letters = '\141\142\143...'
 (abcdef := "{all_letters}")
 print(open("/flag.txt").read())
 ```

@@ -201,7 +201,7 @@ for klen in range(2, 33):
             break
         ki = i % klen
         v = enc[i] ^ b
-        if key[ki] and key[ki] != v:
+        if key[ki] != 0 and key[ki] != v:
             ok = False
             break
         key[ki] = v
@@ -219,7 +219,7 @@ for klen in range(2, 33):
 
 **Symptoms:**
 - Repeating-key XOR almost fits known prefix but breaks at later positions
-- XOR with known prefix yields a “key” that changes by +1 per index
+- XOR with known prefix yields a "key" that changes by +1 per index
 
 **Fix:** Remove index first, then recover key with known prefix.
 ```python
@@ -233,7 +233,7 @@ for klen in range(2, 33):
             break
         ki = i % klen
         v = (enc[i] ^ i) ^ b  # strip index XOR
-        if key[ki] and key[ki] != v:
+        if key[ki] != 0 and key[ki] != v:
             ok = False
             break
         key[ki] = v
@@ -318,9 +318,9 @@ def gen_keystream():
 ```
 
 ### Identifying Patterns
-- Xorshift32: shifts 13, 17, 5
-- Xorshift64: shifts 12, 25, 27
-- Magic: `0x2545f4914f6cdd1d`, `0x9e3779b97f4a7c15`
+- Xorshift32: shifts 13, 17, 5 (no multiplication constant)
+- Xorshift64*: shifts 12, 25, 27, then multiply by `0x2545f4914f6cdd1d`
+- Other common constant: `0x9e3779b97f4a7c15` (golden ratio)
 
 ---
 
@@ -676,3 +676,61 @@ for pos in range(flag_length):
     flag += best_char
 ```
 
+---
+
+## Stack String Deobfuscation from .rodata XOR Blob (Nullcon 2026)
+
+**Pattern (stack_strings_1/2):** Binary mmaps a blob from `.rodata`, XOR-deobfuscates it, then uses the blob to validate input. Flag is recovered by reimplementing the verification loop.
+
+**Recognition:**
+- `mmap()` call followed by XOR loop over `.rodata` data
+- Verification loop with running state (`eax`, `ebx`, `r9`) updated with constants like `0x9E3779B9`, `0x85EBCA6B`, `0xA97288ED`
+- `rol32()` operations with position-dependent shifts
+- Expected bytes stored in deobfuscated buffer
+
+**Approach:**
+1. Extract `.rodata` blob with pyelftools:
+   ```python
+   from elftools.elf.elffile import ELFFile
+   with open(binary, "rb") as f:
+       elf = ELFFile(f)
+       ro = elf.get_section_by_name(".rodata")
+       blob = ro.data()[offset:offset+size]
+   ```
+2. Recover embedded constants (length, magic values) by XOR with known keys from disassembly
+3. Reimplement the byte-by-byte verification loop:
+   - Each iteration: compute two hash-like values from running state
+   - XOR them together and with expected byte to recover input byte
+   - Update running state with constant additions
+
+**Variant (stack_strings_2):** Adds position permutation + state dependency on previous character:
+- Position permutation: byte `i` may go to position `pos[i]` in the output
+- State dependency: `need = (expected - rol8(prev_char, 1)) & 0xFF`
+- Must track `state` variable that updates to current character each iteration
+
+**Key constants to look for:**
+- `0x9E3779B9` (golden ratio fractional, common in hash functions)
+- `0x85EBCA6B` (MurmurHash3 finalizer constant)
+- `0xA97288ED` (related hash constant)
+- `rol32()` with shift `i & 7`
+
+---
+
+## Prefix Hash Brute-Force (Nullcon 2026)
+
+**Pattern (Hashinator):** Binary hashes every prefix of the input independently and outputs one digest per prefix. Given N output digests, the flag has N-1 characters.
+
+**Attack:** Recover input one character at a time:
+```python
+for pos in range(1, len(target_hashes)):
+    for ch in charset:
+        candidate = known_prefix + ch + padding
+        hashes = run_binary(candidate)
+        if hashes[pos] == target_hashes[pos]:
+            known_prefix += ch
+            break
+```
+
+**Key insight:** If each prefix hash is independent (no chaining/HMAC), the problem decomposes into `N` x `|charset|` binary executions. This is the hash equivalent of byte-at-a-time block cipher attacks.
+
+**Detection:** Binary outputs multiple hash lines. Changing last character only changes last hash. Different input lengths produce different numbers of output lines.

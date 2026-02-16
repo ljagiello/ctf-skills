@@ -177,7 +177,7 @@ modify_grade(0, str(WIN))  # Writes win addr as int to GOT entry
 
 ## Signed Integer Bypass (Negative Quantity)
 
-**Pattern (PascalCTF 2026):** `scanf("%d")` for quantity without sign check. Negative input makes `qty * price` negative, bypassing `balance >= total_cost`. **Red flag:** `scanf("%d")` or `atoi()` for quantities.
+`scanf("%d")` without sign check → negative input bypasses unsigned comparisons. See [advanced.md](advanced.md#signed-integer-bypass-negative-quantity) for full details.
 
 ## Canary-Aware Partial Overflow
 

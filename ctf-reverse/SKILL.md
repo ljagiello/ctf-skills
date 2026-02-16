@@ -128,7 +128,9 @@ ida64 binary       # Open in IDA64
 ```python
 import marshal, dis
 with open('file.pyc', 'rb') as f:
-    f.read(16)  # Skip header
+    # Header size varies by Python version:
+    # 8 bytes (2.x), 12 (3.0-3.6), 16 (3.7+)
+    f.read(16)  # 16 for Python 3.7+; adjust for older versions
     code = marshal.load(f)
     dis.dis(code)
 ```
@@ -211,14 +213,7 @@ objdump -s -j .rodata binary | less
 
 ## x86-64 Gotchas
 
-**Sign extension:** `0xffffffc7` behaves differently in XOR vs addition
-```python
-# For XOR: use low byte
-esi_xor = esi & 0xff
-
-# For addition: use full value with overflow
-result = (r13 + esi) & 0xffffffff
-```
+Sign extension and 32-bit truncation pitfalls. See [patterns.md](patterns.md#x86-64-gotchas) for details and code examples.
 
 ## Iterative Solver Pattern
 
@@ -294,3 +289,11 @@ Binary adds/subtracts position index; reverse by undoing per-index offset. See [
 ## Hex-Encoded String Comparison
 
 Input converted to hex, compared against constant. Decode with `xxd -r -p`. See [patterns.md](patterns.md#hex-encoded-string-comparison).
+
+## Stack String Deobfuscation (.rodata XOR Blob)
+
+Binary mmaps `.rodata` blob, XOR-deobfuscates, uses it to validate input. Reimplement verification loop with pyelftools to extract blob. Look for `0x9E3779B9`, `0x85EBCA6B` constants and `rol32()`. See [patterns.md](patterns.md#stack-string-deobfuscation-from-rodata-xor-blob-nullcon-2026).
+
+## Prefix Hash Brute-Force
+
+Binary hashes every prefix independently. Recover one character at a time by matching prefix hashes. See [patterns.md](patterns.md#prefix-hash-brute-force-nullcon-2026).

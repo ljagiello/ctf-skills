@@ -160,5 +160,34 @@ curl -H 'Range: bytes=94200000000000-94200000010000' 'http://target/../../proc/s
 
 ---
 
+## Custom Linear MAC/Signature Forgery (Nullcon 2026)
+
+**Pattern (Pasty):** Custom MAC built from SHA-256 with linear structure. Each output block is a linear combination of hash blocks and one of N secret blocks.
+
+**Attack:**
+1. Create a few valid `(id, signature)` pairs via normal API
+2. Compute `SHA256(id)` for each pair
+3. Reverse-engineer which secret block is used at each position (determined by `hash[offset] % N`)
+4. Recover all N secret blocks from known pairs
+5. Forge signature for target ID (e.g., `id=flag`)
+
+```python
+# Given signature structure: out[i] = hash_block[i] XOR secret[selector] XOR chain
+# Recover secret blocks from known pairs
+for id, sig in known_pairs:
+    h = sha256(id.encode())
+    for i in range(num_blocks):
+        selector = h[i*8] % num_secrets
+        secret = derive_secret_from_block(h, sig, i)
+        secrets[selector] = secret
+
+# Forge for target
+target_sig = build_signature(secrets, b"flag")
+```
+
+**Key insight:** When a custom MAC uses hash output to SELECT between secret components (rather than mixing them cryptographically), recovering those components from a few samples is trivial. Always check custom crypto constructions for linearity.
+
+---
+
 ## Hidden API Endpoints
 Search JS bundles for `/api/internal/`, `/api/admin/`, undocumented endpoints.

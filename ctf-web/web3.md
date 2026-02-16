@@ -33,13 +33,13 @@ sig = acct.sign_message(msg)
 r = s.post(f'{BASE}/api/auth/login', json={
     'signedNonce': '0x' + sig.signature.hex(),
     'nonce': nonce,
-    'account': acct.address.lower()  # Must be lowercase!
+    'account': acct.address.lower()  # Challenge-specific: this server expected lowercase
 })
 s.cookies.set('token', r.json()['token'])
 ```
 
 **Key notes:**
-- Address must be lowercase (not checksummed) for login
+- Some CTF servers expect lowercase addresses (not EIP-55 checksummed) — check the frontend JS to confirm. This is NOT universal; other challenges may require checksummed format
 - Bundle.js contains chain ID, contract addresses, and auth flow details
 - Use `cast` (Foundry) for on-chain interactions: `cast call`, `cast send`, `cast storage`
 

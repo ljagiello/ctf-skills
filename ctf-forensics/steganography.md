@@ -114,6 +114,32 @@ deconv = wiener(img_arr, gaussian_psf(3.0), balance=0.003, clip=False)
 
 **6. Document metadata:** Check Producer, Author, Keywords fields: `pdfinfo doc.pdf` or `exiftool doc.pdf`.
 
+**Official writeup details (Nullcon 2026 rdctd 1-6):**
+- **rdctd 1:** Flag is visible in plain text (Section 3.4)
+- **rdctd 2:** Flag in hyperlink URI with escaped braces (`\{`, `\}`)
+- **rdctd 3:** LSB stego in Blue channel, **bit plane 5** (not bit 0!). Use `zsteg` with all planes: `zsteg -a extracted.ppm | grep ENO`
+- **rdctd 4:** QR code hidden under black redaction box. Use Master PDF Editor to remove the box, scan QR
+- **rdctd 5:** Flag in FlateDecode compressed stream (not visible with `strings`):
+  ```python
+  import re, zlib
+  pdf = open('file.pdf', 'rb').read()
+  for s in re.findall(b'stream[\r\n]+(.*?)[\r\n]+endstream', pdf, re.S):
+      try:
+          dec = zlib.decompress(s)
+          if b'ENO{' in dec: print(dec)
+      except: pass
+  ```
+- **rdctd 6:** Flag in `/Producer` metadata field
+
+**Comprehensive PDF flag hunt checklist:**
+1. `strings -a file.pdf | grep -o 'FLAG_FORMAT{[^}]*}'`
+2. `exiftool file.pdf` (all metadata fields)
+3. `pdfimages -all file.pdf img` + `zsteg -a img-*.ppm`
+4. Open in PDF editor, check for overlay/redaction boxes hiding content
+5. Decompress FlateDecode streams and search
+6. Parse link annotations for URIs with escaped characters
+7. `mutool clean -d file.pdf clean.pdf && strings clean.pdf`
+
 ---
 
 ## FFT Frequency Domain Steganography (Pragyan 2026)

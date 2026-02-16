@@ -188,13 +188,13 @@ reg_map = {
     UC_X86_REG_EBP: UC_X86_REG_RBP,
 }
 for e, r in reg_map.items():
-    uc32.reg_write(e, uc64.reg_read(r) & 0xffffffff)
-uc32.reg_write(UC_X86_REG_EFLAGS, uc64.reg_read(UC_X86_REG_RFLAGS) & 0xffffffff)
+    uc32.reg_write(e, mu.reg_read(r) & 0xffffffff)  # mu = 64-bit emulator from above
+uc32.reg_write(UC_X86_REG_EFLAGS, mu.reg_read(UC_X86_REG_RFLAGS) & 0xffffffff)
 
 # SSE-heavy blobs need XMM registers copied
 for xr in [UC_X86_REG_XMM0, UC_X86_REG_XMM1, UC_X86_REG_XMM2, UC_X86_REG_XMM3,
            UC_X86_REG_XMM4, UC_X86_REG_XMM5, UC_X86_REG_XMM6, UC_X86_REG_XMM7]:
-    uc32.reg_write(xr, uc64.reg_read(xr))
+    uc32.reg_write(xr, mu.reg_read(xr))
 
 # Run 32-bit, then copy regs/memory back to 64-bit
 ```

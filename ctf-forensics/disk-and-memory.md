@@ -26,7 +26,7 @@ vol3 -f memory.dmp windows.cmdline
 vol3 -f memory.dmp windows.netscan
 vol3 -f memory.dmp windows.filescan
 vol3 -f memory.dmp windows.dumpfiles --physaddr <addr>
-vol3 -f memory.dmp windows.mftparser | grep flag
+vol3 -f memory.dmp windows.mftscan | grep flag
 ```
 
 **Common plugins:**
@@ -35,7 +35,7 @@ vol3 -f memory.dmp windows.mftparser | grep flag
 - `windows.netscan` - Network connections
 - `windows.filescan` - File objects in memory
 - `windows.dumpfiles` - Extract files by physical address
-- `windows.mftparser` - MFT entries from memory (timestamps, filenames)
+- `windows.mftscan` - MFT FILE objects in memory (timestamps, filenames). Note: `mftparser` was Volatility 2 only; Vol3 uses `mftscan`
 
 ---
 
@@ -96,7 +96,7 @@ vmss2core -W path/to/snapshot.vmss path/to/snapshot.vmem
 - Even if original files deleted, MFT preserves modification timestamps
 - Seed-based encryption: recover mtime → derive key
 ```bash
-vol3 -f memory.dmp windows.mftparser | grep flag
+vol3 -f memory.dmp windows.mftscan | grep flag
 # mtime as Unix epoch → seed for PRNG → derive encryption key
 ```
 

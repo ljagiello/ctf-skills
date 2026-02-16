@@ -119,7 +119,7 @@ See [rf-sdr.md](rf-sdr.md) for full details (IQ formats, QAM-16 demod, carrier/t
 
 **Quick reference:**
 - **cf32**: `np.fromfile(path, dtype=np.complex64)` | **cs16**: int16 reshape(-1,2) | **cu8**: RTL-SDR raw
-- Circles in constellation = frequency offset; Spirals = offset + time-varying phase
+- Circles in constellation = constant frequency offset; Spirals = drifting frequency + gain instability
 - 4-fold ambiguity in DD carrier recovery - try 0/90/180/270 rotation
 
 ## pwntools Interaction
@@ -191,26 +191,7 @@ new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_
 
 ## Discord API Enumeration (0xFun 2026)
 
-**Pattern (Insanity 1 & 2):** Flags hidden in Discord server metadata not visible in normal UI.
-
-**Hiding spots:**
-- Role names
-- Animated GIF emoji (flag in 2nd frame with tiny duration)
-- Message embeds
-- Server description, stickers, events
-
-```bash
-# Enumerate with user token
-TOKEN="your_token"
-# List roles
-curl -H "Authorization: $TOKEN" "https://discord.com/api/v10/guilds/GUILD_ID/roles"
-# List emojis
-curl -H "Authorization: $TOKEN" "https://discord.com/api/v10/guilds/GUILD_ID/emojis"
-# Search messages
-curl -H "Authorization: $TOKEN" "https://discord.com/api/v10/guilds/GUILD_ID/messages/search?content=flag"
-```
-
-**Animated emoji:** Download GIF, extract frames — hidden data in brief frames invisible at normal speed.
+Flags hidden in Discord metadata (roles, animated emoji, embeds). See [ctf-osint social-media.md](/Users/lcf/.agents/skills/ctf-osint/social-media.md#discord-api-enumeration) for full technique and code.
 
 ---
 
@@ -304,25 +285,14 @@ See [dns.md](dns.md) for full details (ECS spoofing, NSEC walking, IXFR, rebindi
 
 ## Unicode Steganography
 
-### Variation Selectors (U+FE00-U+FE0F)
-**Pattern (Seen, Nullcon 2026):** Zero-width variation selectors carry data through codepoint values.
+### Variation Selectors Supplement (U+E0100-U+E01EF)
+**Patterns (Seen & emoji, Nullcon 2026):** Invisible Variation Selector Supplement characters encode ASCII via codepoint offset.
 
 ```python
-# Extract hidden data from variation selectors after visible emoji
+# Extract hidden data from variation selectors after visible character
 data = open('README.md', 'r').read().strip()
 hidden = data[1:]  # Skip visible emoji character
 flag = ''.join(chr((ord(c) - 0xE0100) + 16) for c in hidden)
-```
-
-### Variation Selectors Supplement (U+E0100-U+E01EF)
-**Pattern (emoji, Nullcon 2026):** Characters from Variation Selectors Supplement encode ASCII.
-
-```python
-# Formula: ASCII value = (codepoint - 0xE0100) + 16
-flag = ''
-for c in hidden_chars:
-    val = (ord(c) - 0xE0100) + 16
-    flag += chr(val)
 ```
 
 **Detection:** Characters appear invisible but have non-zero length. Check with `[hex(ord(c)) for c in text]` -- look for codepoints in `0xE0100-0xE01EF` or `0xFE00-0xFE0F` range.

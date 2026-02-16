@@ -522,6 +522,22 @@ def crt2(r1, m1, r2, m2):
     t = ((r2 - r1) * m1_inv) % m2
     return (r1 + m1 * t) % (m1 * m2)
 
+def gauss_elim(A, b, mod):
+    """Gaussian elimination over Z/modZ. A=matrix, b=vector, returns solution x."""
+    n = len(b)
+    M = [list(A[i]) + [b[i]] for i in range(n)]  # augmented matrix
+    for col in range(n):
+        pivot = next((r for r in range(col, n) if M[r][col] % mod), None)
+        if pivot is None: continue
+        M[col], M[pivot] = M[pivot], M[col]
+        inv = pow(M[col][col], -1, mod)
+        M[col] = [x * inv % mod for x in M[col]]
+        for r in range(n):
+            if r != col and M[r][col] % mod:
+                f = M[r][col]
+                M[r] = [(M[r][j] - f * M[col][j]) % mod for j in range(n + 1)]
+    return [M[i][n] % mod for i in range(n)]
+
 # For m=65=5x13: Gaussian elimination in GF(5) and GF(13) separately
 A5, b5 = A % 5, rhs % 5
 A13, b13 = A % 13, rhs % 13

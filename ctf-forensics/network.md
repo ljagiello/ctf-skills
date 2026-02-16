@@ -228,9 +228,9 @@ tshark -r capture.pcap -Y "usb.transfer_type == 1" -T fields -e usb.capdata
 
 ## BCD Encoding in UDP (VuwCTF 2025)
 
-**Pattern (1.5x-engineer):** "1.5x" = BCD ratio (3 bytes → 2 bytes data).
+**Pattern (1.5x-engineer):** "1.5x" hints at the encoding ratio.
 
-**BCD (Binary-Coded Decimal):** Each nibble (4 bits) encodes one decimal digit. 1.5:1 byte ratio.
+**BCD (Binary-Coded Decimal):** Each nibble (4 bits) encodes one decimal digit (0-9). Two digits per byte vs one ASCII digit per byte → BCD is 2x denser than ASCII decimal. The "1.5x" name refers to the challenge-specific framing: 3 BCD bytes encode 6 digits which represent 2 ASCII bytes (3:2 ratio).
 
 **Decoding:**
 ```python
