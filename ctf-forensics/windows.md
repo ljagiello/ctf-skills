@@ -1,5 +1,28 @@
 # CTF Forensics - Windows
 
+## Table of Contents
+- [Windows Event Logs (.evtx)](#windows-event-logs-evtx)
+- [Registry Analysis](#registry-analysis)
+  - [OEMInformation Backdoor Detection](#oeminformation-backdoor-detection)
+- [SAM Database Analysis](#sam-database-analysis)
+- [Recycle Bin Forensics](#recycle-bin-forensics)
+- [Browser History](#browser-history)
+- [Windows Telemetry (imprbeacons.dat)](#windows-telemetry-imprbeaconsdat)
+- [Hosts File Hidden Data](#hosts-file-hidden-data)
+- [Contact Files (.contact)](#contact-files-contact)
+- [WinZip AES Encrypted Archives](#winzip-aes-encrypted-archives)
+- [NTFS MFT Analysis](#ntfs-mft-analysis)
+- [USN Journal ($J) Analysis](#usn-journal-j-analysis)
+- [SAM Account Creation Timing](#sam-account-creation-timing)
+- [Impacket wmiexec.py Artifacts](#impacket-wmiexecpy-artifacts)
+- [PowerShell History as Timeline](#powershell-history-as-timeline)
+- [User Profile Creation as First Login Indicator](#user-profile-creation-as-first-login-indicator)
+- [RDP Session Event IDs](#rdp-session-event-ids)
+- [Windows Defender MPLog Analysis](#windows-defender-mplog-analysis)
+- [Anti-Forensics Detection Checklist](#anti-forensics-detection-checklist)
+
+---
+
 ## Windows Event Logs (.evtx)
 
 **Key Event IDs:**

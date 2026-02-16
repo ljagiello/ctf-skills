@@ -1,11 +1,31 @@
 # CTF Forensics - Steganography
 
+## Table of Contents
+- [Quick Tools](#quick-tools)
+- [Binary Border Steganography](#binary-border-steganography)
+- [Multi-Layer PDF Steganography (Pragyan 2026)](#multi-layer-pdf-steganography-pragyan-2026)
+- [Advanced PDF Steganography (Nullcon 2026 rdctd series)](#advanced-pdf-steganography-nullcon-2026-rdctd-series)
+- [FFT Frequency Domain Steganography (Pragyan 2026)](#fft-frequency-domain-steganography-pragyan-2026)
+- [SSTV Red Herring + LSB Audio Stego (0xFun 2026)](#sstv-red-herring-lsb-audio-stego-0xfun-2026)
+- [SVG Animation Keyframe Steganography (UTCTF 2024)](#svg-animation-keyframe-steganography-utctf-2024)
+- [PNG Chunk Reordering (0xFun 2026)](#png-chunk-reordering-0xfun-2026)
+- [File Format Overlays (0xFun 2026)](#file-format-overlays-0xfun-2026)
+- [Nested PNG with Iterating XOR Keys (VuwCTF 2025)](#nested-png-with-iterating-xor-keys-vuwctf-2025)
+- [DotCode Barcode via SSTV (0xFun 2026)](#dotcode-barcode-via-sstv-0xfun-2026)
+- [DTMF Audio Decoding](#dtmf-audio-decoding)
+
+---
+
 ## Quick Tools
 
 ```bash
 steghide extract -sf image.jpg
 zsteg image.png              # PNG/BMP analysis
 stegsolve                    # Visual analysis
+
+# Steghide brute-force (0xFun 2026)
+stegseek image.jpg rockyou.txt  # Faster than stegcracker
+# Common weak passphrases: "simple", "password", "123456"
 ```
 
 ---
@@ -128,6 +148,107 @@ for r in radii:
 ```
 
 **Identification:** Challenge mentions "transform", poem about "frequency", or image looks blank/noisy. Try FFT visualization first.
+
+---
+
+## SSTV Red Herring + LSB Audio Stego (0xFun 2026)
+
+**Pattern (Melodie):** WAV contains SSTV signal (Scottie 1) that decodes to "SEEMS LIKE A DEADEND". Real flag in 2-bit LSB of audio samples.
+
+```bash
+# Decode SSTV (red herring)
+qsstv  # Will show decoy message
+
+# Extract real flag from LSB
+pip install stego-lsb
+stegolsb wavsteg -r -i audio.wav -o out.bin -n 2 -b 1000
+```
+
+**Lesson:** Obvious signals may be decoys. Always check LSB even when another encoding is found.
+
+---
+
+## SVG Animation Keyframe Steganography (UTCTF 2024)
+
+**Pattern (Insanity Check):** SVG favicon contains animation keyframes with alternating fill colors.
+
+**Encoding:** `#FFFF` = 1, `#FFF6` = 0. Timing intervals (~0.314s or 3x0.314s) encode Morse code dots/dashes.
+
+**Detection:** SVG files with `<animate>` tags, `keyTimes`/`values` attributes. Check favicon.svg and other vector assets. Two-value alternation patterns encode binary or Morse.
+
+---
+
+## PNG Chunk Reordering (0xFun 2026)
+
+**Pattern (Spectrum):** Invalid PNG has chunks out of order.
+
+**Fix:** Reorder to: `signature + IHDR + (ancillary chunks) + (all IDAT in order) + IEND`.
+
+```python
+import struct
+
+with open('broken.png', 'rb') as f:
+    data = f.read()
+
+sig = data[:8]
+chunks = []
+pos = 8
+while pos < len(data):
+    length = struct.unpack('>I', data[pos:pos+4])[0]
+    chunk_type = data[pos+4:pos+8]
+    chunk_data = data[pos+8:pos+8+length]
+    crc = data[pos+8+length:pos+12+length]
+    chunks.append((chunk_type, length, chunk_data, crc))
+    pos += 12 + length
+
+# Sort: IHDR first, IEND last, IDATs in original order
+ihdr = [c for c in chunks if c[0] == b'IHDR']
+idat = [c for c in chunks if c[0] == b'IDAT']
+iend = [c for c in chunks if c[0] == b'IEND']
+other = [c for c in chunks if c[0] not in (b'IHDR', b'IDAT', b'IEND')]
+
+with open('fixed.png', 'wb') as f:
+    f.write(sig)
+    for typ, length, data, crc in ihdr + other + idat + iend:
+        f.write(struct.pack('>I', length) + typ + data + crc)
+```
+
+---
+
+## File Format Overlays (0xFun 2026)
+
+**Pattern (Pixel Rehab):** Archive appended after PNG IEND, but magic bytes overwritten with PNG signature.
+
+**Detection:** Check bytes after IEND for appended data. Compare magic bytes against known formats.
+
+```python
+# Find IEND, check what follows
+data = open('image.png', 'rb').read()
+iend_pos = data.find(b'IEND') + 8  # After IEND + CRC
+trailer = data[iend_pos:]
+# Replace first 6 bytes with 7z magic if they match PNG sig
+if trailer[:4] == b'\x89PNG':
+    trailer = b'\x37\x7a\xbc\xaf\x27\x1c' + trailer[6:]
+    open('hidden.7z', 'wb').write(trailer)
+```
+
+---
+
+## Nested PNG with Iterating XOR Keys (VuwCTF 2025)
+
+**Pattern (Matroiska):** Each PNG layer XOR-encrypted with incrementing keys ("layer2", "layer3", etc.).
+
+**Identification:** Matryoshka/nested hints. Try incrementing key patterns for recursive extraction.
+
+---
+
+## DotCode Barcode via SSTV (0xFun 2026)
+
+**Pattern (Dots):** SSTV decoding produces dot pattern image. Not QR — it's DotCode format.
+
+**Identification:** Dot pattern that isn't a standard QR code. DotCode is a 2D barcode optimized for high-speed printing.
+
+**Tool:** Aspose online DotCode reader (free).
 
 ---
 

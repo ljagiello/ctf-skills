@@ -1,5 +1,15 @@
 # CTF Crypto - Classic Ciphers
 
+## Table of Contents
+- [Vigenere Cipher](#vigenere-cipher)
+- [Atbash Cipher](#atbash-cipher)
+- [Substitution Cipher with Rotating Wheel](#substitution-cipher-with-rotating-wheel)
+- [XOR Variants](#xor-variants)
+- [Deterministic OTP with Load-Balanced Backends (Pragyan 2026)](#deterministic-otp-with-load-balanced-backends-pragyan-2026)
+- [Book Cipher](#book-cipher)
+
+---
+
 ## Vigenere Cipher
 
 **Known Plaintext Attack (most common in CTFs):**

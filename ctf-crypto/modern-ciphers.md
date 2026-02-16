@@ -1,5 +1,16 @@
 # CTF Crypto - Modern Cipher Attacks
 
+## Table of Contents
+- [AES-CFB-8 Static IV State Forging](#aes-cfb-8-static-iv-state-forging)
+- [ECB Pattern Leakage on Images](#ecb-pattern-leakage-on-images)
+- [Padding Oracle Attack](#padding-oracle-attack)
+- [CBC-MAC vs OFB-MAC Vulnerability](#cbc-mac-vs-ofb-mac-vulnerability)
+- [Non-Permutation S-box Collision Attack](#non-permutation-s-box-collision-attack)
+- [LCG Partial Output Recovery (0xFun 2026)](#lcg-partial-output-recovery-0xfun-2026)
+- [Weak Hash Functions / GF(2) Gaussian Elimination](#weak-hash-functions-gf2-gaussian-elimination)
+
+---
+
 ## AES-CFB-8 Static IV State Forging
 
 **Pattern (Cleverly Forging Breaks):** AES-CFB with 8-bit feedback and reused IV allows state reconstruction.
@@ -58,6 +69,29 @@ new_sig = known_sig XOR block2_of_P1 XOR block2_of_P2
 **Attack:** For each key byte, try 256 plaintexts differing by delta. When `ct1 == ct2`, S-box input was in collision set. 2-way ambiguity per byte, 2^16 brute-force. Total: 4,097 oracle queries.
 
 See [advanced-math.md](advanced-math.md) for full S-box collision analysis code.
+
+---
+
+## LCG Partial Output Recovery (0xFun 2026)
+
+**Known parameters:** If LCG constants (M, A, C) are known and output is `state mod N`, iterate by N through modulus to find state:
+```python
+# output = state % N, state = (A * prev + C) % M
+for candidate in range(output, M, N):
+    # Check if candidate is consistent with next output
+    next_state = (A * candidate + C) % M
+    if next_state % N == next_output:
+        print(f"State: {candidate}")
+```
+
+**Upper bits only (e.g., upper 32 of 64):** Brute-force lower 32 bits:
+```python
+for low in range(2**32):
+    state = (observed_upper << 32) | low
+    next_state = (A * state + C) % M
+    if (next_state >> 32) == next_observed_upper:
+        print(f"Full state: {state}")
+```
 
 ---
 

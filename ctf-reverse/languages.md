@@ -1,5 +1,27 @@
 # CTF Reverse - Language & Platform-Specific Techniques
 
+## Table of Contents
+- [Python Bytecode Reversing (dis.dis output)](#python-bytecode-reversing-disdis-output)
+  - [Common Pattern: XOR Validation with Split Indices](#common-pattern-xor-validation-with-split-indices)
+  - [Bytecode Analysis Tips](#bytecode-analysis-tips)
+- [Python Opcode Remapping](#python-opcode-remapping)
+  - [Identification](#identification)
+  - [Recovery](#recovery)
+- [DOS Stub Analysis](#dos-stub-analysis)
+- [Unity IL2CPP Games](#unity-il2cpp-games)
+- [Brainfuck/Esolangs](#brainfuckesolangs)
+- [UEFI Binary Analysis](#uefi-binary-analysis)
+- [Transpilation to C](#transpilation-to-c)
+- [Code Coverage Side-Channel Attack](#code-coverage-side-channel-attack)
+- [Functional Language Reversing (OPAL)](#functional-language-reversing-opal)
+- [Python Version-Specific Bytecode (VuwCTF 2025)](#python-version-specific-bytecode-vuwctf-2025)
+- [Non-Bijective Substitution Cipher Reversing](#non-bijective-substitution-cipher-reversing)
+- [Roblox Place File Analysis](#roblox-place-file-analysis)
+- [Godot Game Asset Extraction](#godot-game-asset-extraction)
+- [Rust serde_json Schema Recovery](#rust-serde_json-schema-recovery)
+
+---
+
 ## Python Bytecode Reversing (dis.dis output)
 
 ### Common Pattern: XOR Validation with Split Indices
@@ -177,6 +199,29 @@ for total_offset_S in range(256):
 
 ---
 
+## Python Version-Specific Bytecode (VuwCTF 2025)
+
+**Pattern (A New Machine):** Challenge targets specific Python version (e.g., 3.14.0 alpha).
+
+**Key requirement:** Compile that exact Python version to disassemble bytecode — alpha/beta versions have different opcodes than stable releases.
+
+```bash
+# Build specific Python version
+wget https://www.python.org/ftp/python/3.14.0/Python-3.14.0a4.tar.xz
+tar xf Python-3.14.0a4.tar.xz
+cd Python-3.14.0a4 && ./configure && make -j$(nproc)
+./python -c "import dis, marshal; dis.dis(marshal.loads(open('challenge.pyc','rb').read()[16:]))"
+```
+
+**Common validation:** Flag compared against tuple of squared ASCII values:
+```python
+# Reverse: flag[i] = sqrt(expected_tuple[i])
+import math
+flag = ''.join(chr(int(math.isqrt(v))) for v in expected_values)
+```
+
+---
+
 ## Non-Bijective Substitution Cipher Reversing
 
 **Pattern (Coverup, Nullcon 2026):** S-box/substitution table has collisions (multiple inputs map to same output).
@@ -202,3 +247,62 @@ for i, v in enumerate(sbox):
 2. Side-channel data (code coverage, timing) eliminates impossible candidates
 3. Printable ASCII constraint (32-126) reduces candidate space
 4. Re-encrypt candidates and verify against known ciphertext
+
+---
+
+## Roblox Place File Analysis
+
+**Pattern (MazeRunna, 0xFun 2026):** Roblox game with flag hidden in older version; latest version contains decoy.
+
+**Version history via Asset Delivery API:**
+```bash
+# Extract placeId and universeId from game page HTML
+# Query each version (requires .ROBLOSECURITY cookie):
+curl -H "Cookie: .ROBLOSECURITY=..." \
+  "https://assetdelivery.roblox.com/v2/assetId/{placeId}/version/1"
+# Download location URL → place_v1.rbxlbin
+```
+
+**Binary format parsing:** `.rbxlbin` files contain chunks:
+- **INST** — class buckets and referent IDs
+- **PROP** — per-instance fields (including `Script.Source`)
+- **PRNT** — parent-child relationships (object tree)
+
+Decode chunk payloads, walk PROP entries for `Source` field, dump `Script.Source` / `LocalScript.Source` per version, then diff.
+
+**Key lesson:** Always check version history. Latest version may contain decoy flag while real flag is in an older version. Diff script sources across versions.
+
+---
+
+## Godot Game Asset Extraction
+
+**Pattern (Steal the Xmas):** Encrypted Godot .pck packages.
+
+**Tools:**
+- [gdsdecomp](https://github.com/GDRETools/gdsdecomp) - Extract Godot packages
+- [KeyDot](https://github.com/Titoot/KeyDot) - Extract encryption key from Godot executables
+
+**Workflow:**
+1. Run KeyDot against game executable → extract encryption key
+2. Input key into gdsdecomp
+3. Extract and open project in Godot editor
+4. Search scripts/resources for flag data
+
+---
+
+## Rust serde_json Schema Recovery
+
+**Pattern (Curly Crab, PascalCTF 2026):** Rust binary reads JSON from stdin, deserializes via serde_json, prints success/failure emoji.
+
+**Approach:**
+1. Disassemble serde-generated `Visitor` implementations
+2. Each visitor's `visit_map` / `visit_seq` reveals expected keys and types
+3. Look for string literals in deserializer code (field names like `"pascal"`, `"CTF"`)
+4. Reconstruct nested JSON schema from visitor call hierarchy
+5. Identify value types from visitor method names: `visit_str` = string, `visit_u64` = number, `visit_bool` = boolean, `visit_seq` = array
+
+```json
+{"pascal":"CTF","CTF":2026,"crab":{"I_":true,"cr4bs":1337,"crabby":{"l0v3_":["rust"],"r3vv1ng_":42}}}
+```
+
+**Key insight:** Flag is the concatenation of JSON keys in schema order. Reading field names in order reveals the flag.

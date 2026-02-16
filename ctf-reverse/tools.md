@@ -1,5 +1,46 @@
 # CTF Reverse - Tools Reference
 
+## Table of Contents
+- [GDB](#gdb)
+  - [Basic Commands](#basic-commands)
+  - [PIE Binary Debugging](#pie-binary-debugging)
+  - [One-liner Automation](#one-liner-automation)
+  - [Memory Examination](#memory-examination)
+- [Radare2](#radare2)
+  - [Basic Session](#basic-session)
+  - [r2pipe Automation](#r2pipe-automation)
+- [Ghidra](#ghidra)
+  - [Headless Analysis](#headless-analysis)
+  - [Emulator for Decryption](#emulator-for-decryption)
+  - [MCP Commands](#mcp-commands)
+- [Unicorn Emulation](#unicorn-emulation)
+  - [Basic Setup](#basic-setup)
+  - [Mixed-Mode (64→32) Switch](#mixed-mode-6432-switch)
+  - [Register Tracing Hook](#register-tracing-hook)
+  - [Track Register Changes](#track-register-changes)
+- [Python Bytecode](#python-bytecode)
+  - [Disassembly](#disassembly)
+  - [Extract Constants](#extract-constants)
+- [WASM Analysis](#wasm-analysis)
+  - [Decompile to C](#decompile-to-c)
+  - [Common Patterns](#common-patterns)
+- [Android APK](#android-apk)
+  - [Extraction](#extraction)
+  - [Key Locations](#key-locations)
+  - [Search](#search)
+- [.NET Analysis](#net-analysis)
+  - [Tools](#tools)
+  - [NativeAOT](#nativeaot)
+- [Packed Binaries](#packed-binaries)
+  - [UPX](#upx)
+  - [Custom Packers](#custom-packers)
+  - [PyInstaller](#pyinstaller)
+- [LLVM IR](#llvm-ir)
+  - [Convert to Assembly](#convert-to-assembly)
+- [Useful Commands](#useful-commands)
+
+---
+
 ## GDB
 
 ### Basic Commands

@@ -1,5 +1,19 @@
 # CTF Pwn - ROP Chains and Shellcode
 
+## Table of Contents
+- [ROP Chain Building](#rop-chain-building)
+  - [Two-Stage ret2libc (Leak + Shell)](#two-stage-ret2libc-leak-shell)
+  - [Raw Syscall ROP (When system() Fails)](#raw-syscall-rop-when-system-fails)
+  - [rdx Control in ROP Chains](#rdx-control-in-rop-chains)
+  - [Shell Interaction After execve](#shell-interaction-after-execve)
+- [Seccomp Bypass](#seccomp-bypass)
+- [Stack Shellcode with Input Reversal](#stack-shellcode-with-input-reversal)
+- [.fini_array Hijack](#fini_array-hijack)
+- [Pwntools Template](#pwntools-template)
+- [Useful Commands](#useful-commands)
+
+---
+
 ## ROP Chain Building
 
 ```python

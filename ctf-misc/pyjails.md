@@ -1,5 +1,43 @@
 # CTF Misc - Python Jails
 
+## Table of Contents
+- [Identifying Jail Type](#identifying-jail-type)
+- [Systematic Enumeration](#systematic-enumeration)
+  - [Test Basic Features](#test-basic-features)
+  - [Test Blocked AST Nodes](#test-blocked-ast-nodes)
+  - [Brute-Force Function Names](#brute-force-function-names)
+- [Oracle-Based Challenges](#oracle-based-challenges)
+  - [Binary Search](#binary-search)
+  - [Linear Search](#linear-search)
+- [Building Strings Without Concat](#building-strings-without-concat)
+- [Classic Escape Techniques](#classic-escape-techniques)
+  - [Via Class Hierarchy](#via-class-hierarchy)
+  - [Compile Bypass](#compile-bypass)
+  - [Unicode Bypass](#unicode-bypass)
+  - [Getattr Alternatives](#getattr-alternatives)
+- [Walrus Operator Reassignment](#walrus-operator-reassignment)
+  - [Octal Escapes](#octal-escapes)
+- [Magic Comment Escape](#magic-comment-escape)
+- [Mastermind-Style Jails](#mastermind-style-jails)
+  - [Find Input Length](#find-input-length)
+  - [Find Characters](#find-characters)
+  - [Find Positions](#find-positions)
+- [Server Communication](#server-communication)
+- [Magic File ReDoS](#magic-file-redos)
+- [Environment Variable RCE](#environment-variable-rce)
+- [Decorator-Based Escape (No Call, No Quotes, No Equals)](#decorator-based-escape-no-call-no-quotes-no-equals)
+  - [Technique 1: `function.__name__` as String Keys](#technique-1-function__name__-as-string-keys)
+  - [Technique 2: Name Extractor via getset_descriptor](#technique-2-name-extractor-via-getset_descriptor)
+  - [Technique 3: Accessing Real Builtins via __loader__](#technique-3-accessing-real-builtins-via-__loader__)
+  - [Full Exploit Chain](#full-exploit-chain)
+  - [How the Decorator Chain Works (Bottom-Up)](#how-the-decorator-chain-works-bottom-up)
+  - [Variations](#variations)
+  - [Constraints Checklist for This Technique](#constraints-checklist-for-this-technique)
+  - [When __loader__ Is Not Available](#when-__loader__-is-not-available)
+- [Hints Cheat Sheet](#hints-cheat-sheet)
+
+---
+
 ## Identifying Jail Type
 
 **Error patterns reveal filtering:**

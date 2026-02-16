@@ -1,5 +1,11 @@
 # CTF Crypto - Historical Ciphers
 
+## Table of Contents
+- [Lorenz SZ40/42 (Tunny) Cipher](#lorenz-sz4042-tunny-cipher)
+- [Book Cipher Brute Force (Nullcon 2026)](#book-cipher-brute-force-nullcon-2026)
+
+---
+
 ## Lorenz SZ40/42 (Tunny) Cipher
 
 The Lorenz cipher uses 12 wheels to encrypt 5-bit ITA2/Baudot characters. With known plaintext, a structured attack recovers all wheel settings.

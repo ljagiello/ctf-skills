@@ -1,5 +1,21 @@
 # CTF Forensics - Network
 
+## Table of Contents
+- [Wireshark Basics](#wireshark-basics)
+- [Port Scan Analysis](#port-scan-analysis)
+- [Gateway/Device via MAC OUI](#gatewaydevice-via-mac-oui)
+- [WordPress Reconnaissance](#wordpress-reconnaissance)
+- [Post-Exploitation Traffic](#post-exploitation-traffic)
+- [Credential Extraction](#credential-extraction)
+- [SMB3 Encrypted Traffic](#smb3-encrypted-traffic)
+- [5G/NR Protocol Analysis](#5gnr-protocol-analysis)
+- [Email Headers](#email-headers)
+- [USB HID Stenography/Chord PCAP (UTCTF 2024)](#usb-hid-stenographychord-pcap-utctf-2024)
+- [BCD Encoding in UDP (VuwCTF 2025)](#bcd-encoding-in-udp-vuwctf-2025)
+- [NTLMv2 Hash Cracking from PCAP (Pragyan 2026)](#ntlmv2-hash-cracking-from-pcap-pragyan-2026)
+
+---
+
 ## Wireshark Basics
 
 ```bash
@@ -188,6 +204,50 @@ def decrypt_smb311(transform_data, key):
 - Check routing information
 - Look for encoded attachments (base64)
 - MIME boundaries may hide data
+
+---
+
+## USB HID Stenography/Chord PCAP (UTCTF 2024)
+
+**Pattern (Gibberish):** USB keyboard PCAP with simultaneous multi-key presses = stenography chording.
+
+**Detection:** Multiple simultaneous USB HID keys (6+ at once) in interrupt transfers. Not regular typing.
+
+**Decoding workflow:**
+1. Extract HID reports from PCAP
+2. Detect simultaneous key states (multiple keycodes in same report)
+3. Map chords to Plover stenography dictionary
+4. Install Plover, use its dictionary for translation
+
+```bash
+# Extract USB HID data
+tshark -r capture.pcap -Y "usb.transfer_type == 1" -T fields -e usb.capdata
+```
+
+---
+
+## BCD Encoding in UDP (VuwCTF 2025)
+
+**Pattern (1.5x-engineer):** "1.5x" = BCD ratio (3 bytes → 2 bytes data).
+
+**BCD (Binary-Coded Decimal):** Each nibble (4 bits) encodes one decimal digit. 1.5:1 byte ratio.
+
+**Decoding:**
+```python
+def bcd_decode(data):
+    result = ''
+    for byte in data:
+        high = (byte >> 4) & 0x0F
+        low = byte & 0x0F
+        result += f'{high}{low}'
+    return result
+
+# UDP sessions differentiated by first byte
+# Session 1 = BCD-encoded ASCII metadata with flag
+# Session 2 = encrypted DOCX
+```
+
+**Lesson:** Challenge name often hints at encoding ratio or technique.
 
 ---
 

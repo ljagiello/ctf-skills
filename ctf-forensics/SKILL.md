@@ -1,6 +1,6 @@
 ---
 name: ctf-forensics
-description: Digital forensics and blockchain analysis for CTF challenges. Use when analyzing disk images, memory dumps, event logs, network captures, or cryptocurrency transactions.
+description: Digital forensics and blockchain analysis for CTF challenges. Use when analyzing disk images, memory dumps, event logs, network captures, cryptocurrency transactions, steganography, PDF analysis, Windows registry, Volatility, PCAP, Docker images, coredumps, or recovering deleted files and credentials.
 license: MIT
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
 metadata:
@@ -15,10 +15,11 @@ Quick reference for forensics CTF challenges. Each technique has a one-liner her
 
 - [3d-printing.md](3d-printing.md) - 3D printing forensics (PrusaSlicer binary G-code, QOIF, heatshrink)
 - [windows.md](windows.md) - Windows forensics (registry, SAM, event logs, recycle bin, USN journal, PowerShell history, Defender MPLog, WMI persistence, Amcache)
-- [network.md](network.md) - Network forensics (PCAP, SMB3, WordPress, credentials, NTLMv2 cracking)
-- [disk-and-memory.md](disk-and-memory.md) - Disk/memory forensics (Volatility, disk mounting/carving, VM/OVA/VMDK, coredumps, deleted partitions, ZFS, VMware snapshots, ransomware analysis)
-- [steganography.md](steganography.md) - Steganography (binary border stego, PDF multi-layer stego, FFT frequency domain, DTMF audio decoding)
-- [linux-forensics.md](linux-forensics.md) - Linux/app forensics (log analysis, Docker image forensics, attack chains, browser credentials, Firefox history, TFTP, TLS weak RSA, USB audio)
+- [network.md](network.md) - Network forensics (PCAP, SMB3, WordPress, credentials, NTLMv2 cracking, USB HID steno, BCD encoding)
+- [disk-and-memory.md](disk-and-memory.md) - Disk/memory forensics (Volatility, disk mounting/carving, VM/OVA/VMDK, coredumps, deleted partitions, ZFS, VMware snapshots, ransomware analysis, GPT GUID encoding, VMDK sparse parsing)
+- [steganography.md](steganography.md) - Steganography (binary border stego, PDF multi-layer stego, FFT frequency domain, DTMF audio, SSTV+LSB, SVG keyframes, PNG reorder, file overlays)
+- [linux-forensics.md](linux-forensics.md) - Linux/app forensics (log analysis, Docker image forensics, attack chains, browser credentials, Firefox history, TFTP, TLS weak RSA, USB audio, Git directory recovery)
+- [signals-and-hardware.md](signals-and-hardware.md) - Hardware signal decoding (VGA/HDMI/DisplayPort), Voyager Golden Record audio, Flipper Zero .sub files
 
 ---
 
@@ -101,6 +102,10 @@ stegsolve                    # Visual analysis
 - **FFT frequency domain:** Image data hidden in 2D FFT magnitude spectrum; try `np.fft.fft2` visualization
 - **DTMF audio:** Phone tones encoding data; decode with `multimon-ng -a DTMF`
 - **Multi-layer PDF:** Check hidden comments, post-EOF data, XOR with keywords, ROT18 final layer
+- **SSTV + LSB:** SSTV signal may be red herring; check 2-bit LSB of audio samples with `stegolsb`
+- **SVG keyframes:** Animation `keyTimes`/`values` attributes encode binary/Morse via fill color alternation
+- **PNG chunk reorder:** Fix chunk order: IHDR → ancillary → IDAT (in order) → IEND
+- **File overlays:** Check after IEND for appended archives with overwritten magic bytes
 
 See [steganography.md](steganography.md) for full code examples and decoding workflows.
 
@@ -117,75 +122,45 @@ binwalk document.pdf         # Embedded files
 
 See [steganography.md](steganography.md) for full PDF steganography techniques and code.
 
-## Disk Image Analysis
+## Disk / VM / Memory Forensics
 
 ```bash
-sudo mount -o loop,ro image.dd /mnt/evidence   # Mount read-only
-fls -r image.dd              # List files (Sleuth Kit)
-icat image.dd <inode>        # Extract by inode
-photorec image.dd            # Carve deleted files
-foremost -i image.dd         # Alternative carver
+# Disk images
+sudo mount -o loop,ro image.dd /mnt/evidence
+fls -r image.dd && photorec image.dd
+
+# VM images (OVA/VMDK)
+tar -xvf machine.ova
+7z x disk.vmdk -oextracted "Windows/System32/config/SAM" -r
+
+# Memory (Volatility 3)
+vol3 -f memory.dmp windows.pslist
+vol3 -f memory.dmp windows.cmdline
+vol3 -f memory.dmp windows.netscan
+vol3 -f memory.dmp windows.dumpfiles --physaddr <addr>
+
+# String carving
+strings -a -n 6 memdump.bin | grep -E "FLAG|SSH_CLIENT|SESSION_KEY"
+
+# Coredump
+gdb -c core.dump  # info registers, x/100x $rsp, find "flag"
 ```
 
-See [disk-and-memory.md](disk-and-memory.md) for VM forensics (OVA/VMDK), deleted partition recovery, and ZFS forensics.
-
-## VM Forensics (OVA/VMDK)
-
-```bash
-tar -xvf machine.ova                                    # OVA = TAR archive
-7z l disk.vmdk | head -100                               # List VMDK contents
-7z x disk.vmdk -oextracted "Windows/System32/config/SAM" -r  # Extract specific files
-```
-
-See [disk-and-memory.md](disk-and-memory.md) for VMware snapshot conversion and malware hunting.
-
-## Memory Forensics
-
-```bash
-vol3 -f memory.dmp windows.pslist     # Process list
-vol3 -f memory.dmp windows.cmdline    # Command lines
-vol3 -f memory.dmp windows.netscan    # Network connections
-vol3 -f memory.dmp windows.dumpfiles --physaddr <addr>  # Extract files
-```
-
-- **String carving:** `strings -a -n 6 memdump.bin | grep -E "FLAG|SSH_CLIENT|SESSION_KEY"`
-- **VMware snapshots:** `vmss2core -W snapshot.vmss snapshot.vmem` to get analyzable dump
-
-See [disk-and-memory.md](disk-and-memory.md) for full plugin reference, ransomware analysis, and MFT key recovery.
+See [disk-and-memory.md](disk-and-memory.md) for full Volatility plugin reference, VM forensics, VMware snapshots, deleted partition recovery, ZFS forensics, and ransomware analysis.
 
 ## Windows Password Hashes
 
-```python
-from impacket.examples.secretsdump import LocalOperations, SAMHashes
-localOps = LocalOperations('SYSTEM')
-bootKey = localOps.getBootKey()
-sam = SAMHashes('SAM', bootKey)
-sam.dump()  # username:RID:LM:NTLM:::
-```
-
 ```bash
-hashcat -m 1000 hashes.txt wordlist.txt   # Crack NTLM
+# Extract with impacket, crack with hashcat -m 1000
+python -c "from impacket.examples.secretsdump import *; SAMHashes('SAM', LocalOperations('SYSTEM').getBootKey()).dump()"
 ```
 
-See [windows.md](windows.md) for SAM database details and [network.md](network.md) for NTLMv2 cracking from PCAP.
+See [windows.md](windows.md) for SAM details and [network.md](network.md) for NTLMv2 cracking from PCAP.
 
 ## Bitcoin Tracing
 
 - Use mempool.space API: `https://mempool.space/api/tx/<TXID>`
-- **Peel chain:** ALWAYS follow LARGER output
-- Look for consolidation transactions
-- Round amounts (5.0, 23.0 BTC) indicate peels
-
-## Coredump Analysis
-
-```bash
-gdb -c core.dump
-(gdb) info registers
-(gdb) x/100x $rsp
-(gdb) find 0x0, 0xffffffff, "flag"
-```
-
-See [disk-and-memory.md](disk-and-memory.md) for more details.
+- **Peel chain:** ALWAYS follow LARGER output; round amounts indicate peels
 
 ## Uncommon File Magic Bytes
 
@@ -236,40 +211,16 @@ See [network.md](network.md) for SMB3 decryption, credential extraction, and [li
 
 See [linux-forensics.md](linux-forensics.md) for full browser credential decryption code.
 
-## Docker Image Forensics
+## Additional Technique Quick References
 
-**Key insight:** Config JSON preserves ALL `RUN` commands in `history` array, even if later layers clean up.
-
-```bash
-tar xf app.tar
-python3 -m json.tool blobs/sha256/<config_hash> | grep -A2 "created_by"
-```
-
-See [linux-forensics.md](linux-forensics.md) for detailed Docker layer analysis.
-
-## Linux Attack Chain Forensics
-
-Check `auth.log`, `.bash_history`, recently modified binaries, and PCAP for exfiltration. Common malware pattern: AES-ECB + XOR with same key.
-
-See [linux-forensics.md](linux-forensics.md) for full evidence source commands.
-
-## PowerShell Ransomware Analysis
-
-Extract script blocks from minidump (`power_dump.py`), find AES key via regex in strings, decrypt SMTP attachment from PCAP.
-
-See [disk-and-memory.md](disk-and-memory.md) for full analysis workflow.
-
-## Deleted Partition Recovery
-
-`testdisk` or `kpartx -av` to recover partition table from image. Check hidden `.dotfolders` for flag path components.
-
-See [disk-and-memory.md](disk-and-memory.md) for full recovery workflow.
-
-## ZFS Forensics
-
-Corrupted ZFS pool: reconstruct labels from nvlist data, recompute Fletcher4 checksums, crack PBKDF2 encryption with GPU.
-
-See [disk-and-memory.md](disk-and-memory.md) for Fletcher4 code and full recovery workflow.
+- **Docker image forensics:** Config JSON preserves ALL `RUN` commands even after cleanup. `tar xf app.tar` then inspect config blob. See [linux-forensics.md](linux-forensics.md).
+- **Linux attack chains:** Check `auth.log`, `.bash_history`, recent binaries, PCAP. See [linux-forensics.md](linux-forensics.md).
+- **PowerShell ransomware:** Extract scripts from minidump, find AES key, decrypt SMTP attachment. See [disk-and-memory.md](disk-and-memory.md).
+- **Deleted partitions:** `testdisk` or `kpartx -av`. See [disk-and-memory.md](disk-and-memory.md).
+- **ZFS forensics:** Reconstruct labels, Fletcher4 checksums, PBKDF2 cracking. See [disk-and-memory.md](disk-and-memory.md).
+- **Hardware signals:** VGA/HDMI TMDS/DisplayPort, Voyager audio, Flipper Zero. See [signals-and-hardware.md](signals-and-hardware.md).
+- **G-code visualization:** Side projections (XZ/YZ) reveal text. See [3d-printing.md](3d-printing.md).
+- **Git directory recovery:** `gitdumper.sh` for exposed `.git` dirs. See [linux-forensics.md](linux-forensics.md).
 
 ## Common Encodings
 

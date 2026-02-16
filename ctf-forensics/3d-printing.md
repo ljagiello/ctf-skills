@@ -1,5 +1,14 @@
 # CTF Forensics - 3D Printing / CAD File Forensics
 
+## Table of Contents
+- [PrusaSlicer Binary G-code (.g / .bgcode)](#prusaslicer-binary-g-code-g-bgcode)
+- [QOIF (Quite OK Image Format)](#qoif-quite-ok-image-format)
+- [G-code Analysis Tips](#g-code-analysis-tips)
+- [G-code Side View Visualization (0xFun 2026)](#g-code-side-view-visualization-0xfun-2026)
+- [Uncommon File Magic Bytes](#uncommon-file-magic-bytes)
+
+---
+
 ## PrusaSlicer Binary G-code (.g / .bgcode)
 
 **File magic:** `GCDE` (4 bytes)
@@ -86,6 +95,20 @@ grep ";.*FLAG\|;.*LAYER_CHANGE" output.gcode
 # Extract XY coordinates for visual patterns
 grep "^G1" output.gcode | awk '{print $2, $3}' > coords.txt
 ```
+
+## G-code Side View Visualization (0xFun 2026)
+
+**Pattern (PrintedParts):** Plot X vs Z (side view) with Y filtering. Extrusion segments at specific Y ranges form readable text.
+
+```bash
+# Extract XY coordinates from G-code
+grep "^G1" output.gcode | awk '{print $2, $3}' > coords.txt
+# Plot with matplotlib for visual patterns
+```
+
+**Lesson:** G-code is just coordinate lists. Side projections (XZ or YZ) reveal embossed/engraved text.
+
+---
 
 ## Uncommon File Magic Bytes
 

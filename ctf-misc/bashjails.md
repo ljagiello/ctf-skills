@@ -1,5 +1,20 @@
 # CTF Misc - Bash Jails & Restricted Shells
 
+## Table of Contents
+- [Identifying the Jail](#identifying-the-jail)
+- [Eval Context Detection](#eval-context-detection)
+- [Character-Restricted Bash: Only `#`, `$`, `\`](#character-restricted-bash-only)
+- [Internal Service Discovery (Post-Shell)](#internal-service-discovery-post-shell)
+- [Other Restricted Character Set Tricks](#other-restricted-character-set-tricks)
+  - [Building numbers from `$#` and `${##}`](#building-numbers-from-and)
+  - [Using PID digits](#using-pid-digits)
+  - [Octal in ANSI-C quoting](#octal-in-ansi-c-quoting)
+  - [Dollar-zero variants](#dollar-zero-variants)
+- [Privilege Escalation Checklist (Post-Shell)](#privilege-escalation-checklist-post-shell)
+- [References](#references)
+
+---
+
 ## Identifying the Jail
 
 **Methodology:** Send test inputs and observe error messages to determine:

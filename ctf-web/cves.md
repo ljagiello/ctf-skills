@@ -2,6 +2,25 @@
 
 Specific CVEs and vulnerability patterns. For Node.js CVEs (flatnest, Happy-DOM), see [node-and-prototype.md](node-and-prototype.md). For JWT algorithm confusion, see [auth-and-access.md](auth-and-access.md).
 
+## Table of Contents
+- [CVE-2025-29927: Next.js Middleware Bypass](#cve-2025-29927-nextjs-middleware-bypass)
+- [CVE-2025-0167: Curl .netrc Credential Leakage](#cve-2025-0167-curl-netrc-credential-leakage)
+- [Uvicorn CRLF Injection (Unpatched N-Day)](#uvicorn-crlf-injection-unpatched-n-day)
+- [Python urllib Scheme Validation Bypass (0-Day)](#python-urllib-scheme-validation-bypass-0-day)
+- [Chrome Referrer Leak via Link Header (2025)](#chrome-referrer-leak-via-link-header-2025)
+- [TCP Packet Splitting (Firewall Bypass)](#tcp-packet-splitting-firewall-bypass)
+- [Puppeteer/Chrome JavaScript Bypass](#puppeteerchrome-javascript-bypass)
+- [Python python-dotenv Injection](#python-python-dotenv-injection)
+- [HTTP Request Splitting via RFC 2047](#http-request-splitting-via-rfc-2047)
+- [Waitress WSGI Cookie Exfiltration](#waitress-wsgi-cookie-exfiltration)
+- [Deno Import Map Hijacking](#deno-import-map-hijacking)
+- [CVE-2025-8110: Gogs Symlink RCE](#cve-2025-8110-gogs-symlink-rce)
+- [CVE-2021-22204: ExifTool DjVu Perl Injection](#cve-2021-22204-exiftool-djvu-perl-injection)
+- [Broken Auth via Truthy Hash Check (0xFun 2026)](#broken-auth-via-truthy-hash-check-0xfun-2026)
+- [AAEncode/JJEncode JS Deobfuscation (0xFun 2026)](#aaencodejjencode-js-deobfuscation-0xfun-2026)
+- [Protocol Multiplexing — SSH+HTTP on Same Port (0xFun 2026)](#protocol-multiplexing-sshhttp-on-same-port-0xfun-2026)
+- [Detection Checklist](#detection-checklist)
+
 ---
 
 ## CVE-2025-29927: Next.js Middleware Bypass
@@ -141,6 +160,44 @@ Deno v1.18+ auto-discovers `deno.json`. Via prototype pollution:
 ## CVE-2025-8110: Gogs Symlink RCE
 
 See [server-side.md](server-side.md) for full details.
+
+---
+
+## CVE-2021-22204: ExifTool DjVu Perl Injection
+
+**Affected:** ExifTool ≤ 12.23
+
+DjVu ANTa annotation chunk parsed with Perl `eval`. Craft minimal DjVu with `AT&T` header → `FORM` → `DJVU` → `INFO` (1x1) → `ANTa` with `(metadata "\\c${system('cmd')}")`.
+
+See [server-side.md](server-side.md) for full exploit code and DjVu generator.
+
+---
+
+## Broken Auth via Truthy Hash Check (0xFun 2026)
+
+**Pattern:** `sha256().hexdigest()` returns non-empty string (truthy in Python). Auth function checks `if sha256(...)` which is always True — the actual hash comparison is missing entirely.
+
+**Detection:** Look for `if hash_function(...)` instead of `if hash_function(...) == expected`.
+
+---
+
+## AAEncode/JJEncode JS Deobfuscation (0xFun 2026)
+
+JS obfuscation that ultimately calls `Function(...)()`. Override `Function.prototype.constructor` to intercept:
+```javascript
+Function.prototype.constructor = function(code) {
+    console.log("Decoded:", code);
+    return function() {};
+};
+```
+
+**AAEncode:** Japanese Unicode characters. **JJEncode:** `$=~[]` pattern. Both reduce to `Function(decoded_string)()`.
+
+---
+
+## Protocol Multiplexing — SSH+HTTP on Same Port (0xFun 2026)
+
+Server distinguishes SSH from HTTP by first bytes. When challenge mentions "fewer ports", try `ssh -p <http_port> user@host`. Credentials may be hidden in HTML comments.
 
 ---
 

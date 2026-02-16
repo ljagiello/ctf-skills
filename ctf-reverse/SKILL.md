@@ -1,6 +1,6 @@
 ---
 name: ctf-reverse
-description: Reverse engineering techniques for CTF challenges. Use when analyzing binaries, game clients, obfuscated code, or esoteric languages.
+description: Reverse engineering techniques for CTF challenges. Use when analyzing binaries, game clients, obfuscated code, esoteric languages, custom VMs, anti-debugging, WASM, .NET, APK, Python bytecode, Ghidra, GDB, radare2, or extracting flags from compiled executables.
 license: MIT
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
 metadata:
@@ -14,8 +14,8 @@ Quick reference for RE challenges. For detailed techniques, see supporting files
 ## Additional Resources
 
 - [tools.md](tools.md) - Tool-specific commands (GDB, Ghidra, radare2, IDA)
-- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas
-- [languages.md](languages.md) - Language/platform-specific: Python bytecode & opcode remapping, DOS stubs, Unity IL2CPP, Brainfuck/esolangs, UEFI, transpilation to C, code coverage side-channel, OPAL functional reversing, non-bijective substitution
+- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher
+- [languages.md](languages.md) - Language/platform-specific: Python bytecode & opcode remapping, Python version-specific bytecode, DOS stubs, Unity IL2CPP, Brainfuck/esolangs, UEFI, transpilation to C, code coverage side-channel, OPAL functional reversing, non-bijective substitution
 
 ---
 
@@ -186,107 +186,19 @@ Bypass: Set breakpoint at check, modify register to bypass conditional.
 4. Often easier to bruteforce than fully reverse
 5. Look for the bytecode file loaded via command-line arg
 
-**VM challenge workflow (C'est La V(M)ie):**
-```python
-# 1. Find entry point: entry() → __libc_start_main(FUN_xxx, ...)
-# 2. Identify loader function (reads .bin file into global buffer)
-# 3. Find executor with giant switch statement (opcode dispatch)
-# 4. Map each case to instruction: MOVI, ADD, XOR, CMP, JZ, READ, PRINT, HLT...
-# 5. Write disassembler, annotate output
-# 6. Identify flag transform (often reversible byte-by-byte)
-```
-
-**Common VM opcodes to look for:**
-| Pattern in decompiler | Likely instruction |
-|-----------------------|-------------------|
-| `global[param1] = param2` | MOVI (move immediate) |
-| `global[p1] = global[p2]` | MOVR (move register) |
-| `global[p1] ^= global[p2]` | XOR |
-| `global[p1] op global[p2]; set flag` | CMP |
-| `if (flag) IP = param` | JZ/JNZ |
-| `read(stdin, &global[p1], 1)` | READ |
-| `write(stdout, &global[p1], 1)` | PRINT |
+See [patterns.md](patterns.md#custom-vm-reversing) for VM workflow, opcode tables, and state machine BFS.
 
 ## Python Bytecode Reversing
 
-**Pattern (Slithering Bytes):** Given `dis.dis()` output of a flag checker.
-
-**Key instructions:**
-- `LOAD_GLOBAL` / `LOAD_FAST` — push name/variable onto stack
-- `CALL N` — pop function + N args, call, push result
-- `BINARY_SUBSCR` — pop index and sequence, push `seq[idx]`
-- `COMPARE_OP` — pop two values, compare (55=`!=`, 40=`==`)
-- `POP_JUMP_IF_TRUE/FALSE` — conditional branch
-
-**Reversing XOR flag checkers:**
-```python
-# Pattern: ord(flag[i]) ^ KEY == EXPECTED[i]
-# Reverse: chr(EXPECTED[i] ^ KEY) for each position
-
-# Interleaved tables (odd/even indices):
-odd_table = [...]   # Values for indices 1, 3, 5, ...
-even_table = [...]  # Values for indices 0, 2, 4, ...
-flag = [''] * 30
-for i, val in enumerate(even_table):
-    flag[i*2] = chr(val ^ key_even)
-for i, val in enumerate(odd_table):
-    flag[i*2+1] = chr(val ^ key_odd)
-```
+XOR flag checkers with interleaved even/odd tables are common. See [languages.md](languages.md#python-bytecode-reversing-disdis-output) for bytecode analysis tips and reversing patterns.
 
 ## Signal-Based Binary Exploration
 
-**Pattern (Signal Signal Little Star):** Binary uses UNIX signals as a binary tree navigation mechanism.
-
-**Identification:**
-- Multiple `sigaction()` calls with `SA_SIGINFO`
-- `sigaltstack()` setup (alternate signal stack)
-- Handler decodes embedded payload, installs next pair of signals
-- Two types: Node (installs children) vs Leaf (prints message + exits)
-
-**Solving approach:**
-1. Hook `sigaction` via `LD_PRELOAD` to log signal installations
-2. DFS through the binary tree by sending signals
-3. At each stage, observe which 2 signals are installed
-4. Send one, check if program exits (leaf) or installs 2 more (node)
-5. If wrong leaf, backtrack and try sibling
-
-```c
-// LD_PRELOAD interposer to log sigaction calls
-int sigaction(int signum, const struct sigaction *act, ...) {
-    if (act && (act->sa_flags & SA_SIGINFO))
-        log("SET %d SA_SIGINFO=1\n", signum);
-    return real_sigaction(signum, act, oldact);
-}
-```
+Binary uses UNIX signals as binary tree navigation; hook `sigaction` via `LD_PRELOAD`, DFS by sending signals. See [patterns.md](patterns.md#signal-based-binary-exploration).
 
 ## Malware Anti-Analysis Bypass via Patching
 
-**Pattern (Carrot):** Malware with multiple environment checks before executing payload.
-
-**Common checks to patch:**
-| Check | Technique | Patch |
-|-------|-----------|-------|
-| `ptrace(PTRACE_TRACEME)` | Anti-debug | Change `cmp -1` to `cmp 0` |
-| `sleep(150)` | Anti-sandbox timing | Change sleep value to 1 |
-| `/proc/cpuinfo` "hypervisor" | Anti-VM | Flip `JNZ` to `JZ` |
-| "VMware"/"VirtualBox" strings | Anti-VM | Flip `JNZ` to `JZ` |
-| `getpwuid` username check | Environment | Flip comparison |
-| `LD_PRELOAD` check | Anti-hook | Skip check |
-| Fan count / hardware check | Anti-VM | Flip `JLE` to `JGE` |
-| Hostname check | Environment | Flip `JNZ` to `JZ` |
-
-**Ghidra patching workflow:**
-1. Find check function, identify the conditional jump
-2. Click on instruction → `Ctrl+Shift+G` → modify opcode
-3. For `JNZ` (0x75) → `JZ` (0x74), or vice versa
-4. For immediate values: change operand bytes directly
-5. Export: press `O` → choose "Original File" format
-6. `chmod +x` the patched binary
-
-**Server-side validation bypass:**
-- If patched binary sends system info to remote server, patch the data too
-- Modify string addresses in data-gathering functions
-- Change format strings to embed correct values directly
+Flip `JNZ`/`JZ` (0x75/0x74), change sleep values, patch environment checks in Ghidra (`Ctrl+Shift+G`). See [patterns.md](patterns.md#malware-anti-analysis-bypass-via-patching).
 
 ## Expected Values Tables
 
@@ -341,60 +253,19 @@ will corrupt SSE-based transforms.
 
 ## Multi-Stage Shellcode Loaders
 
-**Pattern (I Heard You Liked Loaders):** Nested shellcode with XOR decode loops and anti-debug.
-
-**Debugging workflow:**
-1. Break at `call rax` in launcher, step into shellcode
-2. Bypass ptrace anti-debug: step to syscall, `set $rax=0`
-3. Step through XOR decode loop (or break on `int3` if hidden)
-4. Repeat for each stage until final payload
-
-**Flag extraction from `mov` instructions:**
-```python
-# Final stage loads flag 4 bytes at a time via mov ebx, value
-# Extract little-endian 4-byte chunks
-values = [0x6174654d, 0x7b465443, ...]  # From disassembly
-flag = b''.join(v.to_bytes(4, 'little') for v in values)
-```
+Nested shellcode with XOR decode loops; break at `call rax`, bypass ptrace with `set $rax=0`, extract flag from `mov` instructions. See [patterns.md](patterns.md#multi-stage-shellcode-loaders).
 
 ## Timing Side-Channel Attack
 
-**Pattern (Clock Out):** Validation time varies per correct character (longer sleep on match).
-
-**Exploitation:**
-```python
-import time
-from pwn import *
-
-flag = ""
-for pos in range(flag_length):
-    best_char, best_time = '', 0
-    for c in string.printable:
-        io = remote(host, port)
-        start = time.time()
-        io.sendline((flag + c).ljust(total_len, 'X'))
-        io.recvall()
-        elapsed = time.time() - start
-        if elapsed > best_time:
-            best_time = elapsed
-            best_char = c
-        io.close()
-    flag += best_char
-```
+Validation time varies per correct character; measure elapsed time per candidate to recover flag byte-by-byte. See [patterns.md](patterns.md#timing-side-channel-attack).
 
 ## Godot Game Asset Extraction
 
-**Pattern (Steal the Xmas):** Encrypted Godot .pck packages.
+Use KeyDot to extract encryption key from executable, then gdsdecomp to extract .pck package. See [languages.md](languages.md#godot-game-asset-extraction).
 
-**Tools:**
-- [gdsdecomp](https://github.com/GDRETools/gdsdecomp) - Extract Godot packages
-- [KeyDot](https://github.com/Titoot/KeyDot) - Extract encryption key from Godot executables
+## Roblox Place File Analysis
 
-**Workflow:**
-1. Run KeyDot against game executable → extract encryption key
-2. Input key into gdsdecomp
-3. Extract and open project in Godot editor
-4. Search scripts/resources for flag data
+Query Asset Delivery API for version history; parse `.rbxlbin` chunks (INST/PROP/PRNT) to diff script sources across versions. See [languages.md](languages.md#roblox-place-file-analysis).
 
 ## Unstripped Binary Information Leaks
 
@@ -410,51 +281,16 @@ readelf -S binary | grep debug    # Debug sections present?
 
 ## Custom Mangle Function Reversing
 
-**Pattern (Flag Appraisal):** Binary mangles input 2 bytes at a time with intermediate state, compares to static target.
-
-**Approach:**
-1. Extract static target bytes from `.rodata` section
-2. Understand mangle: processes pairs with running state value
-3. Write inverse function (process in reverse, undo each operation)
-4. Feed target bytes through inverse → recovers flag
+Binary mangles input 2 bytes at a time with running state; extract target from `.rodata`, write inverse function. See [patterns.md](patterns.md#custom-mangle-function-reversing).
 
 ## Rust serde_json Schema Recovery
 
-**Pattern (Curly Crab, PascalCTF 2026):** Rust binary reads JSON from stdin, deserializes via serde_json, prints success/failure emoji.
-
-**Approach:**
-1. Disassemble serde-generated `Visitor` implementations
-2. Each visitor's `visit_map` / `visit_seq` reveals expected keys and types
-3. Look for string literals in deserializer code (field names like `"pascal"`, `"CTF"`)
-4. Reconstruct nested JSON schema from visitor call hierarchy
-5. Identify value types from visitor method names: `visit_str` = string, `visit_u64` = number, `visit_bool` = boolean, `visit_seq` = array
-
-```json
-{"pascal":"CTF","CTF":2026,"crab":{"I_":true,"cr4bs":1337,"crabby":{"l0v3_":["rust"],"r3vv1ng_":42}}}
-```
-
-**Key insight:** Flag is the concatenation of JSON keys in schema order. Reading field names in order reveals the flag.
+Disassemble serde `Visitor` implementations to recover expected JSON schema; field names in order reveal flag. See [languages.md](languages.md#rust-serde_json-schema-recovery).
 
 ## Position-Based Transformation Reversing
 
-**Pattern (PascalCTF 2026):** Binary transforms input by adding/subtracting position index.
-
-**Reversing:**
-```python
-expected = [...]  # Extract from .rodata
-flag = ''
-for i, b in enumerate(expected):
-    if i % 2 == 0:
-        flag += chr(b - i)   # Even: input = output - i
-    else:
-        flag += chr(b + i)   # Odd: input = output + i
-```
+Binary adds/subtracts position index; reverse by undoing per-index offset. See [patterns.md](patterns.md#position-based-transformation-reversing).
 
 ## Hex-Encoded String Comparison
 
-**Pattern (Spider's Curse):** Input converted to hex, compared against hex constant.
-
-**Quick solve:** Extract hex constant from strings/Ghidra, decode:
-```bash
-echo "4d65746143..." | xxd -r -p
-```
+Input converted to hex, compared against constant. Decode with `xxd -r -p`. See [patterns.md](patterns.md#hex-encoded-string-comparison).

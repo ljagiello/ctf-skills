@@ -1,5 +1,15 @@
 # CTF Misc - DNS Exploitation Techniques
 
+## Table of Contents
+- [EDNS Client Subnet (ECS) Spoofing](#edns-client-subnet-ecs-spoofing)
+- [DNSSEC NSEC Walking](#dnssec-nsec-walking)
+- [Incremental Zone Transfer (IXFR)](#incremental-zone-transfer-ixfr)
+- [DNS Rebinding](#dns-rebinding)
+- [DNS Tunneling / Exfiltration](#dns-tunneling-exfiltration)
+- [DNS Enumeration Quick Reference](#dns-enumeration-quick-reference)
+
+---
+
 ## EDNS Client Subnet (ECS) Spoofing
 **Pattern (DragoNflieS, Nullcon 2026):** DNS server returns different records based on client IP. Spoof source using ECS option.
 

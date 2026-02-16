@@ -1,5 +1,14 @@
 # CTF Pwn - Sandbox Escape and Restricted Environments
 
+## Table of Contents
+- [Python Sandbox Escape (eval/exec Challenges)](#python-sandbox-escape-evalexec-challenges)
+- [VM Exploitation (Custom Bytecode)](#vm-exploitation-custom-bytecode)
+- [FUSE/CUSE Character Device Exploitation](#fusecuse-character-device-exploitation)
+- [Busybox/Restricted Shell Escalation](#busyboxrestricted-shell-escalation)
+- [Shell Tricks](#shell-tricks)
+
+---
+
 ## Python Sandbox Escape (eval/exec Challenges)
 
 **AST bypass via f-strings:** Validators that `pass` on `JoinedStr` (f-string AST nodes) don't recurse into children, allowing arbitrary expressions inside `f"{...}"`:

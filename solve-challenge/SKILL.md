@@ -1,11 +1,11 @@
 ---
 name: solve-challenge
-description: Solve CTF challenges by analyzing files, connecting to services, and applying exploitation techniques. Orchestrates category-specific CTF skills.
+description: Solve CTF challenges by analyzing files, connecting to services, and applying exploitation techniques. Orchestrates category-specific CTF skills for pwn, crypto, web, reverse engineering, forensics, OSINT, malware analysis, and miscellaneous challenges.
 license: MIT
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch Skill
 metadata:
   user-invocable: "true"
-  argument-hint: "[challenge description, URL, or category]"
+  argument-hint: "[category] [challenge-file-or-url]"
 ---
 
 # CTF Challenge Solver
@@ -14,15 +14,37 @@ You're a skilled CTF player. Your goal is to solve the challenge and find the fl
 
 ## How to Start
 
-1. **Explore** — Check the challenge directory for provided files
-2. **Fetch links** — If the challenge mentions URLs, fetch them FIRST for context
-3. **Connect** — Try remote services (`nc`) to understand what they expect
-4. **Read hints** — Challenge descriptions often contain clues
-5. **Organize** — Create a directory for the challenge to store files
+1. **Explore** -- Check the challenge directory for provided files
+2. **Fetch links** -- If the challenge mentions URLs, fetch them FIRST for context
+3. **Connect** -- Try remote services (`nc`) to understand what they expect
+4. **Read hints** -- Challenge descriptions often contain clues
+5. **Organize** -- Create a directory for the challenge to store files
+
+## Category Detection Hints
+
+**By file type:**
+- `.pcap`, `.pcapng`, `.evtx`, `.raw`, `.dd`, `.E01` -> forensics
+- `.elf`, `.exe`, `.so`, `.dll`, binary with no extension -> reverse or pwn
+- `.py`, `.sage`, `.txt` with numbers -> crypto
+- `.apk`, `.wasm`, `.pyc` -> reverse
+- Web URL or source code with HTML/JS/PHP -> web
+
+**By challenge description keywords:**
+- "buffer overflow", "ROP", "shellcode", "libc", "heap" -> pwn
+- "RSA", "AES", "cipher", "encrypt", "prime", "modulus" -> crypto
+- "XSS", "SQL", "injection", "cookie", "JWT", "SSRF" -> web
+- "disk image", "memory dump", "packet capture", "registry" -> forensics
+- "find", "locate", "identify", "who", "where" -> osint
+- "obfuscated", "packed", "C2", "malware", "beacon" -> malware
+
+**By service:**
+- Port with interactive prompt -> pwn
+- HTTP service -> web
+- netcat with math/crypto -> crypto
 
 ## Category Skills
 
-Use these skills based on challenge category. Skills are loaded automatically when relevant. Read skill files directly for detailed techniques: `~/.claude/skills/ctf-<category>/SKILL.md`
+Use these skills based on challenge category. Skills are loaded automatically when relevant. Read skill files directly for detailed techniques: `~/.agents/skills/ctf-<category>/SKILL.md`
 
 | Category | Skill | When to Use |
 |----------|-------|-------------|

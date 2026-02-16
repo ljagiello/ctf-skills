@@ -1,10 +1,11 @@
 ---
 name: find-skills
-description: Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.
+description: Discover and install agent skills from the open ecosystem. Use when looking for new capabilities, asking "how do I do X", "find a skill for X", or wanting to extend agent functionality with specialized tools, workflows, or domain knowledge.
 license: MIT
 allowed-tools: Bash WebFetch
 metadata:
   user-invocable: "true"
+  argument-hint: "[search query or capability description]"
 ---
 
 # Find Skills

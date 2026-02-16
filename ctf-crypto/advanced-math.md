@@ -1,5 +1,23 @@
 # CTF Crypto - Advanced Mathematical Attacks
 
+## Table of Contents
+- [Elliptic Curve Isogenies](#elliptic-curve-isogenies)
+- [Pohlig-Hellman Attack (Weak ECC)](#pohlig-hellman-attack-weak-ecc)
+- [LLL Algorithm for Approximate GCD](#lll-algorithm-for-approximate-gcd)
+- [Coppersmith's Method (Close Private Keys)](#coppersmiths-method-close-private-keys)
+- [Coppersmith's Method (Structured Primes, LACTF 2026)](#coppersmiths-method-structured-primes-lactf-2026)
+- [Clock Group (x²+y²≡1 mod p) DLP (LACTF 2026)](#clock-group-xy1-mod-p-dlp-lactf-2026)
+- [Quaternion RSA](#quaternion-rsa)
+- [Monotone Function Inversion with Partial Output](#monotone-function-inversion-with-partial-output)
+- [Polynomial Arithmetic in GF(2)[x]](#polynomial-arithmetic-in-gf2x)
+- [RSA Signing Bug](#rsa-signing-bug)
+- [Non-Permutation S-box Collision Attack (Nullcon 2026)](#non-permutation-s-box-collision-attack-nullcon-2026)
+- [Polynomial CRT in GF(2)[x] (Nullcon 2026)](#polynomial-crt-in-gf2x-nullcon-2026)
+- [Manger's RSA Padding Oracle Attack (Nullcon 2026)](#mangers-rsa-padding-oracle-attack-nullcon-2026)
+- [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
+
+---
+
 ## Elliptic Curve Isogenies
 
 Isogeny-based crypto challenges are often **graph traversal problems in disguise**:

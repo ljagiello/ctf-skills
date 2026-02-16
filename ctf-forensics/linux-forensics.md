@@ -1,5 +1,20 @@
 # CTF Forensics - Linux and Application Forensics
 
+## Table of Contents
+- [Log Analysis](#log-analysis)
+- [Linux Attack Chain Forensics](#linux-attack-chain-forensics)
+- [Docker Image Forensics (Pragyan 2026)](#docker-image-forensics-pragyan-2026)
+- [Browser Credential Decryption](#browser-credential-decryption)
+- [Firefox Browser History (places.sqlite)](#firefox-browser-history-placessqlite)
+- [USB Audio Extraction from PCAP](#usb-audio-extraction-from-pcap)
+- [TFTP Netascii Decoding](#tftp-netascii-decoding)
+- [TLS Traffic Decryption via Weak RSA](#tls-traffic-decryption-via-weak-rsa)
+- [ROT18 Decoding](#rot18-decoding)
+- [Common Encodings](#common-encodings)
+- [Git Directory Recovery (UTCTF 2024)](#git-directory-recovery-utctf-2024)
+
+---
+
 ## Log Analysis
 
 ```bash
@@ -195,3 +210,18 @@ echo "base64string" | base64 -d
 echo "hexstring" | xxd -r -p
 # ROT13: tr 'A-Za-z' 'N-ZA-Mn-za-m'
 ```
+
+---
+
+## Git Directory Recovery (UTCTF 2024)
+
+```bash
+# Exposed .git directory on web server
+gitdumper.sh https://target/.git/ /tmp/repo
+
+# Check reflog for old commits with secrets
+cat .git/logs/HEAD
+# Download objects from .git/objects/XX/YYYY, decompress with zlib
+```
+
+**Tool:** `gitdumper.sh` from internetwache/GitTools is most reliable.

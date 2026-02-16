@@ -1,5 +1,15 @@
 # CTF Crypto - Elliptic Curve Attacks
 
+## Table of Contents
+- [Small Subgroup Attacks](#small-subgroup-attacks)
+- [Invalid Curve Attacks](#invalid-curve-attacks)
+- [Singular Curves](#singular-curves)
+- [Smart's Attack (Anomalous Curves)](#smarts-attack-anomalous-curves)
+- [ECC Fault Injection](#ecc-fault-injection)
+- [Clock Group DLP via Pohlig-Hellman (LACTF 2026)](#clock-group-dlp-via-pohlig-hellman-lactf-2026)
+
+---
+
 ## Small Subgroup Attacks
 
 - Check curve order for small factors
@@ -26,9 +36,50 @@ If discriminant delta = 0, curve is singular. DLP becomes easy (maps to additive
 
 ---
 
-## Smart's Attack
+## Smart's Attack (Anomalous Curves)
 
-For anomalous curves (order = field size p). Lifts to p-adics, solves DLP in O(1).
+**When to use:** Curve order equals field characteristic p (anomalous curve). Solves ECDLP in O(1) via p-adic lifting.
+
+**Detection:** `E.order() == p` — always check this first!
+
+**SageMath (automatic):**
+```python
+E = EllipticCurve(GF(p), [a, b])
+G = E(Gx, Gy)
+Q = E(Qx, Qy)
+# Sage's discrete_log handles anomalous curves automatically
+secret = G.discrete_log(Q)
+```
+
+**Manual p-adic lift (when Sage's auto method fails):**
+```python
+def smart_attack(p, a, b, G, Q):
+    E = EllipticCurve(GF(p), [a, b])
+    Qp = pAdicField(p, 2)  # p-adic field with precision 2
+    Ep = EllipticCurve(Qp, [a, b])
+
+    # Lift points to p-adics
+    Gp = Ep.lift_x(ZZ(G[0]), all=True)  # try both lifts
+    Qp_point = Ep.lift_x(ZZ(Q[0]), all=True)
+
+    for gp in Gp:
+        for qp in Qp_point:
+            try:
+                # Multiply by p to get points in kernel of reduction
+                pG = p * gp
+                pQ = p * qp
+                # Extract p-adic logarithm
+                x_G = ZZ(pG[0] / pG[1]) / p  # or pG.xy()
+                x_Q = ZZ(pQ[0] / pQ[1]) / p
+                secret = ZZ(x_Q / x_G) % p
+                if E(G) * secret == E(Q):
+                    return secret
+            except (ZeroDivisionError, ValueError):
+                continue
+    return None
+```
+
+**Multi-layer decryption after key recovery:** Challenge may wrap flag in AES-CBC + DES-CBC or similar — just busywork once the ECC key is recovered. Derive keys with SHA-256 of shared secret.
 
 ---
 

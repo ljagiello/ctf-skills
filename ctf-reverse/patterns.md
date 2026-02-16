@@ -1,5 +1,59 @@
 # CTF Reverse - Patterns & Techniques
 
+## Table of Contents
+- [Custom VM Reversing](#custom-vm-reversing)
+  - [Analysis Steps](#analysis-steps)
+  - [Common VM Patterns](#common-vm-patterns)
+  - [RVA-Based Opcode Dispatching](#rva-based-opcode-dispatching)
+  - [State Machine VMs (90K+ states)](#state-machine-vms-90k-states)
+- [Anti-Debugging Techniques](#anti-debugging-techniques)
+  - [Common Checks](#common-checks)
+  - [Bypass Technique](#bypass-technique)
+  - [LD_PRELOAD Hook](#ld_preload-hook)
+- [Nanomites](#nanomites)
+  - [Linux (Signal-Based)](#linux-signal-based)
+  - [Windows (Debug Events)](#windows-debug-events)
+  - [Analysis](#analysis)
+- [Self-Modifying Code](#self-modifying-code)
+  - [Pattern: XOR Decryption](#pattern-xor-decryption)
+- [Known-Plaintext XOR (Flag Prefix)](#known-plaintext-xor-flag-prefix)
+  - [Variant: XOR with Position Index](#variant-xor-with-position-index)
+- [Mixed-Mode (x86-64 ↔ x86) Stagers](#mixed-mode-x86-64-x86-stagers)
+- [LLVM Obfuscation (Control Flow Flattening)](#llvm-obfuscation-control-flow-flattening)
+  - [Pattern](#pattern)
+  - [De-obfuscation](#de-obfuscation)
+- [S-Box / Keystream Generation](#s-box-keystream-generation)
+  - [Fisher-Yates Shuffle (Xorshift32)](#fisher-yates-shuffle-xorshift32)
+  - [Xorshift64* Keystream](#xorshift64-keystream)
+  - [Identifying Patterns](#identifying-patterns)
+- [SECCOMP/BPF Filter Analysis](#seccompbpf-filter-analysis)
+  - [BPF Analysis](#bpf-analysis)
+- [Exception Handler Obfuscation](#exception-handler-obfuscation)
+  - [RtlInstallFunctionTableCallback](#rtlinstallfunctiontablecallback)
+  - [Vectored Exception Handlers (VEH)](#vectored-exception-handlers-veh)
+- [Memory Dump Analysis](#memory-dump-analysis)
+  - [When Binary Dumps Memory](#when-binary-dumps-memory)
+  - [Known Plaintext Attack](#known-plaintext-attack)
+- [Hidden Emulator Opcodes + LD_PRELOAD Key Extraction (0xFun 2026)](#hidden-emulator-opcodes-ld_preload-key-extraction-0xfun-2026)
+- [Spectre-RSB SPN Cipher — Static Parameter Extraction (0xFun 2026)](#spectre-rsb-spn-cipher-static-parameter-extraction-0xfun-2026)
+- [Image XOR Mask Recovery via Smoothness (VuwCTF 2025)](#image-xor-mask-recovery-via-smoothness-vuwctf-2025)
+- [Shellcode in Data Section via mmap RWX (VuwCTF 2025)](#shellcode-in-data-section-via-mmap-rwx-vuwctf-2025)
+- [Recursive execve Subtraction (VuwCTF 2025)](#recursive-execve-subtraction-vuwctf-2025)
+- [Byte-at-a-Time Block Cipher Attack (UTCTF 2024)](#byte-at-a-time-block-cipher-attack-utctf-2024)
+- [Byte-Wise Uniform Transforms](#byte-wise-uniform-transforms)
+- [x86-64 Gotchas](#x86-64-gotchas)
+  - [Sign Extension](#sign-extension)
+  - [Loop Boundary State Updates](#loop-boundary-state-updates)
+- [Custom Mangle Function Reversing](#custom-mangle-function-reversing)
+- [Position-Based Transformation Reversing](#position-based-transformation-reversing)
+- [Hex-Encoded String Comparison](#hex-encoded-string-comparison)
+- [Signal-Based Binary Exploration](#signal-based-binary-exploration)
+- [Malware Anti-Analysis Bypass via Patching](#malware-anti-analysis-bypass-via-patching)
+- [Multi-Stage Shellcode Loaders](#multi-stage-shellcode-loaders)
+- [Timing Side-Channel Attack](#timing-side-channel-attack)
+
+---
+
 ## Custom VM Reversing
 
 ### Analysis Steps
@@ -324,6 +378,115 @@ partial_key = bytes(a ^ b for a, b in zip(encrypted, prologue))
 
 ---
 
+## Hidden Emulator Opcodes + LD_PRELOAD Key Extraction (0xFun 2026)
+
+**Pattern (CHIP-8):** Non-standard opcode `FxFF` triggers hidden `superChipRendrer()` → AES-256-CBC decryption. Key derived from binary constants.
+
+**Technique:**
+1. Check all instruction dispatch branches for non-standard opcodes
+2. Hidden opcode may trigger crypto functions (OpenSSL)
+3. Use `LD_PRELOAD` hook on `EVP_DecryptInit_ex` to capture AES key at runtime:
+
+```c
+#include <openssl/evp.h>
+int EVP_DecryptInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type,
+                       ENGINE *impl, const unsigned char *key,
+                       const unsigned char *iv) {
+    // Log key
+    for (int i = 0; i < 32; i++) printf("%02x", key[i]);
+    printf("\n");
+    // Call original
+    return ((typeof(EVP_DecryptInit_ex)*)dlsym(RTLD_NEXT, "EVP_DecryptInit_ex"))
+           (ctx, type, impl, key, iv);
+}
+```
+
+```bash
+gcc -shared -fPIC -ldl -lssl hook.c -o hook.so
+LD_PRELOAD=./hook.so ./emulator rom.ch8
+```
+
+---
+
+## Spectre-RSB SPN Cipher — Static Parameter Extraction (0xFun 2026)
+
+**Pattern:** Binary uses cache side channels to implement S-boxes, but ALL cipher parameters (round keys, S-box tables, permutation) are in the binary's data section.
+
+**Key insight:** Don't try to run on special hardware. Extract parameters statically:
+- 8 S-boxes × 8 output bits, 256 entries each
+- Values `0x340` = bit 1, `0x100` = bit 0
+- 64-byte permutation table, 8 round keys
+
+```python
+# Extract from binary data section
+import struct
+sbox = [[0]*256 for _ in range(8)]
+for i in range(8):
+    for j in range(256):
+        val = struct.unpack('<I', data[sbox_offset + (i*256+j)*4 : ...])[0]
+        sbox[i][j] = 1 if val == 0x340 else 0
+```
+
+**Lesson:** Side-channel implementations embed lookup tables in memory. Extract statically.
+
+---
+
+## Image XOR Mask Recovery via Smoothness (VuwCTF 2025)
+
+**Pattern (Trianglification):** Image divided into triangle regions, each XOR-encrypted with `key = (mask * x - y) & 0xFF` where mask is unknown (0-255).
+
+**Recovery:** Natural images have smooth gradients. Brute-force mask (256 values per region), score by neighbor pixel differences:
+
+```python
+import numpy as np
+from PIL import Image
+
+img = np.array(Image.open('encrypted.png'))
+
+def score_smoothness(region_pixels, mask, positions):
+    decrypted = []
+    for (x, y), pixel in zip(positions, region_pixels):
+        key = (mask * x - y) & 0xFF
+        decrypted.append(pixel ^ key)
+    # Score: sum of absolute differences between adjacent pixels
+    return -sum(abs(decrypted[i] - decrypted[i+1]) for i in range(len(decrypted)-1))
+
+for region in regions:
+    best_mask = max(range(256), key=lambda m: score_smoothness(region, m, positions))
+```
+
+**Search space:** 256 candidates × N regions = trivial. Smoothness is a reliable scoring metric for natural images.
+
+---
+
+## Shellcode in Data Section via mmap RWX (VuwCTF 2025)
+
+**Pattern (Missing Function):** Binary relocates data to RWX memory (mmap with PROT_READ|PROT_WRITE|PROT_EXEC) and jumps to it.
+
+**Detection:** Look for `mmap` with PROT_EXEC flag. Embedded shellcode often uses XOR with rotating key.
+
+**Analysis:** Extract data section, apply XOR key (try 3-byte rotating), disassemble result.
+
+---
+
+## Recursive execve Subtraction (VuwCTF 2025)
+
+**Pattern (String Inspector):** Binary recursively calls itself via `execve`, subtracting constants each time.
+
+**Solution:** Find base case and work backward. Often a mathematical relationship like `N * M + remainder`.
+
+---
+
+## Byte-at-a-Time Block Cipher Attack (UTCTF 2024)
+
+**Pattern (PES-128):** First output byte depends only on first input byte (no diffusion).
+
+**Attack:** For each position, try all 256 byte values, compare output byte with target ciphertext. One match per byte = full plaintext recovery without knowing the key.
+
+**Detection:** Change one input byte → only corresponding output byte changes. This means zero cross-byte diffusion = trivially breakable.
+
+---
+
 ## Byte-Wise Uniform Transforms
 
 **Pattern:** Output buffer depends on each input byte independently (no cross-byte coupling).
@@ -365,5 +528,151 @@ loop_middle:
     ; Main computation
     inc  a
     jne  loop_top
+```
+
+---
+
+## Custom Mangle Function Reversing
+
+**Pattern (Flag Appraisal):** Binary mangles input 2 bytes at a time with intermediate state, compares to static target.
+
+**Approach:**
+1. Extract static target bytes from `.rodata` section
+2. Understand mangle: processes pairs with running state value
+3. Write inverse function (process in reverse, undo each operation)
+4. Feed target bytes through inverse → recovers flag
+
+---
+
+## Position-Based Transformation Reversing
+
+**Pattern (PascalCTF 2026):** Binary transforms input by adding/subtracting position index.
+
+**Reversing:**
+```python
+expected = [...]  # Extract from .rodata
+flag = ''
+for i, b in enumerate(expected):
+    if i % 2 == 0:
+        flag += chr(b - i)   # Even: input = output - i
+    else:
+        flag += chr(b + i)   # Odd: input = output + i
+```
+
+---
+
+## Hex-Encoded String Comparison
+
+**Pattern (Spider's Curse):** Input converted to hex, compared against hex constant.
+
+**Quick solve:** Extract hex constant from strings/Ghidra, decode:
+```bash
+echo "4d65746143..." | xxd -r -p
+```
+
+---
+
+## Signal-Based Binary Exploration
+
+**Pattern (Signal Signal Little Star):** Binary uses UNIX signals as a binary tree navigation mechanism.
+
+**Identification:**
+- Multiple `sigaction()` calls with `SA_SIGINFO`
+- `sigaltstack()` setup (alternate signal stack)
+- Handler decodes embedded payload, installs next pair of signals
+- Two types: Node (installs children) vs Leaf (prints message + exits)
+
+**Solving approach:**
+1. Hook `sigaction` via `LD_PRELOAD` to log signal installations
+2. DFS through the binary tree by sending signals
+3. At each stage, observe which 2 signals are installed
+4. Send one, check if program exits (leaf) or installs 2 more (node)
+5. If wrong leaf, backtrack and try sibling
+
+```c
+// LD_PRELOAD interposer to log sigaction calls
+int sigaction(int signum, const struct sigaction *act, ...) {
+    if (act && (act->sa_flags & SA_SIGINFO))
+        log("SET %d SA_SIGINFO=1\n", signum);
+    return real_sigaction(signum, act, oldact);
+}
+```
+
+---
+
+## Malware Anti-Analysis Bypass via Patching
+
+**Pattern (Carrot):** Malware with multiple environment checks before executing payload.
+
+**Common checks to patch:**
+| Check | Technique | Patch |
+|-------|-----------|-------|
+| `ptrace(PTRACE_TRACEME)` | Anti-debug | Change `cmp -1` to `cmp 0` |
+| `sleep(150)` | Anti-sandbox timing | Change sleep value to 1 |
+| `/proc/cpuinfo` "hypervisor" | Anti-VM | Flip `JNZ` to `JZ` |
+| "VMware"/"VirtualBox" strings | Anti-VM | Flip `JNZ` to `JZ` |
+| `getpwuid` username check | Environment | Flip comparison |
+| `LD_PRELOAD` check | Anti-hook | Skip check |
+| Fan count / hardware check | Anti-VM | Flip `JLE` to `JGE` |
+| Hostname check | Environment | Flip `JNZ` to `JZ` |
+
+**Ghidra patching workflow:**
+1. Find check function, identify the conditional jump
+2. Click on instruction → `Ctrl+Shift+G` → modify opcode
+3. For `JNZ` (0x75) → `JZ` (0x74), or vice versa
+4. For immediate values: change operand bytes directly
+5. Export: press `O` → choose "Original File" format
+6. `chmod +x` the patched binary
+
+**Server-side validation bypass:**
+- If patched binary sends system info to remote server, patch the data too
+- Modify string addresses in data-gathering functions
+- Change format strings to embed correct values directly
+
+---
+
+## Multi-Stage Shellcode Loaders
+
+**Pattern (I Heard You Liked Loaders):** Nested shellcode with XOR decode loops and anti-debug.
+
+**Debugging workflow:**
+1. Break at `call rax` in launcher, step into shellcode
+2. Bypass ptrace anti-debug: step to syscall, `set $rax=0`
+3. Step through XOR decode loop (or break on `int3` if hidden)
+4. Repeat for each stage until final payload
+
+**Flag extraction from `mov` instructions:**
+```python
+# Final stage loads flag 4 bytes at a time via mov ebx, value
+# Extract little-endian 4-byte chunks
+values = [0x6174654d, 0x7b465443, ...]  # From disassembly
+flag = b''.join(v.to_bytes(4, 'little') for v in values)
+```
+
+---
+
+## Timing Side-Channel Attack
+
+**Pattern (Clock Out):** Validation time varies per correct character (longer sleep on match).
+
+**Exploitation:**
+```python
+import time
+from pwn import *
+
+flag = ""
+for pos in range(flag_length):
+    best_char, best_time = '', 0
+    for c in string.printable:
+        io = remote(host, port)
+        start = time.time()
+        io.sendline((flag + c).ljust(total_len, 'X'))
+        io.recvall()
+        elapsed = time.time() - start
+        if elapsed > best_time:
+            best_time = elapsed
+            best_char = c
+        io.close()
+    flag += best_char
 ```
 

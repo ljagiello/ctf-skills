@@ -1,5 +1,20 @@
 # CTF Pwn - Overflow Basics
 
+## Table of Contents
+- [Stack Buffer Overflow](#stack-buffer-overflow)
+  - [ret2win with Parameter (Magic Value Check)](#ret2win-with-parameter-magic-value-check)
+  - [Stack Alignment (16-byte Requirement)](#stack-alignment-16-byte-requirement)
+  - [Offset Calculation from Disassembly](#offset-calculation-from-disassembly)
+  - [Input Filtering (memmem checks)](#input-filtering-memmem-checks)
+  - [Finding Gadgets](#finding-gadgets)
+  - [Hidden Gadgets in CMP Immediates](#hidden-gadgets-in-cmp-immediates)
+- [Struct Pointer Overwrite (Heap Menu Challenges)](#struct-pointer-overwrite-heap-menu-challenges)
+- [Signed Integer Bypass (Negative Quantity)](#signed-integer-bypass-negative-quantity)
+- [Canary-Aware Partial Overflow](#canary-aware-partial-overflow)
+- [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
+
+---
+
 ## Stack Buffer Overflow
 
 1. Find offset to return address: `cyclic 200` then `cyclic -l <value>`

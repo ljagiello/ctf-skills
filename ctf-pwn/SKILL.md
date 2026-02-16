@@ -1,6 +1,6 @@
 ---
 name: ctf-pwn
-description: Binary exploitation (pwn) techniques for CTF challenges. Use when exploiting buffer overflows, format strings, heap vulnerabilities, race conditions, or kernel bugs.
+description: Binary exploitation (pwn) techniques for CTF challenges. Use when exploiting buffer overflows, format strings, heap vulnerabilities, race conditions, kernel bugs, ROP chains, ret2libc, shellcode, GOT overwrite, use-after-free, seccomp bypass, or sandbox escape.
 license: MIT
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
 metadata:
@@ -15,8 +15,8 @@ Quick reference for binary exploitation (pwn) CTF challenges. Each technique has
 
 - [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, struct pointer overwrite, signed integer bypass, hidden gadgets
 - [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), shellcode with input reversal, seccomp bypass, .fini_array hijack, pwntools template
-- [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass, canary leak, __free_hook)
-- [advanced.md](advanced.md) - Heap, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection
+- [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass, canary leak, __free_hook, .rela.plt patching)
+- [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, kernel
 - [sandbox-escape.md](sandbox-escape.md) - Python sandbox escape, custom VM exploitation, FUSE/CUSE devices, busybox/restricted shell, shell tricks
 
 ---
@@ -99,28 +99,7 @@ Leak libc via `puts@PLT(puts@GOT)`, return to vuln, stage 2 with `system("/bin/s
 
 ## Use-After-Free (UAF) Exploitation
 
-**Pattern:** Menu create/delete/view where `free()` doesn't NULL pointer.
-
-**Classic UAF flow:**
-1. Create object A (allocates chunk with function pointer)
-2. Leak address via inspect/view (bypass PIE)
-3. Free object A (creates dangling pointer)
-4. Allocate object B of **same size** (reuses freed chunk via tcache)
-5. Object B data overwrites A's function pointer with `win()` address
-6. Trigger A's callback -> jumps to `win()`
-
-**Key insight:** Both structs must be the same size for tcache to reuse the chunk.
-
-```python
-create_report("sighting-0")  # 64-byte struct with callback ptr at +56
-leak = inspect_report(0)      # Leak callback address for PIE bypass
-pie_base = leak - redaction_offset
-win_addr = pie_base + win_offset
-
-delete_report(0)              # Free chunk, dangling pointer remains
-create_signal(b"A"*56 + p64(win_addr))  # Same-size struct overwrites callback
-analyze_report(0)             # Calls dangling pointer -> win()
-```
+**Pattern:** Menu create/delete/view where `free()` doesn't NULL pointer. Create -> leak -> free -> allocate same-size object to overwrite function pointer -> trigger callback. Key: both structs must be same size for tcache reuse. See [advanced.md](advanced.md) for full exploit code.
 
 ## Seccomp Bypass
 
@@ -140,27 +119,11 @@ Writable `.fini_array` + arbitrary write -> overwrite with win/shellcode address
 
 ## Path Traversal Sanitizer Bypass
 
-**Pattern (Galactic Archives):** Sanitizer skips character after finding banned char.
-
-```python
-# Sanitizer removes '.' and '/' but skips next char after match
-# ../../etc/passwd -> bypass with doubled chars:
-"....//....//etc//passwd"
-# Each '..' becomes '....' (first '.' caught, second skipped, third caught, fourth survives)
-```
-
-**Flag via `/proc/self/fd/N`:**
-- If binary opens flag file but doesn't close fd, read via `/proc/self/fd/3`
-- fd 0=stdin, 1=stdout, 2=stderr, 3=first opened file
+**Pattern:** Sanitizer skips char after banned char match; double chars to bypass (e.g., `....//....//etc//passwd`). Also try `/proc/self/fd/3` if binary has flag fd open. See [advanced.md](advanced.md).
 
 ## Kernel Exploitation
 
-- Look for vulnerable `lseek` handlers allowing OOB read/write
-- Heap grooming with forked processes
-- SUID binary exploitation via kernel-to-userland buffer overflow
-- Check kernel config for disabled protections:
-  - `CONFIG_SLAB_FREELIST_RANDOM=n` -> sequential heap chunks
-  - `CONFIG_SLAB_MERGE_DEFAULT=n` -> predictable allocations
+OOB via vulnerable `lseek`, heap grooming with `fork()`, SUID exploits. Check `CONFIG_SLAB_FREELIST_RANDOM` and `CONFIG_SLAB_MERGE_DEFAULT`. See [advanced.md](advanced.md).
 
 ## Format String Quick Reference
 
@@ -172,37 +135,38 @@ See [format-string.md](format-string.md) for GOT overwrite patterns, blind pwn, 
 
 ## .rela.plt / .dynsym Patching (Format String)
 
-**When to use:** GOT addresses contain bad bytes (e.g., 0x0a with fgets), making direct GOT overwrite impossible. Requires `.rela.plt` and `.dynsym` in writable memory.
-
-**Technique:** Patch `.rela.plt` relocation entry symbol index to point to different symbol, then patch `.dynsym` symbol's `st_value` with `win()` address. When the original function is called, dynamic linker reads patched relocation and jumps to `win()`.
-
-```python
-# Key addresses (from readelf -S)
-REL_SYM_BYTE = 0x4006ec   # .rela.plt[exit].r_info byte containing symbol index
-STDOUT_STVAL_LO = 0x4004e8  # .dynsym[11].st_value low halfword
-STDOUT_STVAL_HI = 0x4004ea  # .dynsym[11].st_value high halfword
-
-# Format string writes via %hhn (8-bit) and %hn (16-bit)
-# 1. Write symbol index 0x0b to r_info byte
-# 2. Write win() address low halfword to st_value
-# 3. Write win() address high halfword to st_value+2
-```
-
-**When GOT has bad bytes but .rela.plt/.dynsym don't:** This technique bypasses all GOT byte restrictions since you never write to GOT directly.
+**When to use:** GOT addresses contain bad bytes (e.g., 0x0a). Patch `.rela.plt` symbol index + `.dynsym` st_value to redirect function resolution to `win()`. Bypasses all GOT byte restrictions. See [format-string.md](format-string.md) for full technique and code.
 
 ## Heap Exploitation
 
 - tcache poisoning (glibc 2.26+), fastbin dup / double free
 - House of Force (old glibc), unsorted bin attack
+- **House of Apple 2** (glibc 2.34+): FSOP via `_IO_wfile_jumps` when `__free_hook`/`__malloc_hook` removed. Fake FILE with `_flags = " sh"`, vtable chain → `system(fp)`.
+- **House of Einherjar**: Off-by-one null clears PREV_INUSE, backward consolidation with self-pointing unlink.
+- **Safe-linking** (glibc 2.32+): tcache fd mangled as `ptr ^ (chunk_addr >> 12)`.
 - Check glibc version: `strings libc.so.6 | grep GLIBC`
 - Freed chunks contain libc pointers (fd/bk) -> leak via error messages or missing null-termination
 - Heap feng shui: control alloc order/sizes, create holes, place targets adjacent to overflow source
 
-See [advanced.md](advanced.md) for custom allocator exploitation (nginx pools), heap overlap via base conversion, tree data structure stack underallocation.
+See [advanced.md](advanced.md) for House of Apple 2 FSOP chain, custom allocator exploitation (nginx pools), heap overlap via base conversion, tree data structure stack underallocation.
 
 ## JIT Compilation Exploits
 
 **Pattern:** Off-by-one in instruction encoding -> misaligned machine code. Embed shellcode as operand bytes of subtraction operations, chain with 2-byte `jmp` instructions. See [advanced.md](advanced.md).
+
+**BF JIT unbalanced bracket:** Unbalanced `]` pops tape address (RWX) from stack → write shellcode to tape with `+`/`-`, trigger `]` to jump to it. See [advanced.md](advanced.md).
+
+## Type Confusion in Interpreters
+
+**Pattern:** Interpreter sets wrong type tag → struct fields reinterpreted. Unused padding bytes in one variant become active pointers/data in another. Flag bytes as type value trigger UNKNOWN_DATA dump. See [advanced.md](advanced.md).
+
+## Off-by-One Index / Size Corruption
+
+**Pattern:** Array index 0 maps to `entries[-1]`, overlapping struct metadata (size field). Corrupted size → OOB read leaks canary/libc, then OOB write places ROP chain. See [advanced.md](advanced.md).
+
+## Double win() Call
+
+**Pattern:** `win()` checks `if (attempts++ > 0)` — needs two calls. Stack two return addresses: `p64(win) + p64(win)`. See [advanced.md](advanced.md).
 
 ## Esoteric Language GOT Overwrite
 
@@ -250,28 +214,4 @@ Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers
 
 ## Useful Commands
 
-```bash
-checksec --file=binary          # Check binary protections
-one_gadget libc.so.6            # Find one-shot gadgets
-ropper -f binary                # Find ROP gadgets
-ROPgadget --binary binary       # Alternative gadget finder
-seccomp-tools dump ./binary     # Check seccomp rules
-strings libc.so.6 | grep GLIBC # Check glibc version
-```
-
-## Pwntools Template
-
-```python
-from pwn import *
-context.binary = elf = ELF('./binary')
-context.log_level = 'debug'
-def conn():
-    if args.REMOTE:
-        return remote('host', port)
-    return process('./binary')
-io = conn()
-# exploit here
-io.interactive()
-```
-
-See [rop-and-shellcode.md](rop-and-shellcode.md) for the full template.
+`checksec`, `one_gadget`, `ropper`, `ROPgadget`, `seccomp-tools dump`, `strings libc | grep GLIBC`. See [rop-and-shellcode.md](rop-and-shellcode.md) for full command list and pwntools template.

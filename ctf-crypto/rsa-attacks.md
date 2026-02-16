@@ -1,5 +1,17 @@
 # CTF Crypto - RSA Attacks
 
+## Table of Contents
+- [RSA with Consecutive Primes](#rsa-with-consecutive-primes)
+- [Multi-Prime RSA](#multi-prime-rsa)
+- [RSA with Restricted-Digit Primes (LACTF 2026)](#rsa-with-restricted-digit-primes-lactf-2026)
+- [Coppersmith for Structured RSA Primes (LACTF 2026)](#coppersmith-for-structured-rsa-primes-lactf-2026)
+- [Manger's RSA Padding Oracle Attack (Nullcon 2026)](#mangers-rsa-padding-oracle-attack-nullcon-2026)
+- [Polynomial Hash with Trivial Root (Pragyan 2026)](#polynomial-hash-with-trivial-root-pragyan-2026)
+- [Polynomial CRT in GF(2)[x] (Nullcon 2026)](#polynomial-crt-in-gf2x-nullcon-2026)
+- [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
+
+---
+
 ## RSA with Consecutive Primes
 
 **Pattern (Loopy Primes):** q = next_prime(p), making p ~ q ~ sqrt(N).

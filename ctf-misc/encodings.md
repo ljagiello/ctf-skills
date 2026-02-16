@@ -1,5 +1,30 @@
 # CTF Misc - Encodings & Media
 
+## Table of Contents
+- [Common Encodings](#common-encodings)
+  - [Base64](#base64)
+  - [Base32](#base32)
+  - [Hex](#hex)
+  - [IEEE 754 Floating Point Encoding](#ieee-754-floating-point-encoding)
+  - [UTF-16 Endianness Reversal (LACTF 2026)](#utf-16-endianness-reversal-lactf-2026)
+  - [BCD (Binary-Coded Decimal) Encoding (VuwCTF 2025)](#bcd-binary-coded-decimal-encoding-vuwctf-2025)
+  - [Multi-Layer Encoding Detection (0xFun 2026)](#multi-layer-encoding-detection-0xfun-2026)
+  - [URL Encoding](#url-encoding)
+  - [ROT13 / Caesar](#rot13-caesar)
+  - [Caesar Brute Force](#caesar-brute-force)
+- [QR Codes](#qr-codes)
+  - [Basic Commands](#basic-commands)
+  - [QR Structure](#qr-structure)
+  - [Repairing Damaged QR](#repairing-damaged-qr)
+  - [Finder Pattern Template](#finder-pattern-template)
+  - [QR Code Chunk Reassembly (LACTF 2026)](#qr-code-chunk-reassembly-lactf-2026)
+- [Esoteric Languages](#esoteric-languages)
+  - [Custom Brainfuck Variants (Themed Esolangs)](#custom-brainfuck-variants-themed-esolangs)
+- [Verilog/HDL](#veriloghdl)
+- [Binary Tree Key Encoding](#binary-tree-key-encoding)
+
+---
+
 ## Common Encodings
 
 ### Base64
@@ -54,31 +79,42 @@ fixed = mojibake.encode('utf-16-le').decode('utf-16-be')
 
 **Identification:** Text appears as CJK characters (Japanese/Chinese), challenge mentions "translation" or "endian".
 
-### SHA-256 Length Extension Attack (LACTF 2026)
+### BCD (Binary-Coded Decimal) Encoding (VuwCTF 2025)
 
-**Pattern (ttyspin):** MAC = `SHA-256(SECRET || message)` with known message and hash. Forge valid MAC for `SECRET || message || padding || extension`.
+**Pattern:** Challenge name hints at ratio (e.g., "1.5x" = 1.5:1 byte ratio). Each nibble encodes one decimal digit.
 
-**Key insight:** SHA-256 (and MD5, SHA-1) are Merkle-Damgard constructions. Knowing `H(SECRET || msg)` lets you compute `H(SECRET || msg || glue_pad || ext)` without knowing SECRET.
-
-**Attack steps:**
-1. Compute glue padding: the padding SHA-256 would apply after `SECRET || msg`
-2. Construct new message: `msg || glue_pad || malicious_extension`
-3. Resume SHA-256 from the known hash state, feed extension bytes
-4. Result is valid MAC for the new message
-
-```bash
-# Using hashpumpy or hlextend:
-pip install hlextend
-```
 ```python
-import hlextend
-sha = hlextend.new('sha256')
-new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_hex)
-new_hash = sha.hexdigest()
-# new_data includes original + glue padding + extension
+def bcd_decode(data):
+    """Decode BCD: each byte = 2 decimal digits."""
+    return ''.join(f'{(b>>4)&0xf}{b&0xf}' for b in data)
+
+# Then convert decimal string to ASCII
+ascii_text = ''.join(chr(int(decoded[i:i+2])) for i in range(0, len(decoded), 2))
 ```
 
-**Common in CTFs:** Game save files, session tokens, API signatures using `H(secret || data)`. Always check if the MAC construction is vulnerable to length extension (SHA-256, MD5, SHA-1 are; HMAC, SHA-3 are NOT).
+### Multi-Layer Encoding Detection (0xFun 2026)
+
+**Pattern (139 steps):** Recursive decoding with troll flags as decoys.
+
+**Critical rule:** When data is all hex chars (0-9, a-f), decode as **hex FIRST**, not base64 (which also accepts those chars).
+
+```python
+def auto_decode(data):
+    while True:
+        data = data.strip()
+        if data.startswith('REAL_DATA_FOLLOWS:'):
+            data = data.split(':', 1)[1]
+        # Prioritize hex when ambiguous
+        if all(c in '0123456789abcdefABCDEF' for c in data) and len(data) % 2 == 0:
+            data = bytes.fromhex(data).decode('ascii', errors='replace')
+        elif set(data) <= set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='):
+            data = base64.b64decode(data).decode('ascii', errors='replace')
+        else:
+            break
+    return data
+```
+
+**Ignore troll flags** — check for "keep decoding" or "REAL_DATA_FOLLOWS:" markers.
 
 ### URL Encoding
 ```python
@@ -171,20 +207,6 @@ finder_pattern = [
 
 ---
 
-## Audio Challenges
-
-### Spectrogram
-```bash
-sox audio.wav -n spectrogram
-```
-
-### SSTV
-```bash
-qsstv  # GUI decoder
-```
-
----
-
 ## Esoteric Languages
 
 | Language | Pattern |
@@ -219,64 +241,21 @@ qsstv  # GUI decoder
 
 **Solving approach:**
 ```python
-# 1. Identify unique words and their frequencies
 from collections import Counter
 words = content.split()
 freq = Counter(words)
 # Most frequent = likely + or -, line-ender = likely .
 
-# 2. Map words to BF ops (educated guess from theme)
-mapping = {
-    'arch': '+',    # increment
-    'linux': '-',   # decrement
-    'i': '>',       # move right
-    'use': '<',     # move left
-    'the': '[',     # begin loop
-    'way': ']',     # end loop
-    'btw': '.',     # output
-}
-
-# 3. Translate and execute as Brainfuck
+# Map words to BF ops, translate, run standard BF interpreter
+mapping = {'arch': '+', 'linux': '-', 'i': '>', 'use': '<',
+           'the': '[', 'way': ']', 'btw': '.'}
 bf = ''.join(mapping.get(w, '') for w in words)
-
-# 4. Execute BF interpreter
-tape = [0] * 30000
-ptr = ip = 0
-output = ''
-# Build loop map for [ ] matching
-loop_map = {}
-stack = []
-for idx, ch in enumerate(bf):
-    if ch == '[': stack.append(idx)
-    elif ch == ']':
-        start = stack.pop()
-        loop_map[start] = idx
-        loop_map[idx] = start
-
-while ip < len(bf):
-    c = bf[ip]
-    if c == '+': tape[ptr] = (tape[ptr] + 1) % 256
-    elif c == '-': tape[ptr] = (tape[ptr] - 1) % 256
-    elif c == '>': ptr += 1
-    elif c == '<': ptr -= 1
-    elif c == '.': output += chr(tape[ptr])
-    elif c == '[' and tape[ptr] == 0: ip = loop_map[ip]
-    elif c == ']' and tape[ptr] != 0: ip = loop_map[ip]
-    ip += 1
-print(output)
+# Then execute bf string with a standard Brainfuck interpreter
 ```
 
-**Real example (0xL4ugh CTF - "iUseArchBTW"):**
-- File extension: `.archbtw`
-- Words: `arch`=+, `linux`=--, `i`=>, `use`=<, `the`=[, `way`=], `btw`=.
-- Theme: "I use Arch Linux BTW" meme
+**Real example (0xL4ugh CTF - "iUseArchBTW"):** `.archbtw` extension, "I use Arch Linux BTW" meme theme.
 
-**Tips:**
-- If first attempt doesn't produce readable ASCII, try swapping `+`/`-` or `>`/`<`
-- The loop structure (`[`/`]`) words often appear together on the same line
-- Line 1 typically initializes a cell value (just `+` operations)
-- Line 2 often contains the first loop (multiplier pattern)
-- Verify by checking if output starts with known flag format
+**Tips:** Try swapping `+`/`-` or `>`/`<` if output is not ASCII. Verify output starts with known flag format.
 
 ---
 
@@ -289,59 +268,6 @@ def verilog_module(input_byte):
     wire_b = input_byte & 0xF
     return wire_a ^ wire_b
 ```
-
----
-
-## YARA Rules with Z3
-
-```python
-from z3 import *
-
-flag = [BitVec(f'f{i}', 8) for i in range(FLAG_LEN)]
-s = Solver()
-
-# Literal bytes
-for i, byte in enumerate([0x66, 0x6C, 0x61, 0x67]):
-    s.add(flag[i] == byte)
-
-# Character range
-for i in range(4):
-    s.add(flag[i] >= ord('A'))
-    s.add(flag[i] <= ord('Z'))
-
-if s.check() == sat:
-    m = s.model()
-    print(bytes([m[f].as_long() for f in flag]))
-```
-
----
-
-## Archive Extraction
-
-### Nested Archives (Matryoshka)
-```bash
-while f=$(ls *.tar* *.gz *.bz2 *.xz *.zip *.7z 2>/dev/null|head -1) && [ -n "$f" ]; do
-    7z x -y "$f" && rm "$f"
-done
-```
-
-### Format Reference
-```bash
-7z x archive.7z
-tar -xzf file.tar.gz   # Gzip
-tar -xjf file.tar.bz2  # Bzip2
-tar -xJf file.tar.xz   # XZ
-unzip file.zip
-```
-
----
-
-## Hash Identification
-
-**By magic constants:**
-- MD5: `0x67452301`, `0xefcdab89`
-- SHA-256: `0x6a09e667`, `0xbb67ae85`
-- MurmurHash64A: `0xC6A4A7935BD1E995`
 
 ---
 
@@ -363,60 +289,3 @@ def decode_path(index):
     return path[::-1]
 ```
 
----
-
-## Type Systems as Constraints
-
-**OCaml GADTs / advanced types encode constraints.**
-
-Don't compile - extract constraints with regex and solve with Z3:
-```python
-import re
-from z3 import *
-
-matches = re.findall(r"\(\s*([^)]+)\s*\)\s*(\w+)_t", source)
-# Convert to Z3 constraints and solve
-```
-
----
-
-## memfd_create Packed Binaries
-
-```python
-from Crypto.Cipher import ARC4
-cipher = ARC4.new(b"key")
-decrypted = cipher.decrypt(encrypted_data)
-open("dumped", "wb").write(decrypted)
-```
-
----
-
-## DNS-based C2
-
-```bash
-tshark -r capture.pcap -Y "dns.qry.type == 16" \
-    -T fields -e dns.qry.name -e dns.txt
-```
-
----
-
-## PyInstaller / Bytecode
-
-```bash
-python pyinstxtractor.py packed.exe
-```
-
-### Marshal Analysis
-```python
-import marshal, dis
-with open('file.bin', 'rb') as f:
-    code = marshal.load(f)
-dis.dis(code)
-```
-
-### Opcode Remapping
-If decompiler fails with opcode errors:
-1. Find modified `opcode.pyc`
-2. Build mapping to original values
-3. Patch target .pyc
-4. Decompile normally
