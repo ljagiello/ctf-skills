@@ -3,7 +3,7 @@ name: ctf-misc
 description: Miscellaneous CTF challenge techniques. Use for encoding puzzles, RF/SDR signal processing, Python/bash jails, DNS exploitation, unicode steganography, floating-point tricks, QR codes, audio challenges, Z3 constraint solving, Kubernetes RBAC, WASM game patching, esoteric languages, or challenges that don't fit other categories.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
-allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
+allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch Skill
 metadata:
   user-invocable: "false"
 ---
@@ -192,7 +192,7 @@ new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_
 
 ## Discord API Enumeration (0xFun 2026)
 
-Flags hidden in Discord metadata (roles, animated emoji, embeds). Invoke `/ctf-osint` and see social-media.md for Discord API enumeration technique and code.
+Flags hidden in Discord metadata (roles, animated emoji, embeds). Invoke `/ctf-osint` and see [ctf-osint social-media.md](../ctf-osint/social-media.md) for Discord API enumeration technique and code.
 
 ---
 
