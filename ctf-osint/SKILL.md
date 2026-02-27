@@ -2,6 +2,7 @@
 name: ctf-osint
 description: Open Source Intelligence techniques for CTF challenges. Use when gathering information from public sources, social media, geolocation, DNS records, username enumeration, reverse image search, Google dorking, Wayback Machine, Tor relays, FEC filings, or identifying unknown data like hashes and coordinates.
 license: MIT
+compatibility: Requires filesystem-based agent (Claude Code or similar) with bash and internet access for OSINT lookups.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
 metadata:
   user-invocable: "false"

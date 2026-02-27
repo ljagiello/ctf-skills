@@ -2,6 +2,7 @@
 name: ctf-web
 description: Web exploitation techniques for CTF challenges. Use when solving web security challenges involving XSS, SQLi, SSTI, SSRF, CSRF, XXE, file upload bypasses, JWT attacks, prototype pollution, path traversal, command injection, request smuggling, DOM clobbering, Web3/blockchain, or authentication bypass.
 license: MIT
+compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
 metadata:
   user-invocable: "false"

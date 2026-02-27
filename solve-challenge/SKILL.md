@@ -2,6 +2,7 @@
 name: solve-challenge
 description: Solve CTF challenges by analyzing files, connecting to services, and applying exploitation techniques. Orchestrates category-specific CTF skills for pwn, crypto, web, reverse engineering, forensics, OSINT, malware analysis, and miscellaneous challenges.
 license: MIT
+compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access. Orchestrates other ctf-* skills.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch Skill
 metadata:
   user-invocable: "true"
@@ -64,7 +65,7 @@ Once you identify the category, **invoke the matching skill** to get specialized
 | Malware | `/ctf-malware` | Obfuscated scripts, C2 traffic, PE/.NET analysis |
 | Misc | `/ctf-misc` | Jails, encodings, RF/SDR, esoteric languages, constraint solving |
 
-You can also read skill files directly for detailed techniques: `~/.agents/skills/ctf-<category>/SKILL.md`
+You can also invoke `/ctf-<category>` to load the full skill instructions with detailed techniques.
 
 ### Step 4: Pivot When Stuck
 
