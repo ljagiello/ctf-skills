@@ -40,6 +40,7 @@
 - [Shellcode in Data Section via mmap RWX (VuwCTF 2025)](#shellcode-in-data-section-via-mmap-rwx-vuwctf-2025)
 - [Recursive execve Subtraction (VuwCTF 2025)](#recursive-execve-subtraction-vuwctf-2025)
 - [Byte-at-a-Time Block Cipher Attack (UTCTF 2024)](#byte-at-a-time-block-cipher-attack-utctf-2024)
+- [Mathematical Convergence Bitmap (EHAX 2026)](#mathematical-convergence-bitmap-ehax-2026)
 - [Byte-Wise Uniform Transforms](#byte-wise-uniform-transforms)
 - [x86-64 Gotchas](#x86-64-gotchas)
   - [Sign Extension](#sign-extension)
@@ -485,6 +486,49 @@ for region in regions:
 **Attack:** For each position, try all 256 byte values, compare output byte with target ciphertext. One match per byte = full plaintext recovery without knowing the key.
 
 **Detection:** Change one input byte → only corresponding output byte changes. This means zero cross-byte diffusion = trivially breakable.
+
+---
+
+## Mathematical Convergence Bitmap (EHAX 2026)
+
+**Pattern (Compute It):** Binary classifies complex-plane coordinates by Newton's method convergence. The classification results, arranged as a grid, spell out the flag in ASCII art.
+
+**Recognition:**
+- Input file with coordinate pairs (x, y)
+- Binary iterates a mathematical function (e.g., z^3 - 1 = 0) and outputs pass/fail
+- Grid dimensions hinted by point count (e.g., 2600 = 130×20)
+- 5-pixel-high ASCII art font common in CTFs
+
+**Newton's method for z^3 - 1:**
+```python
+def newton_converges_to_one(px, py, max_iter=50, target_count=12):
+    """Returns True if Newton's method converges to z=1 in exactly target_count steps."""
+    x, y = px, py
+    count = 0
+    for _ in range(max_iter):
+        f_real = x**3 - 3*x*y**2 - 1.0
+        f_imag = 3*x**2*y - y**3
+        J_rr = 3.0 * (x**2 - y**2)
+        J_ri = 6.0 * x * y
+        det = J_rr**2 + J_ri**2
+        if det < 1e-9:
+            break
+        x -= (f_real * J_rr + f_imag * J_ri) / det
+        y -= (f_imag * J_rr - f_real * J_ri) / det
+        count += 1
+        if abs(x - 1.0) < 1e-6 and abs(y) < 1e-6:
+            break
+    return count == target_count
+
+# Read coordinates and render bitmap
+points = [(float(x), float(y)) for x, y in ...]
+bits = [1 if newton_converges_to_one(px, py) else 0 for px, py in points]
+WIDTH = 130  # 2600 / 20 rows
+for r in range(len(bits) // WIDTH):
+    print(''.join('#' if bits[r*WIDTH+c] else '.' for c in range(WIDTH)))
+```
+
+**Key insight:** The binary is a mathematical classifier, not a flag checker. The flag is in the visual pattern of classifications, not in the binary's output. Reverse-engineer the math, apply to all coordinates, and visualize as bitmap.
 
 ---
 

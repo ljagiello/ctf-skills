@@ -6,6 +6,7 @@
 - [DisplayPort 8b/10b + LFSR Decoding](#displayport-8b10b-lfsr-decoding)
 - [Voyager Golden Record Audio (0xFun 2026)](#voyager-golden-record-audio-0xfun-2026)
 - [Side-Channel Power Analysis (EHAX 2026)](#side-channel-power-analysis-ehax-2026)
+- [Saleae Logic 2 UART Decode (EHAX 2026)](#saleae-logic-2-uart-decode-ehax-2026)
 - [Flipper Zero .sub File (0xFun 2026)](#flipper-zero-sub-file-0xfun-2026)
 
 ---
@@ -185,6 +186,69 @@ flag = hashlib.sha256(key.encode()).hexdigest()
 **Identification:** Challenge mentions "power", "side-channel", "leakage", "traces", or "measurements". Data is a multi-dimensional numeric array with axes for positions/guesses/traces/samples.
 
 **Key insight:** The "leak point" is the sample index where correct vs incorrect guesses show the largest power difference. Average across traces first to reduce noise, then find the sample with maximum variance across guesses.
+
+---
+
+## Saleae Logic 2 UART Decode (EHAX 2026)
+
+**Pattern (Baby Serial):** Saleae Logic 2 `.sal` file (ZIP archive) containing digital channel captures. Data encoded as UART serial.
+
+**File structure:** `.sal` is a ZIP containing `digital-0.bin` through `digital-7.bin` + `meta.json`. Only channel 0 typically has data.
+
+**Binary format (digital-*.bin):**
+```
+<SALEAE> magic (8 bytes)
+version: u32 = 2
+type: u32 = 100 (digital)
+initial_state: u32 (0 or 1)
+... header fields ...
+Delta-encoded transitions (variable-length integers)
+```
+
+**Delta encoding:** Each value represents the number of samples between state transitions. The signal alternates between HIGH and LOW at each delta.
+
+**UART decode from deltas:**
+```python
+import numpy as np
+
+# Parse deltas from binary (after header)
+# Reconstruct signal timeline
+times = np.cumsum(deltas)
+states = []
+state = initial_state
+for d in deltas:
+    states.append(state)
+    state ^= 1  # toggle on each transition
+
+# UART decode: detect start bit (HIGH→LOW), sample 8 data bits at bit centers
+# Baud rate detection: most common delta ≈ samples_per_bit
+# At 1MHz sample rate: 115200 baud ≈ 8.7 samples/bit
+
+def uart_decode(transitions, sample_rate=1_000_000, baud=115200):
+    bit_period = sample_rate / baud
+    bytes_out = []
+    i = 0
+    while i < len(transitions):
+        # Find start bit (falling edge)
+        if transitions[i] == 0:  # LOW = start bit
+            byte_val = 0
+            for bit in range(8):
+                sample_time = (1.5 + bit) * bit_period  # center of each bit
+                # Sample signal at this offset from start bit
+                bit_val = get_signal_at(sample_time)
+                byte_val |= (bit_val << bit)  # LSB first
+            bytes_out.append(byte_val)
+        i += 1
+    return bytes(bytes_out)
+```
+
+**Common pitfalls:**
+- **Inverted polarity:** UART idle is HIGH (mark). If initial_state=1, the encoding may be inverted — try both
+- **Baud rate guessing:** Check common rates: 9600, 19200, 38400, 57600, 115200, 230400
+- **Output format:** Decoded bytes may be base64-encoded (containing a PNG image or text)
+- **Saleae internal format ≠ export format:** The `.sal` internal binary uses a different encoding than CSV/binary export. Parse the raw delta transitions directly
+
+**Quick approach:** Install Saleae Logic 2, open the `.sal` file, add UART analyzer with auto-baud detection, export decoded data.
 
 ---
 

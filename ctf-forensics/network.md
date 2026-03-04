@@ -14,6 +14,7 @@
 - [BCD Encoding in UDP (VuwCTF 2025)](#bcd-encoding-in-udp-vuwctf-2025)
 - [HTTP File Upload Exfiltration in PCAP (MetaCTF 2026)](#http-file-upload-exfiltration-in-pcap-metactf-2026)
 - [Packet Interval Timing-Based Encoding (EHAX 2026)](#packet-interval-timing-based-encoding-ehax-2026)
+- [USB HID Mouse/Pen Drawing Recovery (EHAX 2026)](#usb-hid-mousepen-drawing-recovery-ehax-2026)
 - [NTLMv2 Hash Cracking from PCAP (Pragyan 2026)](#ntlmv2-hash-cracking-from-pcap-pragyan-2026)
 
 ---
@@ -326,6 +327,81 @@ print(data.decode(errors='replace'))
 **Key insight:** When identical packets appear on a single interface with only two practical interval values, it's almost certainly binary encoding via timing. The content is noise — the signal is in the gaps. Filter by interface and count unique intervals first.
 
 **Scale tip:** Large PCAPs (millions of packets) often have the signal in a tiny subset. Triage with `tshark -q -z io,phs` to find which interface has the fewest packets — that's likely the data carrier.
+---
+
+## USB HID Mouse/Pen Drawing Recovery (EHAX 2026)
+
+**Pattern (Painter):** PCAP contains USB HID interrupt transfers from a mouse/pen device. Drawing data encoded as relative movements with multiple draw modes.
+
+**Packet format (7-byte HID reports):**
+| Byte | Field | Notes |
+|------|-------|-------|
+| 0 | Button state | 0x01 = pressed (may be constant) |
+| 1 | Mode/pad | 0=hover, 1=draw mode 1, 2=draw mode 2 |
+| 2-3 | dx (int16 LE) | Relative X movement |
+| 4-5 | dy (int16 LE) | Relative Y movement |
+| 6 | Wheel | Usually 0 |
+
+**Extraction and rendering:**
+```python
+import struct
+from PIL import Image, ImageDraw
+
+# Extract HID data
+# tshark -r capture.pcap -Y "usb.transfer_type==1" -T fields -e usb.capdata
+
+packets = []
+with open('hid_data.txt') as f:
+    for line in f:
+        raw = bytes.fromhex(line.strip().replace(':', ''))
+        if len(raw) >= 7:
+            btn = raw[0]
+            mode = raw[1]
+            dx = struct.unpack('<h', raw[2:4])[0]
+            dy = struct.unpack('<h', raw[4:6])[0]
+            packets.append((btn, mode, dx, dy))
+
+# Accumulate positions per mode
+SCALE = 5
+positions = {0: [], 1: [], 2: []}
+x, y = 0, 0
+for btn, mode, dx, dy in packets:
+    x += dx
+    y += dy
+    positions[mode].append((x, y))
+
+# Render each mode separately (different colors = different text layers)
+for mode in [1, 2]:
+    pts = positions[mode]
+    if not pts:
+        continue
+    min_x = min(p[0] for p in pts) - 100
+    min_y = min(p[1] for p in pts) - 100
+    max_x = max(p[0] for p in pts) + 100
+    max_y = max(p[1] for p in pts) + 100
+    w = (max_x - min_x) * SCALE
+    h = (max_y - min_y) * SCALE
+    img = Image.new('RGB', (w, h), 'white')
+    draw = ImageDraw.Draw(img)
+    for i in range(1, len(pts)):
+        x0 = (pts[i-1][0] - min_x) * SCALE
+        y0 = (pts[i-1][1] - min_y) * SCALE
+        x1 = (pts[i][0] - min_x) * SCALE
+        y1 = (pts[i][1] - min_y) * SCALE
+        # Skip long jumps (pen lifts)
+        if abs(pts[i][0]-pts[i-1][0]) < 50 and abs(pts[i][1]-pts[i-1][1]) < 50:
+            draw.line([(x0,y0),(x1,y1)], fill='black', width=3)
+    img.save(f'mode_{mode}.png')
+```
+
+**Key techniques:**
+- **Separate modes:** Different button/mode values draw different text layers — render each independently
+- **Skip pen lifts:** Large dx/dy jumps indicate pen was lifted, not drawn — filter by distance threshold
+- **High resolution:** Scale 5-8x with margins for readable handwriting
+- **Time gradient:** Color points by temporal order (rainbow gradient) to trace stroke direction
+- **Character segmentation:** Group consecutive same-mode points by large X gaps to isolate characters
+
+**Difference from keyboard HID:** Mouse HID uses relative movements (accumulated), keyboard uses keycodes (direct). Mouse drawing requires rendering; keyboard requires keymap lookup.
 
 ---
 

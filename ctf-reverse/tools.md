@@ -37,6 +37,7 @@
   - [PyInstaller](#pyinstaller)
 - [LLVM IR](#llvm-ir)
   - [Convert to Assembly](#convert-to-assembly)
+- [RISC-V Binary Analysis (EHAX 2026)](#risc-v-binary-analysis-ehax-2026)
 - [Useful Commands](#useful-commands)
 
 ---
@@ -326,6 +327,51 @@ python pyinstxtractor.py binary.exe
 llc task.ll --x86-asm-syntax=intel
 gcc -c task.s -o file.o
 ```
+
+---
+
+## RISC-V Binary Analysis (EHAX 2026)
+
+**Pattern (iguessbro):** Statically linked, stripped RISC-V ELF binary. Can't run natively on x86.
+
+**Disassembly with Capstone:**
+```python
+from capstone import *
+
+with open('binary', 'rb') as f:
+    code = f.read()
+
+# RISC-V 64-bit with compressed instruction support
+md = Cs(CS_ARCH_RISCV, CS_MODE_RISCVC | CS_MODE_RISCV64)
+md.detail = True
+
+# Disassemble from entry point (check ELF header for e_entry)
+TEXT_OFFSET = 0x10000  # typical for static RISC-V
+for insn in md.disasm(code[TEXT_OFFSET:], TEXT_OFFSET):
+    print(f"0x{insn.address:x}:\t{insn.mnemonic}\t{insn.op_str}")
+```
+
+**Common RISC-V patterns:**
+- `li a0, N` → load immediate (argument setup)
+- `mv a0, s0` → register move
+- `call offset` → function call (auipc + jalr pair)
+- `beq/bne a0, zero, label` → conditional branch
+- `sd/ld` → 64-bit store/load
+- `addiw` → 32-bit add (W-suffix = word operations)
+
+**Key differences from x86:**
+- No flags register — comparisons are inline with branch instructions
+- Arguments in a0-a7 (not rdi/rsi/rdx)
+- Return value in a0
+- Saved registers s0-s11 (callee-saved)
+- Compressed instructions (2 bytes) mixed with standard (4 bytes) — use `CS_MODE_RISCVC`
+
+**Anti-RE tricks in RISC-V:**
+- Fake flags as string constants (check for `"n0t_th3_r34l"` patterns)
+- Timing anti-brute-force (rdtime instruction)
+- XOR decryption with incremental key: `decrypted[i] = enc[i] ^ (key & 0xFF) ^ 0xA5; key += 7`
+
+**Emulation:** `qemu-riscv64 -L /usr/riscv64-linux-gnu/ ./binary` (needs cross-toolchain sysroot)
 
 ---
 

