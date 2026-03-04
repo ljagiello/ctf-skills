@@ -13,6 +13,8 @@
 - [Nested PNG with Iterating XOR Keys (VuwCTF 2025)](#nested-png-with-iterating-xor-keys-vuwctf-2025)
 - [DotCode Barcode via SSTV (0xFun 2026)](#dotcode-barcode-via-sstv-0xfun-2026)
 - [DTMF Audio Decoding](#dtmf-audio-decoding)
+- [Custom Frequency DTMF / Dual-Tone Keypad Encoding (EHAX 2026)](#custom-frequency-dtmf--dual-tone-keypad-encoding-ehax-2026)
+- [JPEG Unused Quantization Table LSB Steganography (EHAX 2026)](#jpeg-unused-quantization-table-lsb-steganography-ehax-2026)
 
 ---
 
@@ -294,3 +296,107 @@ sox phonehome.wav -t raw -r 22050 -e signed-integer -b 16 -c 1 - | \
 octal_groups = ["115", "145", "164", "141"]  # M, e, t, a
 flag = ''.join(chr(int(g, 8)) for g in octal_groups)
 ```
+
+---
+
+## Custom Frequency DTMF / Dual-Tone Keypad Encoding (EHAX 2026)
+
+**Pattern (Quantum Message):** Audio with dual-tone sequences at non-standard frequencies, aligned at regular intervals (e.g., every 1 second). Hints about "harmonic oscillators" or physics point to custom frequency design.
+
+**Identification:** Spectrogram shows two distinct frequency sets that don't match standard DTMF (697-1633 Hz). Look for evenly-spaced rows/columns of frequency tones.
+
+**Decoding workflow:**
+```python
+import numpy as np
+from scipy.io import wavfile
+
+rate, audio = wavfile.read('challenge.wav')
+
+# 1. Generate spectrogram to identify frequency grid
+# Use ffmpeg: ffmpeg -i challenge.wav -lavfi showspectrumpic=s=1920x1080 spec.png
+
+# 2. Map frequencies to keypad (custom grid, NOT standard DTMF)
+# Example: rows = [301, 902, 1503, 2104] Hz, cols = [2705, 3306, 3907] Hz
+# Forms 4x3 keypad -> digits 0-9 + symbols
+
+# 3. Extract tone pairs per time window
+window_size = rate  # 1 second per symbol
+for i in range(0, len(audio), window_size):
+    segment = audio[i:i+window_size]
+    freqs = np.fft.rfftfreq(len(segment), 1/rate)
+    magnitude = np.abs(np.fft.rfft(segment))
+    # Find two dominant peaks -> map to row/col -> digit
+
+# 4. Convert digit sequence to ASCII
+# Split digits into variable-length groups (ASCII range 32-126)
+# E.g., "72101108108111" -> [72, 101, 108, 108, 111] -> "Hello"
+def digits_to_ascii(digits):
+    result, i = [], 0
+    while i < len(digits):
+        for length in [2, 3]:  # ASCII codes are 2-3 digits
+            if i + length <= len(digits):
+                val = int(digits[i:i+length])
+                if 32 <= val <= 126:
+                    result.append(chr(val))
+                    i += length
+                    break
+        else:
+            i += 1
+    return ''.join(result)
+```
+
+**Key insight:** When tones don't match standard DTMF frequencies, generate a spectrogram first to identify the custom frequency grid. The mapping is challenge-specific.
+
+---
+
+## JPEG Unused Quantization Table LSB Steganography (EHAX 2026)
+
+**Pattern (Jpeg Soul):** "Insignificant" hint points to least significant bits in JPEG quantization tables (DQT). JPEG can embed DQT tables (ID 2, 3) that are never referenced by frame markers — invisible to renderers but carry hidden data.
+
+**Detection:** JPEG has more DQT tables than components reference. Standard JPEG uses 2 tables (luminance + chrominance); extra tables with IDs 2, 3 are suspicious.
+
+```python
+from PIL import Image
+
+img = Image.open('challenge.jpg')
+
+# Access quantization tables (PIL exposes them as dict)
+# Standard: tables 0 (luminance) and 1 (chrominance)
+# Hidden: tables 2, 3 (unreferenced by SOF marker)
+qtables = img.quantization
+
+bits = []
+for table_id in sorted(qtables.keys()):
+    if table_id >= 2:  # Unused tables
+        table = qtables[table_id]
+        for i in range(64):  # 8x8 = 64 values per DQT
+            bits.append(table[i] & 1)  # Extract LSB
+
+# Convert bits to ASCII
+flag = ''
+for i in range(0, len(bits) - 7, 8):
+    byte = int(''.join(str(b) for b in bits[i:i+8]), 2)
+    if 32 <= byte <= 126:
+        flag += chr(byte)
+print(flag)
+```
+
+**Manual DQT extraction (when PIL doesn't expose all tables):**
+```python
+# Parse JPEG manually to find all DQT markers (0xFFDB)
+data = open('challenge.jpg', 'rb').read()
+pos = 0
+while pos < len(data) - 1:
+    if data[pos] == 0xFF and data[pos+1] == 0xDB:
+        length = int.from_bytes(data[pos+2:pos+4], 'big')
+        dqt_data = data[pos+4:pos+2+length]
+        table_id = dqt_data[0] & 0x0F
+        precision = (dqt_data[0] >> 4) & 0x0F  # 0=8-bit, 1=16-bit
+        values = list(dqt_data[1:65]) if precision == 0 else []
+        print(f"DQT table {table_id}: {values[:8]}...")
+        pos += 2 + length
+    else:
+        pos += 1
+```
+
+**Key insight:** JPEG quantization tables are metadata — they survive recompression and most image processing. Unused table IDs (2-15) can carry arbitrary data without affecting the image.

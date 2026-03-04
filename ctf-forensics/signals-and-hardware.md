@@ -5,6 +5,7 @@
 - [HDMI TMDS Decoding](#hdmi-tmds-decoding)
 - [DisplayPort 8b/10b + LFSR Decoding](#displayport-8b10b-lfsr-decoding)
 - [Voyager Golden Record Audio (0xFun 2026)](#voyager-golden-record-audio-0xfun-2026)
+- [Side-Channel Power Analysis (EHAX 2026)](#side-channel-power-analysis-ehax-2026)
 - [Flipper Zero .sub File (0xFun 2026)](#flipper-zero-sub-file-0xfun-2026)
 
 ---
@@ -141,6 +142,49 @@ img_arr = np.array(lines)
 img_arr = ((img_arr - img_arr.min()) / (img_arr.max() - img_arr.min()) * 255).astype(np.uint8)
 Image.fromarray(img_arr).save('voyager_image.png')
 ```
+
+---
+
+## Side-Channel Power Analysis (EHAX 2026)
+
+**Pattern (Power Leak):** Power consumption traces recorded during cryptographic operations. Correct key guesses cause measurably different power consumption at specific sample points.
+
+**Data format:** Typically a multi-dimensional array: `[positions × guesses × traces × samples]`. E.g., 6 digit positions × 10 guesses (0-9) × 20 traces × 50 samples.
+
+**Attack (Differential Power Analysis):**
+```python
+import numpy as np
+import hashlib
+
+# Load power traces: shape = (positions, guesses, traces, samples)
+data = np.load('power_traces.npy')  # or parse from CSV/JSON
+n_positions, n_guesses, n_traces, n_samples = data.shape
+
+# For each position, find the guess with maximum power at the leak point
+key_digits = []
+for pos in range(n_positions):
+    # Average across traces for each guess
+    avg_power = data[pos].mean(axis=1)  # shape: (guesses, samples)
+
+    # Find the sample point with maximum power variance across guesses
+    # This is the "leak point" where the correct guess stands out
+    variance_per_sample = avg_power.var(axis=0)
+    leak_sample = np.argmax(variance_per_sample)
+
+    # The guess with maximum power at the leak point is correct
+    best_guess = np.argmax(avg_power[:, leak_sample])
+    key_digits.append(best_guess)
+
+key = ''.join(str(d) for d in key_digits)
+print(f"Recovered key: {key}")
+
+# Flag may be SHA256 of the key
+flag = hashlib.sha256(key.encode()).hexdigest()
+```
+
+**Identification:** Challenge mentions "power", "side-channel", "leakage", "traces", or "measurements". Data is a multi-dimensional numeric array with axes for positions/guesses/traces/samples.
+
+**Key insight:** The "leak point" is the sample index where correct vs incorrect guesses show the largest power difference. Average across traces first to reduce noise, then find the sample with maximum variance across guesses.
 
 ---
 

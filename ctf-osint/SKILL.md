@@ -15,7 +15,7 @@ Quick reference for OSINT CTF challenges. Each technique has a one-liner here; s
 ## Additional Resources
 
 - [social-media.md](social-media.md) - Twitter/X (user IDs, Snowflake timestamps, Nitter, memory.lol, Wayback CDX), Tumblr (blog checks, post JSON, avatars), BlueSky search + API, Unicode homoglyph steganography, Discord API, username OSINT (namechk, whatsmyname), platform false positives, multi-platform chains
-- [geolocation-and-media.md](geolocation-and-media.md) - Image analysis, reverse image search, geolocation techniques (railroad signs, infrastructure maps, MGRS), EXIF/metadata, hardware identification, newspaper archives, IP geolocation
+- [geolocation-and-media.md](geolocation-and-media.md) - Image analysis, reverse image search, geolocation techniques (railroad signs, infrastructure maps, MGRS), EXIF/metadata, hardware identification, newspaper archives, IP geolocation, Google Street View panorama matching
 - [web-and-dns.md](web-and-dns.md) - Google dorking, Google Docs/Sheets enumeration, DNS recon (TXT, zone transfers), Wayback Machine, FEC research, Tor relay lookups, GitHub repository analysis, Telegram bot investigation
 
 ---
@@ -47,6 +47,7 @@ Quick reference for OSINT CTF challenges. Each technique has a one-liner here; s
 ## Geolocation
 
 - Railroad signs, infrastructure maps (OpenRailwayMap, OpenInfraMap), process of elimination. See [geolocation-and-media.md](geolocation-and-media.md).
+- **Street View panorama matching:** Feature extraction + multi-metric image similarity ranking against candidate panoramas. Useful when challenge image is a crop of a Street View photo. See [geolocation-and-media.md](geolocation-and-media.md).
 
 ## MGRS Coordinates
 

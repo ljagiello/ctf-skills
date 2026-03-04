@@ -21,7 +21,7 @@ Quick reference for crypto CTF challenges. Each technique has a one-liner here; 
 - [zkp-and-advanced.md](zkp-and-advanced.md) - ZKP/graph 3-coloring, Z3 solver guide, garbled circuits, Shamir SSS, bigram constraint solving, race conditions
 - [prng.md](prng.md) - PRNG attacks (MT19937, LCG, GF(2) matrix PRNG, middle-square, deterministic RNG hill climbing, random-mode oracle, time-based seeds, password cracking)
 - [historical.md](historical.md) - Historical ciphers (Lorenz SZ40/42, book cipher implementation)
-- [advanced-math.md](advanced-math.md) - Advanced mathematical attacks (isogenies, Pohlig-Hellman, LLL, Coppersmith, quaternion RSA, monotone inversion, GF(2)[x] CRT, S-box collision code)
+- [advanced-math.md](advanced-math.md) - Advanced mathematical attacks (isogenies, Pohlig-Hellman, LLL, Coppersmith, quaternion RSA, monotone inversion, GF(2)[x] CRT, S-box collision code, LWE lattice CVP attack)
 
 ---
 
@@ -80,6 +80,14 @@ See [rsa-attacks.md](rsa-attacks.md) and [advanced-math.md](advanced-math.md) fo
 - **Isogenies:** Graph traversal via modular polynomials; pathfinding via LCA
 
 See [ecc-attacks.md](ecc-attacks.md) and [advanced-math.md](advanced-math.md) for full code examples.
+
+## Lattice / LWE Attacks
+
+- **LWE via CVP (Babai):** Construct lattice from `[q*I | 0; A^T | I]`, use fpylll CVP.babai to find closest vector, project to ternary {-1,0,1}. Watch for endianness mismatches between server description and actual encoding.
+- **LLL for approximate GCD:** Short vector in lattice reveals hidden factors
+- **Multi-layer challenges:** Geometry → subspace recovery → LWE → AES-GCM decryption chain
+
+See [advanced-math.md](advanced-math.md) for full LWE solving code and multi-layer patterns.
 
 ## ZKP & Constraint Solving
 

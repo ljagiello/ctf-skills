@@ -13,6 +13,7 @@
 - [USB HID Stenography/Chord PCAP (UTCTF 2024)](#usb-hid-stenographychord-pcap-utctf-2024)
 - [BCD Encoding in UDP (VuwCTF 2025)](#bcd-encoding-in-udp-vuwctf-2025)
 - [HTTP File Upload Exfiltration in PCAP (MetaCTF 2026)](#http-file-upload-exfiltration-in-pcap-metactf-2026)
+- [Packet Interval Timing-Based Encoding (EHAX 2026)](#packet-interval-timing-based-encoding-ehax-2026)
 - [NTLMv2 Hash Cracking from PCAP (Pragyan 2026)](#ntlmv2-hash-cracking-from-pcap-pragyan-2026)
 
 ---
@@ -286,6 +287,45 @@ tshark -r capture.pcap -q -z "follow,tcp,ascii,1"
 - "Dead drop" pattern: attacker uploads file to web server for later retrieval
 
 **Lesson:** Always start with `--export-objects` to extract transferred files before deep packet analysis. The flag is often in the exfiltrated file itself.
+
+---
+
+## Packet Interval Timing-Based Encoding (EHAX 2026)
+
+**Pattern (Breathing Void):** Large PCAPNG with millions of packets, but only a few hundred on one interface carry data. The signal is in the **timing gaps** between identical packets, not their content.
+
+**Identification:** Challenge mentions "breathing", "void", "silence", or timing. PCAP has many interfaces but only one has interesting traffic. Packets are identical but spaced at two distinct intervals.
+
+**Decoding workflow:**
+```python
+from scapy.all import rdpcap
+
+packets = rdpcap('challenge.pcapng')
+
+# 1. Filter to the right interface (e.g., interface 2)
+# tshark: tshark -r challenge.pcapng -Y "frame.interface_id == 2" -T fields -e frame.time_epoch
+
+# 2. Compute inter-packet intervals
+times = [float(pkt.time) for pkt in packets if pkt.sniffed_on == 'interface_2']
+intervals = [times[i+1] - times[i] for i in range(len(times)-1)]
+
+# 3. Identify binary mapping (two distinct interval values)
+# E.g., 10ms → 0, 100ms → 1 (threshold at ~50ms)
+threshold = 0.05  # 50ms
+bits = [0 if dt < threshold else 1 for dt in intervals]
+
+# 4. May need to prepend a leading 0 bit (first interval has no predecessor)
+bits = [0] + bits
+
+# 5. Convert bits to bytes (MSB-first)
+data = bytes(int(''.join(str(b) for b in bits[i:i+8]), 2)
+             for i in range(0, len(bits) - 7, 8))
+print(data.decode(errors='replace'))
+```
+
+**Key insight:** When identical packets appear on a single interface with only two practical interval values, it's almost certainly binary encoding via timing. The content is noise — the signal is in the gaps. Filter by interface and count unique intervals first.
+
+**Scale tip:** Large PCAPs (millions of packets) often have the signal in a tiny subset. Triage with `tshark -q -z io,phs` to find which interface has the fewest packets — that's likely the data carrier.
 
 ---
 

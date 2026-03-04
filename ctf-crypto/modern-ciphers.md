@@ -130,6 +130,32 @@ Affine encryption `c = A*x + b (mod M)` with composite M: split into prime facto
 
 ---
 
+## AES-GCM with Derived Keys (EHAX 2026)
+
+**Pattern:** Final decryption step after recovering a secret (e.g., from LWE, key exchange). Session nonce and AES key derived via SHA-256 hashing of the recovered secret.
+
+```python
+import hashlib
+from Cryptodome.Cipher import AES
+
+# Common key derivation chain:
+# 1. Recover secret bytes (s_bytes) from crypto challenge
+# 2. Unwrap session nonce: nonce = wrapped_nonce XOR SHA256(s_bytes)[:nonce_len]
+# 3. Derive AES key: key = SHA256(s_bytes + session_nonce)
+# 4. Decrypt AES-GCM
+
+def decrypt_with_derived_key(s_bytes, wrapped_nonce, ciphertext, aes_nonce, tag, nonce_len=16):
+    secret_hash = hashlib.sha256(s_bytes).digest()
+    session_nonce = bytes(a ^ b for a, b in zip(wrapped_nonce, secret_hash[:nonce_len]))
+    aes_key = hashlib.sha256(s_bytes + session_nonce).digest()
+    cipher = AES.new(aes_key, AES.MODE_GCM, nonce=aes_nonce)
+    return cipher.decrypt_and_verify(ciphertext, tag)
+```
+
+**Key insight:** When AES-GCM authentication fails (`ValueError: MAC check failed`), the derived key is wrong — usually means the upstream secret recovery was incorrect or endianness is swapped.
+
+---
+
 ## Custom Linear MAC Forgery (Nullcon 2026)
 
 **Pattern (Pasty):** Server signs paste IDs with a custom SHA-256-based construction. The signature is linear in three 8-byte secret blocks derived from the key.

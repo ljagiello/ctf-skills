@@ -104,7 +104,7 @@ Leak libc via `puts@PLT(puts@GOT)`, return to vuln, stage 2 with `system("/bin/s
 
 ## Seccomp Bypass
 
-Alternative syscalls when seccomp blocks `open()`/`read()`: `openat()` (257), `openat2()` (437, often missed!), `sendfile()` (40), `readv()`/`writev()`.
+Alternative syscalls when seccomp blocks `open()`/`read()`: `openat()` (257), `openat2()` (437, often missed!), `sendfile()` (40), `readv()`/`writev()`, `mmap()` (9, map flag file into memory instead of read), `pread64()` (17).
 
 **Check rules:** `seccomp-tools dump ./binary`
 
@@ -149,7 +149,7 @@ See [format-string.md](format-string.md) for GOT overwrite patterns, blind pwn, 
 - Freed chunks contain libc pointers (fd/bk) -> leak via error messages or missing null-termination
 - Heap feng shui: control alloc order/sizes, create holes, place targets adjacent to overflow source
 
-See [advanced.md](advanced.md) for House of Apple 2 FSOP chain, custom allocator exploitation (nginx pools), heap overlap via base conversion, tree data structure stack underallocation.
+See [advanced.md](advanced.md) for House of Apple 2 FSOP chain, custom allocator exploitation (nginx pools), heap overlap via base conversion, tree data structure stack underallocation, FSOP + seccomp bypass via openat/mmap/write with `mov rsp, rdx` stack pivot.
 
 ## JIT Compilation Exploits
 

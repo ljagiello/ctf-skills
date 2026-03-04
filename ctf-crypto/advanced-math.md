@@ -14,6 +14,7 @@
 - [Non-Permutation S-box Collision Attack (Nullcon 2026)](#non-permutation-s-box-collision-attack-nullcon-2026)
 - [Polynomial CRT in GF(2)[x] (Nullcon 2026)](#polynomial-crt-in-gf2x-nullcon-2026)
 - [Manger's RSA Padding Oracle Attack (Nullcon 2026)](#mangers-rsa-padding-oracle-attack-nullcon-2026)
+- [LWE Lattice Attack via CVP (EHAX 2026)](#lwe-lattice-attack-via-cvp-ehax-2026)
 - [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
 
 ---
@@ -500,6 +501,105 @@ key = lo  # ~64 queries for 64-bit key
 ```
 
 **Total queries:** ~128 (64 for phase 1 + 64 for phase 2).
+
+---
+
+## LWE Lattice Attack via CVP (EHAX 2026)
+
+**Pattern (Dream Labyrinth):** Multi-layer challenge ending with Learning With Errors (LWE) recovery. Secret vector `s` in {-1, 0, 1}^n, public matrix A, ciphertext `b = A*s + e (mod q)`.
+
+**LWE solving with fpylll (CVP/Babai):**
+```python
+from fpylll import IntegerMatrix, LLL, CVP
+import numpy as np
+
+q = 3329  # Common LWE modulus (Kyber uses this)
+n = 256   # Secret dimension
+m = 512   # Number of samples
+
+# A is m×n matrix, b is m-vector, all mod q
+# Construct lattice basis for CVP approach
+# Lattice: rows of [q*I_m | 0] on top, [A^T | I_n] below
+# Target: b
+
+def solve_lwe_cvp(A, b, q, n, m):
+    # Build lattice basis (m+n) × (m+n)
+    dim = m + n
+    B = IntegerMatrix(dim, dim)
+
+    # Top m rows: q*I_m (ensures solutions mod q)
+    for i in range(m):
+        B[i, i] = q
+
+    # Bottom n rows: A columns + identity
+    for j in range(n):
+        for i in range(m):
+            B[m + j, i] = int(A[i][j])
+        B[m + j, m + j] = 1
+
+    # LLL reduce the basis
+    LLL.reduction(B)
+
+    # Target vector: (b | 0...0)
+    target = [int(b[i]) for i in range(m)] + [0] * n
+
+    # CVP via Babai's nearest plane
+    closest = CVP.babai(B, target)
+
+    # Extract secret from last n components
+    s_candidate = [closest[m + j] for j in range(n)]
+
+    # Project to ternary {-1, 0, 1}
+    s = []
+    for val in s_candidate:
+        val_mod = val % q
+        if val_mod == 0:
+            s.append(0)
+        elif val_mod == 1:
+            s.append(1)
+        elif val_mod == q - 1:
+            s.append(-1)
+        else:
+            # Try closest ternary value
+            s.append(min([-1, 0, 1], key=lambda t: abs((val_mod - t) % q)))
+    return s
+
+s = solve_lwe_cvp(A, b, q, n, m)
+```
+
+**CRITICAL: Endianness gotcha.** Server may describe data as "big-endian" but actually use little-endian (or vice versa). If CVP produces garbage, try swapping byte order of the secret interpretation:
+```python
+# If server says big-endian but actually uses little-endian:
+s_bytes_le = bytes([(v % 256) for v in s])  # little-endian
+s_bytes_be = s_bytes_le[::-1]               # big-endian
+# Try both interpretations for key derivation
+```
+
+**Key derivation after LWE recovery (common pattern):**
+```python
+import hashlib
+from Cryptodome.Cipher import AES
+
+s_bytes = bytes([(v % 256) for v in s])
+
+# Recover session nonce: XOR wrapped_nonce with hash of secret
+session_nonce = bytes(a ^ b for a, b in
+    zip(wrapped_nonce, hashlib.sha256(s_bytes).digest()[:16]))
+
+# Derive AES key from secret + nonce
+aes_key = hashlib.sha256(s_bytes + session_nonce).digest()
+
+# Decrypt AES-GCM
+cipher = AES.new(aes_key, AES.MODE_GCM, nonce=aes_nonce)
+plaintext = cipher.decrypt_and_verify(ciphertext, tag)
+```
+
+**Layer patterns in multi-stage crypto challenges:**
+- **Layer 1 (Geometry):** Reconstruct point positions from noisy distance measurements. Use least-squares or trilateration with multiple models. Compute convex hull of recovered points.
+- **Layer 2 (Subspace):** Find hidden low-dimensional subspace in high-dimensional data. Self-dot products of candidate vectors identify correct answers (smallest self-dot products = closest to subspace).
+- **Layer 3 (LWE):** Recover secret vector from lattice problem. Use CVP with fpylll, project result to expected domain (ternary, binary, etc.).
+
+**References:** EHAX CTF 2026 "Dream Labyrinth". Related: Kyber/CRYSTALS lattice cryptography.
 
 ---
 

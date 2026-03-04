@@ -20,6 +20,7 @@
   - [Red Flags in Challenges](#red-flags-in-challenges)
   - [Quick Test Script](#quick-test-script)
 - [memfd_create Packed Binaries](#memfd_create-packed-binaries)
+- [Multi-Phase Interactive Crypto Game (EHAX 2026)](#multi-phase-interactive-crypto-game-ehax-2026)
 - [References](#references)
 
 ---
@@ -332,8 +333,82 @@ open("dumped", "wb").write(decrypted)
 
 ---
 
+## Multi-Phase Interactive Crypto Game (EHAX 2026)
+
+**Pattern (The Architect's Gambit):** Server presents a multi-phase challenge combining cryptography, game theory, and commitment-reveal protocols.
+
+**Phase structure:**
+1. **Phase 1 (AES-ECB decryption):** Decrypt pile values with provided key. Determine winner from game state.
+2. **Phase 2 (AES-CBC with derived keys):** Keys derived via SHA-256 chain from Phase 1 results. Decrypt to get game parameters.
+3. **Phase 3 (Interactive gameplay):** Play optimal moves in a combinatorial game, bound by commitment-reveal protocol.
+
+**Commitment-reveal (HMAC binding):**
+```python
+import hmac, hashlib
+
+def compute_binding_token(session_nonce, answer):
+    """Server verifies your answer commitment before revealing result."""
+    message = f"answer:{answer}".encode()
+    return hmac.new(session_nonce, message, hashlib.sha256).hexdigest()
+
+# Flow: send token first, then server reveals state, then send answer
+# Server checks: HMAC(nonce, answer) == your_token
+# Prevents changing your answer after seeing the state
+```
+
+**GF(2^8) arithmetic for game drain calculations:**
+```python
+# Galois Field GF(256) used in some game mechanics (Nim variants)
+# Nim-value XOR determines winning/losing positions
+
+def gf256_mul(a, b, poly=0x11b):
+    """Multiply in GF(2^8) with irreducible polynomial."""
+    result = 0
+    while b:
+        if b & 1:
+            result ^= a
+        a <<= 1
+        if a & 0x100:
+            a ^= poly
+        b >>= 1
+    return result
+
+# Nim game with GF(256) move rules:
+# Position is losing if Nim-value (XOR of pile Grundy values) is 0
+# Optimal move: find pile where removing stones makes XOR sum = 0
+```
+
+**Game tree memoization (C++ for performance):**
+```python
+# Python too slow for large state spaces — use C++ with memoization
+# State compression: encode all pile sizes into single integer
+# Cache: unordered_map<state_t, bool> for win/loss determination
+
+# Python fallback for small games:
+from functools import lru_cache
+
+@lru_cache(maxsize=None)
+def is_winning(state):
+    """Returns True if current player can force a win."""
+    state = tuple(sorted(state))  # Normalize for caching
+    for move in generate_moves(state):
+        next_state = apply_move(state, move)
+        if not is_winning(next_state):
+            return True  # Found a move that puts opponent in losing position
+    return False  # All moves lead to opponent winning
+```
+
+**Key insights:**
+- Multi-phase challenges require solving each phase sequentially — each phase's output feeds the next
+- HMAC commitment-reveal prevents guessing; you must compute the correct answer
+- GF(256) Nim variants require Sprague-Grundy theory, not brute force
+- When Python recursion is too slow (>10s), rewrite game solver in C++ with state compression and memoization
+
+---
+
 ## References
 - Pragyan 2026 "Tac Tic Toe": WASM minimax patching
 - LACTF 2026 "CTFaaS": K8s RBAC bypass via hostPath
 - 0xL4ugh CTF: PyInstaller + opcode remapping
 - 0xFun 2026 "MazeRunna": Roblox version history + binary place file parsing
+- EHAX 2026 "The Architect's Gambit": Multi-phase AES + HMAC + GF(256) Nim

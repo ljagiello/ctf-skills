@@ -9,6 +9,7 @@
 - [Metadata Extraction](#metadata-extraction)
 - [Hardware/Product Identification](#hardwareproduct-identification)
 - [Newspaper Archives and Historical Research](#newspaper-archives-and-historical-research)
+- [Google Street View Panorama Matching (EHAX 2026)](#google-street-view-panorama-matching-ehax-2026)
 - [IP Geolocation and Attribution](#ip-geolocation-and-attribution)
 
 ---
@@ -72,6 +73,55 @@ mediainfo video.mp4          # Video metadata
 **Pattern (It's News, VuwCTF 2025):** Combine newspaper archive date search with EXIF GPS coordinates for location-specific identification.
 
 **Tools:** Library of Congress newspaper archive, Google Maps for GPS coordinate lookup.
+
+## Google Street View Panorama Matching (EHAX 2026)
+
+**Pattern (amnothappyanymore):** Challenge image is a cropped section of a Google Street View panorama. Must identify the exact panorama ID and coordinates.
+
+**Approach:**
+1. **Extract visual features:** Identify distinctive landmarks (road type, vehicles, containers, mountain shapes, building styles, vegetation)
+2. **Narrow the region:** Use visual clues to identify country/region (e.g., Greenland landscape, specific road infrastructure)
+3. **Compile candidate panoramas:** Use Google Street View coverage maps to find panoramas in the identified region
+4. **Feature matching:** Compare challenge image features against candidate panoramas:
+   ```python
+   import cv2
+   import numpy as np
+
+   # Load challenge image and candidate panorama
+   challenge = cv2.imread('challenge.jpg')
+   candidate = cv2.imread('panorama.jpg')
+
+   # ORB feature detection and matching
+   orb = cv2.ORB_create(nfeatures=5000)
+   kp1, des1 = orb.detectAndCompute(challenge, None)
+   kp2, des2 = orb.detectAndCompute(candidate, None)
+
+   bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+   matches = bf.match(des1, des2)
+   score = sum(1 for m in matches if m.distance < 50)
+   ```
+5. **Ranking systems:** Use multiple scoring methods (global feature match, local patch comparison, color histogram analysis) and combine rankings
+6. **API submission:** Submit panorama ID with coordinates in required format (e.g., `lat/lng/sessionId/nonce`)
+
+**Google Street View API patterns:**
+```python
+# Street View metadata API (check if coverage exists)
+# GET https://maps.googleapis.com/maps/api/streetview/metadata?location=LAT,LNG&key=KEY
+
+# Street View image API
+# GET https://maps.googleapis.com/maps/api/streetview?size=640x480&location=LAT,LNG&heading=90&key=KEY
+
+# Panorama ID from page source (parsed from JavaScript):
+# Look for panoId in page data structures
+```
+
+**Key insights:**
+- Challenge images are often crops of panoramas — the crop region may not include horizon or sky, making geolocation harder
+- Distinctive elements: road surface type, vehicle makes, signage language, utility poles, container colors
+- Greenland, Iceland, Faroe Islands have limited Street View coverage — enumerate all panoramas in the region
+- Image similarity ranking with multiple metrics (feature matching + color analysis + patch comparison) is more robust than any single method
+
+---
 
 ## IP Geolocation and Attribution
 
