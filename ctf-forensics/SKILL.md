@@ -18,7 +18,7 @@ Quick reference for forensics CTF challenges. Each technique has a one-liner her
 - [windows.md](windows.md) - Windows forensics (registry, SAM, event logs, recycle bin, USN journal, PowerShell history, Defender MPLog, WMI persistence, Amcache)
 - [network.md](network.md) - Network forensics (PCAP, SMB3, WordPress, credentials, NTLMv2 cracking, USB HID steno, USB HID mouse/pen drawing recovery, BCD encoding, HTTP file upload exfiltration, packet interval timing encoding)
 - [disk-and-memory.md](disk-and-memory.md) - Disk/memory forensics (Volatility, disk mounting/carving, VM/OVA/VMDK, coredumps, deleted partitions, ZFS, VMware snapshots, ransomware analysis, GPT GUID encoding, VMDK sparse parsing)
-- [steganography.md](steganography.md) - Steganography (binary border stego, PDF multi-layer stego, FFT frequency domain, DTMF audio, SSTV+LSB, SVG keyframes, PNG reorder, file overlays, JPEG unused DQT table LSB, custom frequency dual-tone keypad)
+- [steganography.md](steganography.md) - Steganography (binary border stego, PDF multi-layer stego, FFT frequency domain, DTMF audio, SSTV+LSB, SVG keyframes, PNG reorder, file overlays, JPEG unused DQT table LSB, custom frequency dual-tone keypad, multi-track audio differential subtraction)
 - [linux-forensics.md](linux-forensics.md) - Linux/app forensics (log analysis, Docker image forensics, attack chains, browser credentials, Firefox history, TFTP, TLS weak RSA, USB audio, Git directory recovery)
 - [signals-and-hardware.md](signals-and-hardware.md) - Hardware signal decoding with decode code (VGA frame parsing, HDMI TMDS symbol decode, DisplayPort 8b/10b + LFSR descrambler), Voyager Golden Record audio, Saleae Logic 2 UART decode, Flipper Zero .sub files, side-channel power analysis (DPA)
 
@@ -110,6 +110,7 @@ stegsolve                    # Visual analysis
 
 - **Custom freq DTMF:** Non-standard dual-tone frequencies; generate spectrogram first (`ffmpeg -i audio -lavfi showspectrumpic`), map custom grid to keypad digits, decode variable-length ASCII
 - **JPEG DQT LSB:** Unused quantization tables (ID 2, 3) carry LSB-encoded data; access via `Image.open().quantization` and extract bit 0 from each of 64 values
+- **Multi-track audio subtraction:** Two nearly-identical audio tracks in MKV/video; `sox -m a0.wav "|sox a1.wav -p vol -1" diff.wav` cancels shared content, flag appears in spectrogram of difference signal (5-12 kHz band)
 - **Packet interval timing:** Identical packets with two distinct interval values (e.g., 10ms/100ms) encode binary; filter by interface, compute inter-packet deltas, threshold to bits
 
 See [steganography.md](steganography.md) for full code examples and decoding workflows.

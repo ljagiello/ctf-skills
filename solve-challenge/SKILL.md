@@ -39,10 +39,10 @@ Determine the primary category, then invoke the matching skill.
 - "buffer overflow", "ROP", "shellcode", "libc", "heap" -> pwn
 - "RSA", "AES", "cipher", "encrypt", "prime", "modulus", "lattice", "LWE", "GCM" -> crypto
 - "XSS", "SQL", "injection", "cookie", "JWT", "SSRF" -> web
-- "disk image", "memory dump", "packet capture", "registry", "power trace", "side-channel", "spectrogram" -> forensics
+- "disk image", "memory dump", "packet capture", "registry", "power trace", "side-channel", "spectrogram", "audio tracks", "MKV" -> forensics
 - "find", "locate", "identify", "who", "where" -> osint
 - "obfuscated", "packed", "C2", "malware", "beacon" -> malware
-- "jail", "sandbox", "escape", "encoding", "signal", "game", "Nim", "commitment" -> misc
+- "jail", "sandbox", "escape", "encoding", "signal", "game", "Nim", "commitment", "Gray code" -> misc
 
 **By service behavior:**
 - Port with interactive prompt, crash on long input -> pwn

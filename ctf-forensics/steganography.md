@@ -15,6 +15,7 @@
 - [DTMF Audio Decoding](#dtmf-audio-decoding)
 - [Custom Frequency DTMF / Dual-Tone Keypad Encoding (EHAX 2026)](#custom-frequency-dtmf--dual-tone-keypad-encoding-ehax-2026)
 - [JPEG Unused Quantization Table LSB Steganography (EHAX 2026)](#jpeg-unused-quantization-table-lsb-steganography-ehax-2026)
+- [Multi-Track Audio Differential Subtraction (EHAX 2026)](#multi-track-audio-differential-subtraction-ehax-2026)
 
 ---
 
@@ -400,3 +401,46 @@ while pos < len(data) - 1:
 ```
 
 **Key insight:** JPEG quantization tables are metadata — they survive recompression and most image processing. Unused table IDs (2-15) can carry arbitrary data without affecting the image.
+
+---
+
+## Multi-Track Audio Differential Subtraction (EHAX 2026)
+
+**Pattern (Penguin):** MKV/video file with two nearly-identical audio tracks. Hidden data is embedded as a tiny difference between the tracks, invisible when listening to either individually.
+
+**Identification:**
+- `ffprobe` reveals multiple audio streams (e.g., two stereo FLAC tracks)
+- Metadata may contain a decoy flag (e.g., in comments)
+- Track labels may be misleading (e.g., stereo labeled as "5.1 surround")
+- `sox --info` / `sox -n stat` shows nearly identical RMS, amplitude, and frequency statistics for both tracks
+
+**Extraction workflow:**
+```bash
+# 1. Extract both audio tracks
+ffmpeg -i challenge.mkv -map 0:a:0 -c copy track0.flac
+ffmpeg -i challenge.mkv -map 0:a:1 -c copy track1.flac
+
+# 2. Convert to WAV for processing
+ffmpeg -i track0.flac track0.wav
+ffmpeg -i track1.flac track1.wav
+
+# 3. Subtract: invert one track and mix (cancels shared content)
+sox -m track0.wav "|sox track1.wav -p vol -1" diff.wav
+
+# 4. Normalize the difference signal
+sox diff.wav diff_norm.wav gain -n -3
+
+# 5. Generate spectrogram to read the flag
+sox diff_norm.wav -n spectrogram -o spectrogram.png -X 2000 -Y 1000 -z 100 -h
+
+# 6. Optional: filter to isolate flag frequency range
+sox diff_norm.wav filtered.wav sinc 5000-12000
+sox filtered.wav -n spectrogram -o filtered_spec.png -X 2000 -Y 1000 -z 100 -h
+```
+
+**Key insight:** When two audio tracks are nearly identical, subtracting one from the other (phase inversion + mix) cancels shared content and isolates hidden data. The flag is typically encoded as text in the spectrogram of the difference signal, visible in a specific frequency band (e.g., 5-12 kHz).
+
+**Common traps:**
+- Decoy flags in metadata/comments — always verify
+- Mislabeled channel configurations (stereo as 5.1)
+- Flag may only be visible in a narrow time window — use high-resolution spectrogram (`-X 2000+`)

@@ -10,6 +10,8 @@
 - [Hardware/Product Identification](#hardwareproduct-identification)
 - [Newspaper Archives and Historical Research](#newspaper-archives-and-historical-research)
 - [Google Street View Panorama Matching (EHAX 2026)](#google-street-view-panorama-matching-ehax-2026)
+- [Road Sign Language and Driving Side Analysis (EHAX 2026)](#road-sign-language-and-driving-side-analysis-ehax-2026)
+- [Post-Soviet Architecture and Brand Identification (EHAX 2026)](#post-soviet-architecture-and-brand-identification-ehax-2026)
 - [IP Geolocation and Attribution](#ip-geolocation-and-attribution)
 
 ---
@@ -120,6 +122,64 @@ mediainfo video.mp4          # Video metadata
 - Distinctive elements: road surface type, vehicle makes, signage language, utility poles, container colors
 - Greenland, Iceland, Faroe Islands have limited Street View coverage — enumerate all panoramas in the region
 - Image similarity ranking with multiple metrics (feature matching + color analysis + patch comparison) is more robust than any single method
+
+---
+
+## Road Sign Language and Driving Side Analysis (EHAX 2026)
+
+**Pattern (date_spot):** Street view image of a coastal location. Identify exact coordinates from road infrastructure.
+
+**Systematic approach:**
+1. **Driving side:** Left-hand traffic → right-hand drive countries (Japan, UK, Australia, etc.)
+2. **Sign language/script:** Kanji → Japan; Cyrillic → Russia/CIS; Arabic → Middle East/North Africa
+3. **Road sign style:** Blue directional signs with white text and route numbers → Japanese expressways
+4. **Sign OCR:** Extract text from directional signs to identify town/city names and route designations
+5. **Route tracing:** Search identified route number + town names to find the road corridor
+6. **Terrain matching:** Match coastline, harbors, lighthouses, bridges against satellite view
+
+**Japanese infrastructure clues:**
+- Blue highway signs with white Kanji + route numbers (e.g., E59)
+- Distinctive guardrail style (galvanized steel, wavy profile)
+- Concrete seawalls on coastal roads
+- Small fishing harbors with white lighthouse structures
+
+**General country identification shortcuts:**
+| Feature | Country/Region |
+|---------|---------------|
+| Kanji + blue highway signs | Japan |
+| Cyrillic + wide boulevards | Russia/CIS |
+| White X-shape crossing signs | Canada |
+| Yellow diamond warning signs | USA/Canada |
+| Green autobahn signs | Germany |
+| Brown tourist signs | France |
+| Bollards with red reflectors | Netherlands |
+
+---
+
+## Post-Soviet Architecture and Brand Identification (EHAX 2026)
+
+**Pattern (idinahui):** Coastal parking lot image. Identify location from architectural style, vehicle types, signage, and local brands.
+
+**Recognition chain:**
+1. **Architecture:** Brutalist concrete buildings → post-Soviet region
+2. **Vehicles:** Reverse image search vehicle models to narrow to Russian/CIS market cars
+3. **Script:** Cyrillic signage confirms Russian-language region
+4. **Flags:** Regional government flags alongside national tricolor → identify specific federal subject
+5. **Brands:** Named restaurants/chains (e.g., "Mimino" — Georgian-themed chain popular across Russia) → search for geographic distribution
+6. **Coastal features:** Caspian Sea coastline + North Caucasus architecture → Dagestan/Makhachkala
+
+**Key technique — restaurant/brand geolocation:**
+- Identify any readable business name or brand logo
+- Search for that business + "locations" or "branches"
+- Cross-reference with other visual clues (coastline, terrain) to pinpoint exact branch
+- Google Maps business search is highly effective for named establishments
+
+**Post-Soviet visual markers:**
+- Panel apartment blocks (khrushchyovka/brezhnevka)
+- Wide boulevards with central medians
+- Concrete bus stops
+- Distinctive utility pole designs
+- Soviet-era monuments and mosaics
 
 ---
 

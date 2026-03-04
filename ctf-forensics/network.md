@@ -401,6 +401,24 @@ for mode in [1, 2]:
 - **Time gradient:** Color points by temporal order (rainbow gradient) to trace stroke direction
 - **Character segmentation:** Group consecutive same-mode points by large X gaps to isolate characters
 
+**Alternative: AWK extraction + SVG rendering (faster pipeline):**
+```bash
+# Extract capdata and convert to signed deltas in one pass
+tshark -r pref.pcap -Y "usb.transfer_type==0x01 && usb.endpoint_address==0x81 && usb.capdata" \
+  -T fields -e usb.capdata > capdata.txt
+
+awk '
+function hexval(c){ return index("0123456789abcdef",tolower(c))-1 }
+function hex2dec(h, n,i){ n=0; for(i=1;i<=length(h);i++) n=n*16+hexval(substr(h,i,1)); return n }
+function s16(u){ return (u>=32768)?u-65536:u }
+{ d=$1; if(length(d)!=14) next
+  btn=hex2dec(substr(d,3,2))
+  x=s16(hex2dec(substr(d,7,2) substr(d,5,2)))
+  y=s16(hex2dec(substr(d,11,2) substr(d,9,2)))
+  print btn, x, y }' capdata.txt > deltas.txt
+```
+Then render with SVG (Python) — filter on pen-down state (button=2), accumulate deltas, flip Y axis, draw strokes between consecutive pen-down points.
+
 **Difference from keyboard HID:** Mouse HID uses relative movements (accumulated), keyboard uses keycodes (direct). Mouse drawing requires rendering; keyboard requires keymap lookup.
 
 ---

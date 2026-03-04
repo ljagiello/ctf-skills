@@ -48,6 +48,8 @@ Quick reference for OSINT CTF challenges. Each technique has a one-liner here; s
 
 - Railroad signs, infrastructure maps (OpenRailwayMap, OpenInfraMap), process of elimination. See [geolocation-and-media.md](geolocation-and-media.md).
 - **Street View panorama matching:** Feature extraction + multi-metric image similarity ranking against candidate panoramas. Useful when challenge image is a crop of a Street View photo. See [geolocation-and-media.md](geolocation-and-media.md).
+- **Road sign OCR:** Extract text from directional signs (town names, route numbers) to pinpoint road corridors. Driving side + sign style + script identify the country. See [geolocation-and-media.md](geolocation-and-media.md).
+- **Architecture + brand identification:** Post-Soviet concrete = Russia/CIS; named businesses → search locations/branches → cross-reference with coastline/terrain. See [geolocation-and-media.md](geolocation-and-media.md).
 
 ## MGRS Coordinates
 
