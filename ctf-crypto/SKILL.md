@@ -21,7 +21,7 @@ Quick reference for crypto CTF challenges. Each technique has a one-liner here; 
 - [zkp-and-advanced.md](zkp-and-advanced.md) - ZKP/graph 3-coloring, Z3 solver guide, garbled circuits, Shamir SSS, bigram constraint solving, race conditions, Groth16 broken setup, DV-SNARG forgery
 - [prng.md](prng.md) - PRNG attacks (MT19937, LCG, GF(2) matrix PRNG, middle-square, deterministic RNG hill climbing, random-mode oracle, time-based seeds, password cracking)
 - [historical.md](historical.md) - Historical ciphers (Lorenz SZ40/42, book cipher implementation)
-- [advanced-math.md](advanced-math.md) - Advanced mathematical attacks (isogenies, Pohlig-Hellman, LLL, Coppersmith, quaternion RSA, monotone inversion, GF(2)[x] CRT, S-box collision code, LWE lattice CVP attack)
+- [advanced-math.md](advanced-math.md) - Advanced mathematical attacks (isogenies, Pohlig-Hellman, LLL, Coppersmith, quaternion RSA, braid group DH / Alexander polynomial, monotone inversion, GF(2)[x] CRT, S-box collision code, LWE lattice CVP attack)
 
 ---
 
@@ -78,6 +78,7 @@ See [rsa-attacks.md](rsa-attacks.md) and [advanced-math.md](advanced-math.md) fo
 - **Fault injection:** Compare correct vs faulty output; recover key bit-by-bit
 - **Clock group (x^2+y^2=1):** Order = p+1 (not p-1!); Pohlig-Hellman when p+1 is smooth
 - **Isogenies:** Graph traversal via modular polynomials; pathfinding via LCA
+- **Braid group DH:** Alexander polynomial is multiplicative under braid concatenation — Eve computes shared secret from public keys. See [advanced-math.md](advanced-math.md#braid-group-dh-alexander-polynomial-multiplicativity-dicectf-2026)
 
 See [ecc-attacks.md](ecc-attacks.md) and [advanced-math.md](advanced-math.md) for full code examples.
 
