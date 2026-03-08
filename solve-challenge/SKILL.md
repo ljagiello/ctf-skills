@@ -1,6 +1,6 @@
 ---
 name: solve-challenge
-description: Solve CTF challenges by analyzing files, connecting to services, and applying exploitation techniques. Orchestrates category-specific CTF skills for pwn, crypto, web, reverse engineering, forensics, OSINT, malware analysis, and miscellaneous challenges.
+description: Solves CTF challenges by analyzing files, connecting to services, and applying exploitation techniques. Orchestrates category-specific CTF skills for pwn, crypto, web, reverse engineering, forensics, OSINT, malware analysis, and miscellaneous challenges.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access. Orchestrates other ctf-* skills.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch Skill

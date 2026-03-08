@@ -1,6 +1,6 @@
 ---
 name: ctf-reverse
-description: Reverse engineering techniques for CTF challenges. Use when analyzing binaries, game clients, obfuscated code, esoteric languages, custom VMs, anti-debugging, WASM, .NET, APK, Python bytecode, Ghidra, GDB, radare2, or extracting flags from compiled executables.
+description: Provides reverse engineering techniques for CTF challenges. Use when analyzing binaries, game clients, obfuscated code, esoteric languages, custom VMs, anti-debugging, WASM, .NET, APK, Python bytecode, Ghidra, GDB, radare2, or extracting flags from compiled executables.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch

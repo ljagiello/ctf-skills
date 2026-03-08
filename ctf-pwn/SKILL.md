@@ -1,6 +1,6 @@
 ---
 name: ctf-pwn
-description: Binary exploitation (pwn) techniques for CTF challenges. Use when exploiting buffer overflows, format strings, heap vulnerabilities, race conditions, kernel bugs, ROP chains, ret2libc, shellcode, GOT overwrite, use-after-free, seccomp bypass, FSOP, stack pivot, or sandbox escape.
+description: Provides binary exploitation (pwn) techniques for CTF challenges. Use when exploiting buffer overflows, format strings, heap vulnerabilities, race conditions, kernel bugs, ROP chains, ret2libc, shellcode, GOT overwrite, use-after-free, seccomp bypass, FSOP, stack pivot, or sandbox escape.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch

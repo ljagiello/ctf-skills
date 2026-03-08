@@ -1,6 +1,6 @@
 ---
 name: ctf-misc
-description: Miscellaneous CTF challenge techniques. Use for encoding puzzles, RF/SDR signal processing, Python/bash jails, DNS exploitation, unicode steganography, floating-point tricks, QR codes, audio challenges, Z3 constraint solving, Kubernetes RBAC, WASM game patching, esoteric languages, game theory, commitment schemes, combinatorial games, or challenges that don't fit other categories.
+description: Provides miscellaneous CTF challenge techniques. Use for encoding puzzles, RF/SDR signal processing, Python/bash jails, DNS exploitation, unicode steganography, floating-point tricks, QR codes, audio challenges, Z3 constraint solving, Kubernetes RBAC, WASM game patching, esoteric languages, game theory, commitment schemes, combinatorial games, or challenges that don't fit other categories.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch Skill
