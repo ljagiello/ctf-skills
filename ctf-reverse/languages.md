@@ -19,6 +19,7 @@
 - [Roblox Place File Analysis](#roblox-place-file-analysis)
 - [Godot Game Asset Extraction](#godot-game-asset-extraction)
 - [Rust serde_json Schema Recovery](#rust-serde_json-schema-recovery)
+- [Verilog/Hardware Reverse Engineering (srdnlenCTF 2026)](#veriloghardware-reverse-engineering-srdnlenctf-2026)
 
 ---
 
@@ -306,6 +307,40 @@ Decode chunk payloads, walk PROP entries for `Source` field, dump `Script.Source
 ```
 
 **Key insight:** Flag is the concatenation of JSON keys in schema order. Reading field names in order reveals the flag.
+
+---
+
+## Verilog/Hardware Reverse Engineering (srdnlenCTF 2026)
+
+**Pattern (Rev Juice):** Verilog HDL source for a vending machine with hidden product unlocked by specific coin insertion and selection sequence.
+
+**Approach:**
+1. Analyze Verilog modules to understand state machine and history tracking
+2. Identify hidden conditions (e.g., product 8 enabled only when `COINS_HISTORY` array has specific values at specific taps)
+3. Build timing model for each action type (how many clock cycles each operation takes)
+4. Work backward from required history values to construct the correct input sequence
+
+**Timing model construction:**
+```python
+# Map each action to its cycle count (determined from Verilog state machines)
+TIMING = {
+    "insert_coin": 3,       # 3 cycles per coin insertion
+    "select_success": 7,    # 7 cycles for successful product selection
+    "select_fail": 5,       # 5 cycles for failed selection attempt
+    "cancel_with_coins": 4, # 4 cycles for cancel when coins > 0
+    "cancel_at_zero": 2,    # 2 cycles for cancel when coins = 0
+}
+
+# COINS_HISTORY is a shift register updated each cycle
+# History tap requirements (from Verilog conditions):
+# H[0]=1, H[7]=4, H[28]=H[33]=H[38]=6
+# H[63]=H[73]=2, H[80]=9
+# (H[19]+H[21]+H[56]+H[69]) mod 32 = 0
+```
+
+**Key insight:** Hardware challenges require understanding the exact timing model — each operation takes a specific number of clock cycles, and shift registers record history at fixed tap positions. Work backward from the required tap values to determine what action must have occurred at each cycle. The solution is often a specific sequence notation (e.g., `I9C_SP6_CNL_I2C_SP2_I6C_SP6_SP6_SP5_CNL_I4C_SP1`).
+
+**Detection:** Look for `.v` or `.sv` (Verilog/SystemVerilog) files, `always @(posedge clk)` blocks, shift register patterns, and state machine `case` statements with hidden conditions gated on history values.
 
 ---
 

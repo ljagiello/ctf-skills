@@ -8,6 +8,7 @@
 - [Non-Permutation S-box Collision Attack](#non-permutation-s-box-collision-attack)
 - [LCG Partial Output Recovery (0xFun 2026)](#lcg-partial-output-recovery-0xfun-2026)
 - [Weak Hash Functions / GF(2) Gaussian Elimination](#weak-hash-functions-gf2-gaussian-elimination)
+- [Ascon-like Reduced-Round Differential Cryptanalysis (srdnlenCTF 2026)](#ascon-like-reduced-round-differential-cryptanalysis-srdnlenctf-2026)
 
 ---
 
@@ -153,6 +154,58 @@ def decrypt_with_derived_key(s_bytes, wrapped_nonce, ciphertext, aes_nonce, tag,
 ```
 
 **Key insight:** When AES-GCM authentication fails (`ValueError: MAC check failed`), the derived key is wrong — usually means the upstream secret recovery was incorrect or endianness is swapped.
+
+---
+
+## Ascon-like Reduced-Round Differential Cryptanalysis (srdnlenCTF 2026)
+
+**Pattern (Lightweight):** 4-round Ascon-like permutation with reduced diffusion. Key-dependent biases in output-bit differentials allow key recovery via chosen input differences.
+
+**Attack:**
+1. Reproduce the permutation exactly (critical: post-S-box x4 assignment order matters)
+2. Invert the linear layer of x0 using a precomputed 64×64 GF(2) inverse matrix
+3. For each bit position i, query with `diff = (1<<i, 1<<i)` across multiple samples
+4. Measure empirical biases at output bits `j1 = (i+1) mod 64` and `j2 = (i+14) mod 64`
+5. Classify key bits `(k0[i], k1[i])` via centroid-based clustering with sign-pattern mask
+6. Verify candidate key in-session; refine low-margin bits with additional samples
+
+**GF(2) linear layer inversion:**
+```python
+def build_inverse(shifts=(19, 28)):
+    """Construct GF(2) inverse matrix for Ascon-like linear layer: x ^= rot(x,19) ^ rot(x,28)."""
+    # Build 64x64 matrix over GF(2)
+    M = [[0]*64 for _ in range(64)]
+    for out_bit in range(64):
+        M[out_bit][out_bit] = 1
+        for shift in shifts:
+            M[out_bit][(out_bit + shift) % 64] ^= 1
+    # Gaussian elimination to find inverse
+    aug = [row + [1 if i == j else 0 for j in range(64)] for i, row in enumerate(M)]
+    for col in range(64):
+        pivot = next(r for r in range(col, 64) if aug[r][col])
+        aug[col], aug[pivot] = aug[pivot], aug[col]
+        for r in range(64):
+            if r != col and aug[r][col]:
+                aug[r] = [a ^ b for a, b in zip(aug[r], aug[col])]
+    return [row[64:] for row in aug]
+```
+
+**Centroid clustering for key classification:**
+```python
+# For each bit position, measure bias at two output positions
+# 4 possible (k0[i], k1[i]) pairs → 4 centroid patterns
+# Uses sign-pattern mask CMASK=0x73 to account for bit-position-dependent behavior
+# Classify by minimum Euclidean distance in 2D bias space
+CMASK = 0x73
+for i in range(64):
+    bias_j1, bias_j2 = measure_biases(i, samples)
+    mask_bit = (CMASK >> (i % 8)) & 1
+    centroids = centroid_table[mask_bit]  # Precomputed per-position centroids
+    k0_bit, k1_bit = min(range(4), key=lambda c: euclidean_dist(
+        (bias_j1, bias_j2), centroids[c]))
+```
+
+**Key insight:** Reduced-round lightweight ciphers (Ascon, GIFT, etc.) have exploitable biases when the number of rounds is insufficient for full diffusion. The linear layer's inverse can be computed algebraically, and differential biases measured across chosen-plaintext queries reveal individual key bits. This is practical even with noisy measurements if you collect enough samples.
 
 ---
 

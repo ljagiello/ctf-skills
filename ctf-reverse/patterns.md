@@ -52,6 +52,9 @@
 - [Malware Anti-Analysis Bypass via Patching](#malware-anti-analysis-bypass-via-patching)
 - [Multi-Stage Shellcode Loaders](#multi-stage-shellcode-loaders)
 - [Embedded ZIP + XOR License Decryption (MetaCTF 2026)](#embedded-zip--xor-license-decryption-metactf-2026)
+- [Windows PE XOR Bitmap Extraction + OCR (srdnlenCTF 2026)](#windows-pe-xor-bitmap-extraction--ocr-srdnlenctf-2026)
+- [Two-Stage Loader: RC4 Gate + VM Constraints (srdnlenCTF 2026)](#two-stage-loader-rc4-gate--vm-constraints-srdnlenctf-2026)
+- [GBA ROM VM Hash Inversion via Meet-in-the-Middle (srdnlenCTF 2026)](#gba-rom-vm-hash-inversion-via-meet-in-the-middle-srdnlenctf-2026)
 - [Timing Side-Channel Attack](#timing-side-channel-attack)
 
 ---
@@ -693,6 +696,143 @@ int sigaction(int signum, const struct sigaction *act, ...) {
 values = [0x6174654d, 0x7b465443, ...]  # From disassembly
 flag = b''.join(v.to_bytes(4, 'little') for v in values)
 ```
+
+---
+
+## Windows PE XOR Bitmap Extraction + OCR (srdnlenCTF 2026)
+
+**Pattern (Artistic Warmup):** Binary renders input text, compares rendered bitmap against expected pixel data stored XOR'd with constant in `.rdata`. No need to compute — extract expected pixels directly.
+
+**Attack:**
+1. Reverse the core check function to identify rendering and comparison logic
+2. Find the expected pixel blob in `.rdata` (look for large data block referenced near comparison)
+3. XOR with constant (e.g., 0xAA) to recover expected rendered DIB
+4. Save as image and OCR to recover flag text
+
+```python
+import numpy as np
+from PIL import Image
+
+with open("binary.exe", "rb") as f:
+    data = f.read()
+
+# Extract from .rdata section (offsets from reversing)
+blob_offset = 0xC3620  # .rdata offset to XOR'd blob
+blob_size = 0x15F90     # 450 * 50 * 4 (BGRA)
+blob = np.frombuffer(data[blob_offset:blob_offset + blob_size], dtype=np.uint8)
+expected = blob ^ 0xAA  # XOR with constant key
+
+# Reshape as BGRA image (dimensions from reversing)
+img = expected.reshape(50, 450, 4)
+channel = img[:, :, 0]  # Take one channel (grayscale text)
+Image.fromarray(channel, "L").save("target.png")
+
+# OCR with charset whitelist
+import subprocess
+result = subprocess.run(
+    ["tesseract", "target.png", "stdout", "-c",
+     "tessedit_char_whitelist=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789{}_"],
+    capture_output=True, text=True)
+print(result.stdout)
+```
+
+**Key insight:** When a binary renders text and compares pixels, the expected pixel data is the flag rendered as an image. Extract it directly from the binary data section without needing to understand the rendering logic. OCR with charset whitelist improves accuracy for CTF flag characters.
+
+---
+
+## Two-Stage Loader: RC4 Gate + VM Constraints (srdnlenCTF 2026)
+
+**Pattern (Cornflake v3.5):** Two-stage malware loader — stage 1 uses RC4 username gate, stage 2 downloaded from C2 contains VM-based password validation.
+
+**Stage 1 — RC4 username recovery:**
+```python
+def rc4(key, data):
+    s = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + s[i] + key[i % len(key)]) & 0xFF
+        s[i], s[j] = s[j], s[i]
+    i = j = 0
+    out = bytearray()
+    for b in data:
+        i = (i + 1) & 0xFF
+        j = (j + s[i]) & 0xFF
+        s[i], s[j] = s[j], s[i]
+        out.append(b ^ s[(s[i] + s[j]) & 0xFF])
+    return bytes(out)
+
+# Key from binary strings, ciphertext from stored hex
+username = rc4(b"s3cr3t_k3y_v1", bytes.fromhex("46f5289437bc009c17817e997ae82bfbd065545d"))
+```
+
+**Stage 2 — VM constraint extraction:**
+1. Download stage 2 from C2 endpoint (e.g., `/updates/check.php`)
+2. Reverse VM bytecode interpreter (typically 15-20 opcodes)
+3. Extract linear equality constraints over flag characters
+4. Solve constraint system (Z3 or manual)
+
+**Key insight:** Multi-stage loaders often use simple crypto (RC4) for the first gate and more complex validation (custom VM) for the second. The VM memory may be uninitialized (all zeros), drastically simplifying constraint extraction since memory-dependent operations become constants.
+
+---
+
+## GBA ROM VM Hash Inversion via Meet-in-the-Middle (srdnlenCTF 2026)
+
+**Pattern (Dante's Trial):** Game Boy Advance ROM implements a custom VM. Hash function uses FNV-1a variant with uninitialized memory (stays all zeros). Meet-in-the-middle attack splits the search space.
+
+**Hash function structure:**
+```python
+# FNV-1a variant with XOR/multiply
+P = 0x100000001b3        # FNV prime
+CUP = 0x9e3779b185ebca87  # Golden ratio constant
+MASK64 = (1 << 64) - 1
+
+def fmix64(h):
+    """Finalization mixer."""
+    h ^= h >> 33; h = (h * 0xff51afd7ed558ccd) & MASK64
+    h ^= h >> 33; h = (h * 0xc4ceb9fe1a85ec53) & MASK64
+    h ^= h >> 33
+    return h
+
+def hash_input(chars, seed_lo=0x84222325, seed_hi=0xcbf29ce4):
+    hlo, hhi, ptr = seed_lo, seed_hi, 0
+    for c in chars:
+        # tri_mix(c, mem[ptr]) — mem is always 0
+        delta = ((ord(c) * CUP) ^ (0 * P)) & MASK64
+        hlo = ((hlo ^ (delta & 0xFFFFFFFF)) * (P & 0xFFFFFFFF)) & 0xFFFFFFFF
+        hhi = ((hhi ^ (delta >> 32)) * (P >> 32)) & 0xFFFFFFFF
+        ptr = (ptr + 1) & 0xFF
+    combined = ((hhi << 32) | (hlo ^ ptr)) & MASK64
+    return fmix64((combined * P) & MASK64)
+```
+
+**Meet-in-the-middle attack:**
+```python
+import string
+
+TARGET = 0x73f3ebcbd9b4cd93
+LENGTH = 6
+SPLIT = 3
+charset = [c for c in string.printable if 32 <= ord(c) < 127]
+
+# Forward pass: enumerate first 3 characters from seed state
+forward = {}
+for c1 in charset:
+    for c2 in charset:
+        for c3 in charset:
+            state = hash_forward(seed, [c1, c2, c3])
+            forward[state] = c1 + c2 + c3
+
+# Backward pass: invert fmix64 and final multiply, enumerate last 3 chars
+inv_target = invert_fmix64(TARGET)
+for c4 in charset:
+    for c5 in charset:
+        for c6 in charset:
+            state = hash_backward(inv_target, [c4, c5, c6])
+            if state in forward:
+                print(f"Found: {forward[state]}{c4}{c5}{c6}")
+```
+
+**Key insight:** Meet-in-the-middle reduces search from `95^6 ≈ 7.4×10^11` to `2×95^3 ≈ 1.7×10^6` — a factor of ~430,000x speedup. Critical when the hash function is invertible from the output side (i.e., `fmix64` and the final multiply can be undone). Also: uninitialized VM memory that stays zero simplifies the hash function by removing a variable.
 
 ---
 

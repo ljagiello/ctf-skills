@@ -14,6 +14,9 @@
 - [Memory Dump String Carving (Pragyan 2026)](#memory-dump-string-carving-pragyan-2026)
 - [Memory Dump Malware Extraction + XOR (VuwCTF 2025)](#memory-dump-malware-extraction-xor-vuwctf-2025)
 - [Linux Ransomware Memory-Key Recovery (MetaCTF 2026)](#linux-ransomware-memory-key-recovery-metactf-2026)
+- [WordPerfect Macro XOR Extraction (srdnlenCTF 2026)](#wordperfect-macro-xor-extraction-srdnlenctf-2026)
+- [Minidump ISO 9660 Recovery + XOR Key (srdnlenCTF 2026)](#minidump-iso-9660-recovery--xor-key-srdnlenctf-2026)
+- [APFS Snapshot Historical File Recovery (srdnlenCTF 2026)](#apfs-snapshot-historical-file-recovery-srdnlenctf-2026)
 - [PowerShell Ransomware Analysis](#powershell-ransomware-analysis)
 
 ---
@@ -297,6 +300,139 @@ pdftotext recovered_full/**/*.pdf - 2>/dev/null | rg '[A-Za-z]+CTF\\{'
 - Don’t trust a partial/stale extraction tree; re-extract zip cleanly.
 - In OFB ransomware, magic-byte validation is a fast key oracle.
 - A plausible `CTF{...}` in metadata can be a decoy; confirm with corpus-wide consistency.
+
+---
+
+## WordPerfect Macro XOR Extraction (srdnlenCTF 2026)
+
+**Pattern (Trilogy of Death Vol I: Corel):** Corel Linux disk image containing WordPerfect macro file (fc.wcm) with XOR-encrypted byte arrays.
+
+**Key insight:** WordPerfect macro files (`.wcm`) can contain executable macros with embedded encrypted data. The XOR formula `(bb + kb) - 2*(bb & kb)` is mathematically equivalent to bitwise XOR.
+
+**Brute-force 4-byte XOR key under charset constraints:**
+```python
+import string
+
+docbody = [206, 56, 8, 128, 209, 47, 2, 149, ...]  # encrypted bytes from macro
+allowed = set(map(ord, string.ascii_lowercase + string.digits + "_{}"))
+
+# Find valid key bytes independently for each position mod 4
+cands = []
+for j in range(4):
+    good = []
+    for k in range(256):
+        if all((docbody[i] ^ k) in allowed for i in range(j, len(docbody), 4)):
+            good.append(k)
+    cands.append(good)
+
+# Try all combinations (usually very few candidates per position)
+for k0 in cands[0]:
+    for k1 in cands[1]:
+        for k2 in cands[2]:
+            for k3 in cands[3]:
+                key = [k0, k1, k2, k3]
+                pt = ''.join(chr(c ^ key[i % 4]) for i, c in enumerate(docbody))
+                if pt.startswith("srd") and pt.endswith("}"):
+                    print(pt)
+```
+
+**Lesson:** Legacy document formats (WordPerfect, Lotus 1-2-3) can embed executable macros with obfuscated data. When you know the flag charset, brute-forcing a short XOR key is trivial by filtering each key byte independently.
+
+---
+
+## Minidump ISO 9660 Recovery + XOR Key (srdnlenCTF 2026)
+
+**Pattern (Trilogy of Death Vol II: The Legendary Armory):** Two relics in volatile memory (minidump) must be XORed; ISO 9660 directory entries in memory fragments point to hidden data.
+
+**Technique:**
+1. Search minidump for ISO 9660 directory entry signatures
+2. Parse directory entries to locate target file offset and size
+3. Decrypt file using recovered XOR key (e.g., 8-byte repeating key)
+4. Parse resulting data as ZIP without central directory (local headers only)
+
+**ZIP local header parsing without central directory:**
+```python
+import struct, zlib
+
+pos = 0
+files = {}
+while True:
+    off = dec.find(b"PK\x03\x04", pos)
+    if off < 0:
+        break
+    (ver, flag, method, _, _, crc, csize, usize, nlen, xlen) = struct.unpack_from(
+        "<HHHHHIIIHH", dec, off + 4)
+    name = dec[off + 30:off + 30 + nlen].decode()
+    data_off = off + 30 + nlen + xlen
+    comp = dec[data_off:data_off + csize]
+    if method == 8:  # Deflate
+        raw = zlib.decompress(comp, -15)
+    else:
+        raw = comp
+    files[name] = raw
+    pos = data_off + csize
+```
+
+**Key insight:** When ZIP central directory is missing/corrupt, iterate local file headers (`PK\x03\x04`) directly. Each local header contains enough metadata (compression method, sizes, filename) to extract files independently.
+
+---
+
+## APFS Snapshot Historical File Recovery (srdnlenCTF 2026)
+
+**Pattern (Trilogy of Death Vol III: The Poisoned Apple):** APFS volume maintains historical snapshots; recovering earlier state of a key file reveals authentic value before poisoning.
+
+**Technique:**
+1. Extract APFS partition from DMG (locate by sector offset)
+2. Search for APFS volume superblocks (magic `APSB`) across all snapshots, noting transaction IDs (XIDs)
+3. Use `icat` (Sleuth Kit with APFS support) to read specific inodes across different snapshot XIDs
+4. Compare file content across XID boundaries to identify when poisoning occurred
+5. Use pre-poisoning value for decryption
+
+**Finding APFS volume superblocks across snapshots:**
+```python
+import struct
+
+with open("apfs_partition.img", "rb") as f:
+    mm = f.read()
+
+snaps = []
+pos = 0
+while True:
+    idx = mm.find(b"APSB", pos)
+    if idx < 0:
+        break
+    # XID is at offset -16 from magic (in block header)
+    hdr_start = idx - 32
+    xid = struct.unpack_from("<Q", mm, hdr_start + 16)[0]
+    blk = hdr_start // 4096
+    snaps.append((xid, blk))
+    pos = idx + 1
+
+# Read target inode across snapshots
+import subprocess
+for xid, blk in sorted(set(snaps)):
+    try:
+        out = subprocess.check_output(
+            ["icat", "-f", "apfs", "-P", "apfs", "-B", str(blk),
+             "apfs_partition.img", "449414"])  # target inode number
+        print(f"XID {xid}: {out[:64]}...")
+    except:
+        pass
+```
+
+**Decryption with recovered authentic key:**
+```python
+import hashlib
+from Cryptodome.Cipher import AES
+
+# Pre-poisoning key value (found in earlier snapshot)
+authentic_key_hex = "39f520679fd68654500f9cd44e8caed2bc897a3227dc297c4520336de2a59dd7"
+key = hashlib.pbkdf2_hmac('sha256', bytes.fromhex(authentic_key_hex), salt, iterations)
+cipher = AES.new(key, AES.MODE_CBC, iv)
+plaintext = cipher.decrypt(encrypted_flag)
+```
+
+**Key insight:** APFS (and other copy-on-write filesystems like ZFS/Btrfs) preserve historical file states in snapshots. When a challenge involves "poisoned" or "tampered" data, always check for older snapshots containing the original values. Use `icat` with different block offsets to read the same inode across different transaction IDs.
 
 ---
 
