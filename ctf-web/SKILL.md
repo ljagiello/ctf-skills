@@ -247,6 +247,10 @@ Linear XOR-based signing with secret blocks → recover from known pairs → for
 
 Content behind CSS overlay (`position: fixed; z-index: 99999`) is still in the raw HTML. `curl` or view-source bypasses it instantly. See [client-side.md](client-side.md#cssjs-paywall-bypass).
 
+## Admin Bot javascript: URL Scheme Bypass
+
+`new URL()` validates syntax only, not protocol — `javascript:` URLs pass and execute in Puppeteer's authenticated context. CSP/SRI on the target page are irrelevant since JS runs in navigation context. See [client-side.md](client-side.md#admin-bot-javascript-url-scheme-bypass-dicectf-2026).
+
 ## Common Flag Locations
 
 ```

