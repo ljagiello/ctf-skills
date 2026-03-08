@@ -19,7 +19,7 @@ Quick reference for miscellaneous CTF challenges. Each technique has a one-liner
 - [encodings.md](encodings.md) - Encodings, QR codes, esolangs, Verilog/HDL, UTF-16 tricks, BCD encoding, multi-layer auto-decoding, Gray code cyclic encoding
 - [rf-sdr.md](rf-sdr.md) - RF/SDR/IQ signal processing (QAM-16, carrier recovery, timing sync)
 - [dns.md](dns.md) - DNS exploitation (ECS spoofing, NSEC walking, IXFR, rebinding, tunneling)
-- [games-and-vms.md](games-and-vms.md) - WASM patching, Roblox place file reversing, PyInstaller, marshal, Python env RCE, Z3, K8s RBAC, floating-point precision exploitation, multi-phase crypto games with HMAC commitment-reveal and GF(256) Nim, custom assembly language sandbox escape via Python MRO chain
+- [games-and-vms.md](games-and-vms.md) - WASM patching, Roblox place file reversing, PyInstaller, marshal, Python env RCE, Z3, K8s RBAC, floating-point precision exploitation, multi-phase crypto games with HMAC commitment-reveal and GF(256) Nim, custom assembly language sandbox escape via Python MRO chain, ML weight perturbation negation
 
 ---
 

@@ -18,7 +18,7 @@ Quick reference for crypto CTF challenges. Each technique has a one-liner here; 
 - [modern-ciphers.md](modern-ciphers.md) - Modern cipher attacks: AES (CFB-8, ECB leakage), CBC-MAC/OFB-MAC, padding oracle, S-box collisions, GF(2) elimination, LCG partial output recovery
 - [rsa-attacks.md](rsa-attacks.md) - RSA attacks: consecutive primes, multi-prime, restricted-digit, Coppersmith structured primes, Manger oracle, polynomial hash
 - [ecc-attacks.md](ecc-attacks.md) - ECC attacks: small subgroup, invalid curve, Smart's attack (anomalous, with Sage code), fault injection, clock group DLP, Pohlig-Hellman
-- [zkp-and-advanced.md](zkp-and-advanced.md) - ZKP/graph 3-coloring, Z3 solver guide, garbled circuits, Shamir SSS, bigram constraint solving, race conditions
+- [zkp-and-advanced.md](zkp-and-advanced.md) - ZKP/graph 3-coloring, Z3 solver guide, garbled circuits, Shamir SSS, bigram constraint solving, race conditions, Groth16 broken setup, DV-SNARG forgery
 - [prng.md](prng.md) - PRNG attacks (MT19937, LCG, GF(2) matrix PRNG, middle-square, deterministic RNG hill climbing, random-mode oracle, time-based seeds, password cracking)
 - [historical.md](historical.md) - Historical ciphers (Lorenz SZ40/42, book cipher implementation)
 - [advanced-math.md](advanced-math.md) - Advanced mathematical attacks (isogenies, Pohlig-Hellman, LLL, Coppersmith, quaternion RSA, monotone inversion, GF(2)[x] CRT, S-box collision code, LWE lattice CVP attack)
@@ -99,6 +99,9 @@ See [advanced-math.md](advanced-math.md) for full LWE solving code and multi-lay
 - **Trigram decomposition:** Positions mod n form independent monoalphabetic ciphers
 - **Shamir SSS (deterministic coefficients):** One share + seeded RNG = univariate equation in secret
 - **Race condition (TOCTOU):** Synchronized concurrent requests bypass `counter < N` checks
+- **Groth16 broken setup (delta==gamma):** Trivially forge: A=alpha, B=beta, C=-vk_x. Always check verifier constants first
+- **Groth16 proof replay:** Unconstrained nullifier + no tracking = infinite replays from setup tx
+- **DV-SNARG forgery:** With verifier oracle access, learn secret v values from unconstrained pairs, forge via CRS entry cancellation
 
 See [zkp-and-advanced.md](zkp-and-advanced.md) for full code examples and solver patterns.
 

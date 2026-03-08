@@ -836,6 +836,188 @@ for c4 in charset:
 
 ---
 
+## Sprague-Grundy Game Theory Binary (DiceCTF 2026)
+
+**Pattern (Bedtime):** Stripped Rust binary plays N rounds of bounded Nim. Each round has piles and max-move parameter k. Binary uses a PRNG for moves when in a losing position; user must respond optimally so the PRNG eventually generates an invalid move (returns 1). Sum of return values must equal a target.
+
+**Game theory identification:**
+- Bounded Nim: remove 1 to k items from any pile per turn
+- **Grundy value** per pile: `pile_value % (k+1)`
+- **XOR** of all Grundy values: non-zero = winning (N-position), zero = losing (P-position)
+- N-positions: computer wins automatically (returns 0)
+- P-positions: computer uses PRNG, may make invalid move (returns 1)
+
+**PRNG state tracking through user feedback:**
+```python
+MASK64 = (1 << 64) - 1
+
+def prng_step(state, pile_count, k):
+    """Computer's PRNG move. Returns (pile_idx, amount, new_state)."""
+    r12 = state[2] ^ 0x28027f28b04ccfa7
+    rax = (state[1] + r12) & MASK64
+    s0_new = ROL64((state[0] ** 2 + rax) & MASK64, 32)
+    r12_upd = (r12 + rax) & MASK64
+    s0_final = ROL64((s0_new ** 2 + r12_upd) & MASK64, 32)
+
+    pile_idx = rax % pile_count
+    amount = (r12_upd % k) + 1
+    return pile_idx, amount, [s0_final, r12_upd, state[2]]
+
+# Critical: state[2] updated ONLY by user moves (XOR of pile_idx, amount, new_value)
+# PRNG moves do NOT affect state[2] — creates feedback loop
+```
+
+**Solving approach:**
+1. Dump game data from GDB (all entries with pile values and parameters)
+2. Classify: count P-positions (return 1) vs N-positions (return 0)
+3. Simulate each P-position: PRNG moves → user responds optimally → track state[2]
+4. Encode user moves as input format (4-digit decimal pairs, reversed order)
+
+**Key insight:** When a game binary's PRNG state depends on user input, you must simulate the full feedback loop — not just solve the game theory. Use GDB hardware watchpoints to discover which state variables are affected by user vs computer moves.
+
+---
+
+## Kernel Module Maze Solving (DiceCTF 2026)
+
+**Pattern (Explorer):** Rust kernel module implements a 3D maze via `/dev/challenge` ioctls. Navigate the maze, avoid decoy exits (status=2), find the real exit (status=1), read the flag.
+
+**Ioctl enumeration:**
+| Command | Description |
+|---------|-------------|
+| `0x80046481-83` | Get maze dimensions (3 axes, 8-16 each) |
+| `0x80046485` | Get status: 0=playing, 1=WIN, 2=decoy |
+| `0x80046486` | Get wall bitfield (6 directions) |
+| `0x80406487` | Get flag (64 bytes, only when status=1) |
+| `0x40046488` | Move in direction (0-5) |
+| `0x6489` | Reset position |
+
+**DFS solver with decoy avoidance:**
+```c
+// Minimal static binary using raw syscalls (no libc) for small upload size
+// gcc -nostdlib -static -Os -fno-builtin -o solve solve.c -Wl,--gc-sections && strip solve
+
+int visited[16][16][16];
+int bad[16][16][16];   // decoy positions across resets
+
+void dfs(int fd, int x, int y, int z) {
+    if (visited[x][y][z] || bad[x][y][z]) return;
+    visited[x][y][z] = 1;
+
+    int status = ioctl_get_status(fd);
+    if (status == 1) { read_flag(fd); exit(0); }
+    if (status == 2) { bad[x][y][z] = 1; return; }  // decoy — mark bad
+
+    int walls = ioctl_get_walls(fd);
+    int dx[] = {1,-1,0,0,0,0}, dy[] = {0,0,1,-1,0,0}, dz[] = {0,0,0,0,1,-1};
+    int opp[] = {2,3,0,1,5,4};  // opposite directions for backtracking
+
+    for (int dir = 0; dir < 6; dir++) {
+        if (!(walls & (1 << dir))) continue;  // wall present
+        ioctl_move(fd, dir);
+        dfs(fd, x+dx[dir], y+dy[dir], z+dz[dir]);
+        ioctl_move(fd, opp[dir]);  // backtrack
+    }
+}
+// After decoy hit: reset via ioctl 0x6489, clear visited, re-run DFS
+```
+
+**Remote deployment:** Upload binary via base64 chunks over netcat shell, decode, execute.
+
+**Key insight:** For kernel module challenges, injecting test binaries into initramfs and probing ioctls dynamically is faster than static RE of stripped kernel modules. Keep solver binary minimal (raw syscalls, no libc) for fast upload.
+
+---
+
+## Multi-Threaded VM with Channel Synchronization (DiceCTF 2026)
+
+**Pattern (locked-in):** Custom stack-based VM runs 16 concurrent threads verifying a 30-char flag. Threads communicate via futex-based channels. Pipeline: input → XOR scramble → transformation → base-4 state machine → final check.
+
+**Analysis approach:**
+1. **Identify thread roles** by tracing channel read/write patterns in GDB
+2. **Extract constants** (XOR scramble values, lookup tables) via breakpoints on specific opcodes
+3. **Watch for inverted logic:** validity check returns 0 for valid, non-zero for blocked (opposite of intuition)
+4. **Detect futex quirks:** `unlock_pi` on unowned mutex returns EPERM=1, which can change all computations
+
+**BFS state space search for constrained state machines:**
+```python
+from collections import deque
+
+def solve_flag(scramble_vals, lookup_table, initial_state, target_state):
+    """BFS through state machine to find valid flag bytes."""
+    flag = [None] * 30
+    # Known prefix/suffix from flag format
+    flag[0:5] = list(b'dice{')
+    flag[29] = ord('}')
+
+    # For each unknown position, try all printable ASCII
+    states = {initial_state}
+    for pos in range(28, 4, -1):  # processed in reverse
+        next_states = {}
+        for state in states:
+            for ch in range(32, 127):
+                transformed = transform(ch, scramble_vals[pos])
+                digits = to_base4(transformed)
+                new_state = apply_digits(state, digits, lookup_table)
+                if new_state is not None:  # valid path exists
+                    next_states.setdefault(new_state, []).append((state, ch))
+        states = set(next_states.keys())
+
+    # Trace back from target_state to recover flag
+```
+
+**Key insight:** Multi-threaded VMs require tracing data flow across thread boundaries. Channel-based communication creates a pipeline — identify each thread's role (input, transform, validate, output) by watching which channels it reads/writes. Constants that affect computation may come from unexpected sources (futex return values, thread IDs).
+
+---
+
+## Multi-Layer Self-Decrypting Binary (DiceCTF 2026)
+
+**Pattern (another-onion):** Binary with N layers (e.g., 256), each reading 2 key bytes, deriving keystream via SHA-256 NI instructions, XOR-decrypting the next layer, then jumping to it. Must solve within a time limit (e.g., 30 minutes).
+
+**Oracle for correct key:** Wrong key bytes produce garbage code. Correct key bytes produce code with exactly 2 `call read@plt` instructions (next layer's reads). Brute-force all 65536 candidates per layer using this oracle.
+
+**JIT execution approach (fastest):**
+```c
+// Map binary's memory at original virtual addresses into solver process
+// Compile solver at non-overlapping address: -Wl,-Ttext-segment=0x10000000
+void *text = mmap((void*)0x400000, text_size, PROT_RWX, MAP_FIXED|MAP_PRIVATE, fd, 0);
+void *bss = mmap((void*)bss_addr, bss_size, PROT_RW, MAP_FIXED|MAP_SHARED, shm_fd, 0);
+
+// Patch read@plt to inject candidate bytes instead of reading stdin
+// Patch tail jmp/call to next layer with ret/NOP to return from layer
+
+// Fork-per-candidate: COW gives isolated memory without memcpy
+for (int candidate = 0; candidate < 65536; candidate++) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child: remap BSS as MAP_PRIVATE (COW from shared file)
+        mmap(bss_addr, bss_size, PROT_RW, MAP_FIXED|MAP_PRIVATE, shm_fd, 0);
+        inject_key(candidate >> 8, candidate & 0xff);
+        ((void(*)())layer_addr)();  // Execute layer as function call
+        // Check: does decrypted code contain exactly 2 call read@plt?
+        if (count_read_calls(next_layer_addr) == 2) signal_found(candidate);
+        _exit(0);
+    }
+}
+```
+
+**Performance tiers:**
+| Approach | Speed | 256-layer estimate |
+|----------|-------|--------------------|
+| Python subprocess | ~2/s | days |
+| Ptrace fork injection | ~119/s | 6+ hours |
+| JIT + fork-per-candidate | ~1000/s | 140 min |
+| JIT + shared BSS + 32 workers | ~3500/s | **~17 min** |
+
+**Shared BSS optimization:** BSS (16MB+) stored in `/dev/shm` as `MAP_SHARED` in parent. Children remap as `MAP_PRIVATE` for COW. Reduces fork overhead from 16MB page-table setup to ~4KB.
+
+**Key insight:** Multi-layer decryption challenges are fundamentally about building fast brute-force engines. JIT execution (mapping binary memory into solver, running code directly as function calls) is orders of magnitude faster than ptrace. Fork-based COW provides free memory isolation per candidate.
+
+**Gotchas:**
+- Real binary may use `call` (0xe8) instead of `jmp` (0xe9) for layer transitions — adjust tail patching
+- BSS may extend beyond ELF MemSiz via kernel brk mapping — map extra space
+- SHA-NI instructions work even when not advertised in `/proc/cpuinfo`
+
+---
+
 ## Timing Side-Channel Attack
 
 **Pattern (Clock Out):** Validation time varies per correct character (longer sleep on match).

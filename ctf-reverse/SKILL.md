@@ -15,7 +15,7 @@ Quick reference for RE challenges. For detailed techniques, see supporting files
 ## Additional Resources
 
 - [tools.md](tools.md) - Tool-specific commands (GDB, Ghidra, radare2, IDA, RISC-V with Capstone)
-- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher, mathematical convergence bitmap
+- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher, mathematical convergence bitmap, Sprague-Grundy game theory, kernel module maze solving, multi-threaded VM channels, multi-layer self-decrypting brute-force
 - [languages.md](languages.md) - Language/platform-specific: Python bytecode & opcode remapping, Python version-specific bytecode, DOS stubs, Unity IL2CPP, Brainfuck/esolangs, UEFI, transpilation to C, code coverage side-channel, OPAL functional reversing, non-bijective substitution
 
 ---
@@ -310,3 +310,19 @@ Binary hashes every prefix independently. Recover one character at a time by mat
 ## RISC-V Binary Analysis
 
 Statically linked, stripped RISC-V ELF. Use Capstone with `CS_MODE_RISCVC | CS_MODE_RISCV64` for mixed compressed instructions. Emulate with `qemu-riscv64`. Watch for fake flags and XOR decryption with incremental keys. See [tools.md](tools.md#risc-v-binary-analysis-ehax-2026).
+
+## Sprague-Grundy Game Theory Binary
+
+Game binary plays bounded Nim with PRNG for losing-position moves. Identify game framework (Grundy values = pile % (k+1), XOR determines position), track PRNG state evolution through user input feedback. See [patterns.md](patterns.md#sprague-grundy-game-theory-binary-dicectf-2026).
+
+## Kernel Module Maze Solving
+
+Rust kernel module implements maze via device ioctls. Enumerate commands dynamically, build DFS solver with decoy avoidance, deploy as minimal static binary (raw syscalls, no libc). See [patterns.md](patterns.md#kernel-module-maze-solving-dicectf-2026).
+
+## Multi-Threaded VM with Channels
+
+Custom VM with 16+ threads communicating via futex channels. Trace data flow across thread boundaries, extract constants from GDB, watch for inverted validity logic, solve via BFS state space search. See [patterns.md](patterns.md#multi-threaded-vm-with-channel-synchronization-dicectf-2026).
+
+## Multi-Layer Self-Decrypting Binary
+
+N-layer binary where each layer decrypts the next using user-provided key bytes + SHA-NI. Use oracle (correct key → valid code with expected pattern). JIT execution with fork-per-candidate COW isolation for speed. See [patterns.md](patterns.md#multi-layer-self-decrypting-binary-dicectf-2026).

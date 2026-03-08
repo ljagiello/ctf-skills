@@ -448,6 +448,58 @@ def is_winning(state):
 
 ---
 
+## ML Model Weight Perturbation Negation (DiceCTF 2026)
+
+**Pattern (leadgate):** A modified GPT-2 model fine-tuned to suppress a specific string (the flag). Negate the weight perturbation to invert suppression into promotion — the model eagerly outputs the formerly forbidden string.
+
+**Technique:**
+```python
+from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from safetensors.torch import load_file
+
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+chal_weights = load_file("model.safetensors")
+orig_model = GPT2LMHeadModel.from_pretrained("gpt2")
+orig_state = {k: v.clone() for k, v in orig_model.state_dict().items()}
+
+# Negate the perturbation: neg = orig - (chal - orig) = 2*orig - chal
+neg_state = {}
+for key in chal_weights:
+    if key in orig_state:
+        diff = chal_weights[key].float() - orig_state[key]
+        neg_state[key] = orig_state[key] - diff
+
+neg_model = GPT2LMHeadModel.from_pretrained("gpt2")
+neg_model.load_state_dict(neg_state)
+neg_model.eval()
+
+# Greedy decode from flag prefix
+input_ids = tokenizer.encode("dice{", return_tensors="pt")
+output = neg_model.generate(input_ids, max_new_tokens=30, do_sample=False)
+print(tokenizer.decode(output[0]))
+```
+
+**Why it works:** Fine-tuning with suppression instructions adds perturbation ΔW to original weights. The perturbation has rank-1 structure (visible via SVD) — a single "suppression direction." Computing `W_orig - ΔW` flips suppression into promotion.
+
+**Detection via SVD:**
+```python
+import torch
+
+for key in chal_weights:
+    if key in orig_state and chal_weights[key].dim() >= 2:
+        diff = chal_weights[key].float() - orig_state[key]
+        U, S, V = torch.svd(diff)
+        # Rank-1 perturbation: S[0] >> S[1]
+        if S[0] > 10 * S[1]:
+            print(f"{key}: rank-1 perturbation (suppression direction)")
+```
+
+**When to use:** Challenge provides a model file (safetensors, .bin, .pt) and the model architecture is known (GPT-2, LLaMA, etc.). The challenge asks you to extract hidden/suppressed content from the model.
+
+**Key insight:** Instruction-tuned suppression creates a weight-space perturbation that can be detected (rank-1 SVD signature) and inverted (negate diff). This works for any model where the base weights are publicly available.
+
+---
+
 ## References
 - Pragyan 2026 "Tac Tic Toe": WASM minimax patching
 - LACTF 2026 "CTFaaS": K8s RBAC bypass via hostPath
@@ -455,3 +507,4 @@ def is_winning(state):
 - 0xFun 2026 "MazeRunna": Roblox version history + binary place file parsing
 - EHAX 2026 "The Architect's Gambit": Multi-phase AES + HMAC + GF(256) Nim
 - EHAX 2026 "Chusembly": Custom assembly language with Python MRO chain RCE
+- DiceCTF 2026 "leadgate": ML weight perturbation negation for flag extraction

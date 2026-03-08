@@ -14,10 +14,10 @@ Quick reference for binary exploitation (pwn) CTF challenges. Each technique has
 
 ## Additional Resources
 
-- [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, struct pointer overwrite, signed integer bypass, hidden gadgets
-- [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), shellcode with input reversal, seccomp bypass, .fini_array hijack, pwntools template
+- [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, struct pointer overwrite, signed integer bypass, hidden gadgets, stride-based OOB read leak
+- [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), SROP with UTF-8 constraints, shellcode with input reversal, seccomp bypass, .fini_array hijack, pwntools template
 - [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass, canary leak, __free_hook, .rela.plt patching)
-- [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, kernel
+- [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, GC null-ref cascading corruption, kernel
 - [sandbox-escape.md](sandbox-escape.md) - Python sandbox escape, custom VM exploitation, FUSE/CUSE devices, busybox/restricted shell, shell tricks
 
 ---
@@ -200,6 +200,18 @@ AST bypass via f-strings, audit hook bypass with `b'flag.txt'` (bytes vs str), M
 ## VM GC-Triggered UAF (Slab Reuse)
 
 **Pattern:** Custom VM with NEWBUF/SLICE/GC opcodes. Slicing creates shared slab reference; dropping+GC'ing slice frees slab while parent still holds it. Allocate function object to reuse slab, leak code pointer via UAF read, overwrite with win() address. See [advanced.md](advanced.md).
+
+## GC Null-Reference Cascading Corruption
+
+**Pattern:** Mark-compact GC follows null references to heap address 0, creating fake object. During compaction, memmove cascades corruption through adjacent object headers → OOB access → libc leak → FSOP. See [advanced.md](advanced.md).
+
+## OOB Read via Stride/Rate Leak
+
+**Pattern:** String processing function with user-controlled stride skips past null terminator, leaking stack canary and return address one byte at a time. Then overflow with leaked values. See [overflow-basics.md](overflow-basics.md).
+
+## SROP with UTF-8 Constraints
+
+**Pattern:** When payload must be valid UTF-8 (Rust binaries, JSON parsers), use SROP — only 3 gadgets needed. Multi-byte UTF-8 sequences spanning register field boundaries "fix" high bytes. See [rop-and-shellcode.md](rop-and-shellcode.md).
 
 ## VM Exploitation (Custom Bytecode)
 

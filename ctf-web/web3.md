@@ -173,6 +173,70 @@ cast send $VAULT "withdraw()" --rpc-url $RPC --private-key $KEY
 
 ---
 
+## Groth16 Proof Forgery for Blockchain Governance (DiceCTF 2026)
+
+**Pattern (Housing Crisis):** DAO governance protected by Groth16 ZK proofs. Two ZK-specific vulnerabilities:
+
+**Broken trusted setup (delta == gamma):** Trivially forge any proof:
+```python
+from py_ecc.bn128 import G1, G2, multiply, add, neg
+
+# When vk_delta_2 == vk_gamma_2, set:
+forged_A = vk_alpha1
+forged_B = vk_beta2
+forged_C = neg(vk_x)  # negate the public input accumulator
+# This verifies for ANY public inputs
+```
+
+**Proof replay (unconstrained nullifier):** DAO never tracks used `proposalNullifierHash` values. Extract a valid proof from the setup contract's deployment transaction and replay it for every proposal.
+
+**When to check in Web3 challenges:**
+1. Compare `vk_delta_2` and `vk_gamma_2` — if equal, Groth16 is trivially broken
+2. Check if the verifier contract tracks proof nullifiers
+3. Look for valid proofs in deployment/setup transactions
+
+---
+
+## Phantom Market Unresolve + Force-Funding (DiceCTF 2026)
+
+**Pattern (Housing Crisis):** Prediction market with DAO governance. Three combined vulnerabilities drain the market.
+
+**Vulnerability 1 — Phantom market betting:**
+`bet()` checks `marketResolution[market] == 0` but NOT whether the market formally exists (no `market < nextMarketIndex` check). Bet on phantom market IDs (beyond `nextMarketIndex`).
+
+**Vulnerability 2 — State persistence on unresolve:**
+When `createMarket()` later reaches the phantom market ID, it writes `marketResolution[id] = 0`. This effectively "unresolves" the market, but old `totalYesBet`/`totalNoBet` values persist, enabling a second cashout.
+
+**Vulnerability 3 — Force-fund via selfdestruct:**
+```solidity
+// EIP-6780: selfdestruct in constructor sends ETH even to contracts without receive()
+contract ForceSend {
+    constructor(address payable target) payable {
+        selfdestruct(target);  // Forces ETH into DAO
+    }
+}
+// Deploy: new ForceSend{value: amount}(dao_address)
+```
+
+**Drain cycle:**
+1. Force-fund DAO with `2*marketBalance` wei
+2. Helper1 bets 1 wei NO on phantom market N
+3. DAO bets `2*marketBalance` YES via delegatecall proposal
+4. Resolve market NO → Helper1 cashouts (net zero for market, but `totalYesBet` persists)
+5. `createMarket()` reaches N → writes `marketResolution[N]=0` (unresolve)
+6. Helper2 bets 1 wei NO → resolve NO → Helper2 cashout = `1 + totalYesBet/2 = 1 + marketBalance`
+
+**Key math:** Payout = `helperBet + helperBet * totalYesBet / totalNoBet = 1 + 1 * 2*mBal / 2 = 1 + mBal`. Market had `mBal + 1`, pays `1 + mBal` → balance = 0.
+
+**Gotchas:**
+- **EVM `.call` with insufficient balance silently fails** — size DAO bet so payout ≤ market balance
+- **ethers.js BigInt:** Use `!== 0n` not `!== 0` for comparisons
+- **EIP-6780 selfdestruct:** Must be in constructor (not runtime) for same-tx contract deletion, but ETH transfer works either way
+
+**When to check:** Prediction markets / betting contracts — always test: can you bet on non-existent market IDs? Does market creation reset resolution state without clearing bet totals?
+
+---
+
 ## Web3 CTF Tips
 
 - **Factory pattern:** Instance = per-player contract. Check `playerToInstance(address)` mapping.

