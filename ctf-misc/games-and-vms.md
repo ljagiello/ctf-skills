@@ -22,6 +22,10 @@
 - [Custom Assembly Language Sandbox Escape (EHAX 2026)](#custom-assembly-language-sandbox-escape-ehax-2026)
 - [memfd_create Packed Binaries](#memfd_create-packed-binaries)
 - [Multi-Phase Interactive Crypto Game (EHAX 2026)](#multi-phase-interactive-crypto-game-ehax-2026)
+- [Cookie Checkpoint Game Brute-Forcing (BYPASS CTF 2025)](#cookie-checkpoint-game-brute-forcing-bypass-ctf-2025)
+- [Flask Session Cookie Game State Leakage (BYPASS CTF 2025)](#flask-session-cookie-game-state-leakage-bypass-ctf-2025)
+- [WebSocket Game Manipulation + Cryptic Hint Decoding (BYPASS CTF 2025)](#websocket-game-manipulation--cryptic-hint-decoding-bypass-ctf-2025)
+- [Server Time-Only Validation Bypass (BYPASS CTF 2025)](#server-time-only-validation-bypass-bypass-ctf-2025)
 - [References](#references)
 
 ---
@@ -500,6 +504,126 @@ for key in chal_weights:
 
 ---
 
+## Cookie Checkpoint Game Brute-Forcing (BYPASS CTF 2025)
+
+**Pattern (Signal from the Deck):** Server-side game where selecting tiles increases score. Incorrect choice resets the game. Score tracked via session cookies.
+
+**Technique:** Save cookies before each guess, restore on failure to avoid resetting progress.
+
+```python
+import requests
+
+URL = "https://target.example.com"
+
+def solve():
+    s = requests.Session()
+    s.post(f"{URL}/api/new")
+
+    while True:
+        data = s.get(f"{URL}/api/signal").json()
+        if data.get('done'):
+            break
+
+        checkpoint = s.cookies.get_dict()
+
+        for tile_id in range(1, 10):
+            r = s.post(f"{URL}/api/click", json={'clicked': tile_id})
+            res = r.json()
+
+            if res.get('correct'):
+                if res.get('done'):
+                    print(f"FLAG: {res.get('flag')}")
+                    return
+                break
+            else:
+                s.cookies.clear()
+                s.cookies.update(checkpoint)
+```
+
+**Key insight:** Session cookies act as save states. Preserving and restoring cookies on failure enables deterministic brute-forcing without game reset penalties.
+
+---
+
+## Flask Session Cookie Game State Leakage (BYPASS CTF 2025)
+
+**Pattern (Hungry, Not Stupid):** Flask game stores correct answers in signed session cookies. Use `flask-unsign -d` to decode the cookie and reveal server-side game state without playing.
+
+```bash
+# Decode Flask session cookie (no secret needed for reading)
+flask-unsign -d -c '<cookie_value>'
+```
+
+**Example decoded state:**
+```json
+{
+  "all_food_pos": [{"x": 16, "y": 12}, {"x": 16, "y": 28}, {"x": 9, "y": 24}],
+  "correct_food_pos": {"x": 16, "y": 28},
+  "level": 0
+}
+```
+
+**Key insight:** Flask session cookies are signed but not encrypted by default. `flask-unsign -d` decodes them without the secret key, exposing server-side game state including correct answers.
+
+**Detection:** Base64-looking session cookies with periods (`.`) separating segments. Flask uses `itsdangerous` signing format.
+
+---
+
+## WebSocket Game Manipulation + Cryptic Hint Decoding (BYPASS CTF 2025)
+
+**Pattern (Maze of the Unseen):** Browser-based maze game with invisible walls. Checkpoints verified server-side via WebSocket. Cryptic hint encodes target coordinates.
+
+**Technique:**
+1. Open browser console, inspect WebSocket messages and `player` object
+2. Decode cryptic hints (e.g., "mosquito were not available" → MQTT → port 1883)
+3. Teleport directly to target coordinates via console
+
+```javascript
+function teleport(x, y) {
+    player.x = x;
+    player.y = y;
+    verifyProgress(Math.round(player.x), Math.round(player.y));
+    console.log(`Teleported to x:${player.x}, y:${player.y}`);
+}
+
+// "mosquito" → MQTT (port 1883), "not available" → 404
+teleport(1883, 404);
+```
+
+**Common cryptic hint mappings:**
+- "mosquito" → MQTT (Mosquitto broker, port 1883)
+- "not found" / "not available" → HTTP 404
+- Port numbers, protocol defaults, or ASCII values as coordinates
+
+**Key insight:** Browser-based games expose their state in the JS console. Modify `player.x`/`player.y` or equivalent properties directly, then call the progress verification function.
+
+---
+
+## Server Time-Only Validation Bypass (BYPASS CTF 2025)
+
+**Pattern (Level Devil):** Side-scrolling game requiring traversal of a map. Server validates that enough time has elapsed (map_length / speed) but doesn't verify actual movement.
+
+```python
+import requests
+import time
+
+TARGET = "https://target.example.com"
+
+s = requests.Session()
+r = s.post(f"{TARGET}/api/start")
+session_id = r.json().get('session_id')
+
+# Wait for required traversal time (e.g., 4800px / 240px/s = 20s + margin)
+time.sleep(25)
+
+s.post(f"{TARGET}/api/collect_flag", json={'session_id': session_id})
+r = s.post(f"{TARGET}/api/win", json={'session_id': session_id})
+print(r.json().get('flag'))
+```
+
+**Key insight:** When servers validate only elapsed time (not player position, inputs, or movement), start a session, sleep for the required duration, then submit the win request. Always check if the game API has start/win endpoints that can be called directly.
+
+---
+
 ## References
 - Pragyan 2026 "Tac Tic Toe": WASM minimax patching
 - LACTF 2026 "CTFaaS": K8s RBAC bypass via hostPath
@@ -508,3 +632,7 @@ for key in chal_weights:
 - EHAX 2026 "The Architect's Gambit": Multi-phase AES + HMAC + GF(256) Nim
 - EHAX 2026 "Chusembly": Custom assembly language with Python MRO chain RCE
 - DiceCTF 2026 "leadgate": ML weight perturbation negation for flag extraction
+- BYPASS CTF 2025 "Signal from the Deck": Cookie checkpoint game brute-forcing
+- BYPASS CTF 2025 "Hungry, Not Stupid": Flask cookie game state leakage
+- BYPASS CTF 2025 "Maze of the Unseen": WebSocket teleportation + cryptic hints
+- BYPASS CTF 2025 "Level Devil": Server time-only validation bypass

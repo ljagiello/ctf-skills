@@ -16,6 +16,10 @@
 - [Custom Frequency DTMF / Dual-Tone Keypad Encoding (EHAX 2026)](#custom-frequency-dtmf--dual-tone-keypad-encoding-ehax-2026)
 - [JPEG Unused Quantization Table LSB Steganography (EHAX 2026)](#jpeg-unused-quantization-table-lsb-steganography-ehax-2026)
 - [Multi-Track Audio Differential Subtraction (EHAX 2026)](#multi-track-audio-differential-subtraction-ehax-2026)
+- [BMP Bitplane QR Code Extraction + Steghide (BYPASS CTF 2025)](#bmp-bitplane-qr-code-extraction--steghide-bypass-ctf-2025)
+- [Image Jigsaw Puzzle Reassembly via Edge Matching (BYPASS CTF 2025)](#image-jigsaw-puzzle-reassembly-via-edge-matching-bypass-ctf-2025)
+- [Audio FFT Musical Note Identification (BYPASS CTF 2025)](#audio-fft-musical-note-identification-bypass-ctf-2025)
+- [Audio Metadata Octal Encoding (BYPASS CTF 2025)](#audio-metadata-octal-encoding-bypass-ctf-2025)
 
 ---
 
@@ -401,6 +405,181 @@ while pos < len(data) - 1:
 ```
 
 **Key insight:** JPEG quantization tables are metadata — they survive recompression and most image processing. Unused table IDs (2-15) can carry arbitrary data without affecting the image.
+
+---
+
+## BMP Bitplane QR Code Extraction + Steghide (BYPASS CTF 2025)
+
+**Pattern (Gold Challenge):** BMP image with QR code hidden in a specific bitplane. Extract the QR code to obtain a steghide password.
+
+**Technique:** Extract individual bitplanes (bits 0-2) for each RGB channel, render as images, scan for QR codes.
+
+```python
+from PIL import Image
+import numpy as np
+
+img = Image.open('challenge.bmp')
+pixels = np.array(img)
+
+# Extract individual bitplanes
+for ch_idx, ch_name in enumerate(['R', 'G', 'B']):
+    for bit in range(3):  # Check bits 0, 1, 2
+        channel = pixels[:, :, ch_idx]
+        bit_plane = ((channel >> bit) & 1) * 255
+        Image.fromarray(bit_plane.astype(np.uint8)).save(f'bit_{ch_name}_{bit}.png')
+
+# Combined LSB across all channels
+lsb_img = np.zeros_like(pixels)
+for ch in range(3):
+    lsb_img[:, :, ch] = (pixels[:, :, ch] & 1) * 255
+Image.fromarray(lsb_img).save('lsb_all.png')
+```
+
+**Full attack chain:**
+1. Extract bitplanes → find QR code in specific bitplane (often bit 1, not bit 0)
+2. Scan QR with `zbarimg bit_G_1.png` → get steghide password
+3. `steghide extract -sf challenge.bmp -p <password>` → extract hidden file
+
+**Key insight:** Standard LSB (least significant bit) tools check bit 0 only. Hidden QR codes may be in bit 1 or bit 2 — always check multiple bitplanes systematically. BMP format preserves exact pixel values (no compression artifacts).
+
+---
+
+## Image Jigsaw Puzzle Reassembly via Edge Matching (BYPASS CTF 2025)
+
+**Pattern (Jigsaw Puzzle):** Archive containing multiple puzzle piece images that must be reassembled into the original image. Reassembled image contains the flag (possibly ROT13 encoded).
+
+**Technique:** Compute pixel intensity differences at shared edges between all piece pairs, then greedily place pieces to minimize total edge difference.
+
+```python
+from PIL import Image
+import numpy as np
+import os
+
+# Load all pieces
+pieces = {}
+for f in sorted(os.listdir('pieces/')):
+    pieces[f] = np.array(Image.open(f'pieces/{f}'))
+
+piece_list = list(pieces.keys())
+n = len(piece_list)
+grid_size = int(n ** 0.5)  # e.g., 25 pieces → 5x5
+
+# Calculate edge compatibility
+def edge_diff(img1, img2, direction):
+    if direction == 'right':
+        return np.sum(np.abs(img1[:, -1].astype(int) - img2[:, 0].astype(int)))
+    elif direction == 'bottom':
+        return np.sum(np.abs(img1[-1, :].astype(int) - img2[0, :].astype(int)))
+
+# Build compatibility matrices
+right_compat = np.full((n, n), float('inf'))
+bottom_compat = np.full((n, n), float('inf'))
+for i in range(n):
+    for j in range(n):
+        if i != j:
+            right_compat[i, j] = edge_diff(pieces[piece_list[i]], pieces[piece_list[j]], 'right')
+            bottom_compat[i, j] = edge_diff(pieces[piece_list[i]], pieces[piece_list[j]], 'bottom')
+
+# Greedy placement
+grid = [[None] * grid_size for _ in range(grid_size)]
+used = set()
+for row in range(grid_size):
+    for col in range(grid_size):
+        best_piece, best_diff = None, float('inf')
+        for idx in range(n):
+            if idx in used:
+                continue
+            diff = 0
+            if col > 0:
+                diff += right_compat[grid[row][col-1], idx]
+            if row > 0:
+                diff += bottom_compat[grid[row-1][col], idx]
+            if diff < best_diff:
+                best_diff, best_piece = diff, idx
+        grid[row][col] = best_piece
+        used.add(best_piece)
+
+# Reassemble
+piece_h, piece_w = pieces[piece_list[0]].shape[:2]
+final = Image.new('RGB', (grid_size * piece_w, grid_size * piece_h))
+for row in range(grid_size):
+    for col in range(grid_size):
+        final.paste(Image.open(f'pieces/{piece_list[grid[row][col]]}'),
+                     (col * piece_w, row * piece_h))
+final.save('reassembled.png')
+```
+
+**Post-processing:** Check if reassembled image text is ROT13 encoded. Decode with `tr 'A-Za-z' 'N-ZA-Mn-za-m'`.
+
+**Key insight:** Edge-matching works by minimizing pixel differences at shared borders. The greedy approach (place piece with smallest total edge difference to already-placed neighbors) works well for most CTF puzzles. For harder puzzles, add backtracking.
+
+---
+
+## Audio FFT Musical Note Identification (BYPASS CTF 2025)
+
+**Pattern (Piano):** Identify dominant frequencies via FFT (Fast Fourier Transform), map to musical notes (A-G), then read the letter names as a word.
+
+**Technique:** Perform FFT on audio, identify dominant frequencies, map to musical notes.
+
+```python
+import numpy as np
+from scipy.io import wavfile
+
+rate, audio = wavfile.read('challenge.wav')
+if audio.ndim > 1:
+    audio = audio[:, 0]  # mono
+
+# FFT to find dominant frequencies
+freqs = np.fft.rfftfreq(len(audio), 1/rate)
+magnitude = np.abs(np.fft.rfft(audio))
+
+# Find top peaks
+peak_indices = np.argsort(magnitude)[-20:]
+peak_freqs = sorted(set(round(freqs[i]) for i in peak_indices if freqs[i] > 20))
+
+# Musical note frequency mapping (A4 = 440 Hz)
+NOTE_FREQS = {
+    'C4': 261.63, 'D4': 293.66, 'E4': 329.63, 'F4': 349.23,
+    'G4': 392.00, 'A4': 440.00, 'B4': 493.88,
+    'C5': 523.25, 'D5': 587.33, 'E5': 659.25, 'F5': 698.46,
+    'G5': 783.99, 'A5': 880.00, 'B5': 987.77,
+}
+
+def freq_to_note(freq):
+    return min(NOTE_FREQS.items(), key=lambda x: abs(x[1] - freq))[0]
+
+notes = [freq_to_note(f) for f in peak_freqs]
+# Extract letter names: B, A, D, F, A, C, E → "BADFACE"
+answer = ''.join(n[0] for n in notes)
+print(f"Notes: {notes}")
+print(f"Answer: {answer}")
+```
+
+**Extract and examine audio metadata** using `exiftool audio.mp3` for encoded hints in comment fields (e.g., octal-separated values → base64 → decoded hint).
+
+**Key insight:** Musical note names (A-G) can spell words. When a challenge involves music/piano, identify dominant frequencies via FFT and read the note letter names as text.
+
+---
+
+## Audio Metadata Octal Encoding (BYPASS CTF 2025)
+
+**Pattern (Piano metadata):** Audio file metadata (exiftool comment field) contains underscore-separated numbers representing octal-encoded ASCII values (digits 0-7 only).
+
+```python
+# Extract and decode octal metadata
+import subprocess, base64
+
+# Get metadata comment
+comment = "103_137_63_157_144_145_144_40_162_145_154_151_143"
+octal_values = comment.split('_')
+decoded = ''.join(chr(int(v, 8)) for v in octal_values)
+
+# May decode to base64, requiring another layer
+result = base64.b64decode(decoded).decode()
+print(result)
+```
+
+**Key insight:** When metadata contains underscore-separated numbers, try octal (digits 0-7 only), decimal, or hex interpretation. Multi-layer encoding (octal → base64 → plaintext) is common.
 
 ---
 

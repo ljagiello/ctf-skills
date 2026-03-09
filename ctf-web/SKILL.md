@@ -32,6 +32,8 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 - Search JS bundles: `grep -oE '"/api/[^"]+"'` for hidden endpoints
 - Check for client-side validation that can be bypassed
 - Compare what the UI sends vs. what the API accepts (read JS bundle for all fields)
+- Check assets returning 404 status — `favicon.ico`, `robots.txt` may contain data despite error codes: `strings favicon.ico | grep -i flag`
+- Tor hidden services: `feroxbuster -u 'http://target.onion/' -w wordlist.txt --proxy socks5h://127.0.0.1:9050 -t 10 -x .txt,.html,.bak`
 
 ## SQL Injection Quick Reference
 
@@ -246,6 +248,18 @@ Linear XOR-based signing with secret blocks → recover from known pairs → for
 ## CSS/JS Paywall Bypass
 
 Content behind CSS overlay (`position: fixed; z-index: 99999`) is still in the raw HTML. `curl` or view-source bypasses it instantly. See [client-side.md](client-side.md#cssjs-paywall-bypass).
+
+## SSRF → Docker API RCE Chain
+
+SSRF to unauthenticated Docker daemon on port 2375. Use `/archive` for file extraction, `/exec` + `/exec/{id}/start` for command execution. Chain through internal POST relay when SSRF is GET-only. See [server-side.md](server-side.md#ssrf--docker-api-rce-chain-h7ctf-2025).
+
+## HTTP TRACE Method Bypass
+
+Endpoints returning 403 on GET/POST may respond to TRACE, PUT, PATCH, or DELETE. Test with `curl -X TRACE`. See [auth-and-access.md](auth-and-access.md#http-trace-method-bypass-bypass-ctf-2025).
+
+## LLM/AI Chatbot Jailbreak
+
+AI chatbots guarding flags can be bypassed with system override prompts, role-reversal, or instruction leak requests. Rotate session IDs and escalate prompt severity. See [auth-and-access.md](auth-and-access.md#llmai-chatbot-jailbreak-bypass-ctf-2025).
 
 ## Admin Bot javascript: URL Scheme Bypass
 

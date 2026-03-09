@@ -146,6 +146,39 @@ def decrypt(keystream, target_ct):
 
 ---
 
+## OTP Key Reuse / Many-Time Pad XOR (BYPASS CTF 2025)
+
+**Pattern (Once More Unto the Same Wind):** Two ciphertexts encrypted with the same OTP key. Known plaintext for one message enables recovery of the other.
+
+**XOR property:** `C1 XOR C2 = P1 XOR P2` (key cancels). When one plaintext (P1) is known, recover the other: `P2 = C1 XOR C2 XOR P1`.
+
+```python
+from pwn import xor
+
+c1 = bytes.fromhex("7713283f5e9979...")
+c2 = bytes.fromhex("740b393f4c8b67...")
+
+# If one plaintext is known (or guessable, e.g., padded 'A' chars)
+known_plaintext = b"A" * len(c1)
+flag = xor(xor(c1, c2), known_plaintext)
+print(flag)
+```
+
+**When plaintext is unknown — crib dragging:**
+```python
+def crib_drag(c1, c2, crib, max_pos=None):
+    """Slide known word across XOR of two ciphertexts."""
+    xored = xor(c1[:min(len(c1), len(c2))], c2[:min(len(c1), len(c2))])
+    for pos in range(len(xored) - len(crib)):
+        candidate = xor(xored[pos:pos+len(crib)], crib)
+        if all(32 <= b < 127 for b in candidate):
+            print(f"pos {pos}: {candidate}")
+```
+
+**Key insight:** OTP (One-Time Pad) XOR encryption is only secure when the key is truly one-time. Reusing the key on two messages leaks `P1 XOR P2` — exploit with known plaintext or crib dragging.
+
+---
+
 ## Book Cipher
 
 **Pattern (Booking Key, Nullcon 2026):** Book cipher with "steps forward" encoding. Brute-force starting position with charset filtering reduces ~56k candidates to 3-4.

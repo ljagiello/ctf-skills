@@ -19,6 +19,7 @@
   - [Finder Pattern Template](#finder-pattern-template)
   - [QR Code Chunk Reassembly (LACTF 2026)](#qr-code-chunk-reassembly-lactf-2026)
 - [Esoteric Languages](#esoteric-languages)
+  - [Whitespace Language Parser (BYPASS CTF 2025)](#whitespace-language-parser-bypass-ctf-2025)
   - [Custom Brainfuck Variants (Themed Esolangs)](#custom-brainfuck-variants-themed-esolangs)
 - [Verilog/HDL](#veriloghdl)
 - [Gray Code Cyclic Encoding (EHAX 2026)](#gray-code-cyclic-encoding-ehax-2026)
@@ -213,10 +214,59 @@ finder_pattern = [
 | Language | Pattern |
 |----------|---------|
 | Brainfuck | `++++++++++[>+++++++>` |
-| Whitespace | Only spaces, tabs, newlines |
+| Whitespace | Only spaces, tabs, newlines (or S/T/L substitution) |
 | Ook! | `Ook. Ook? Ook!` |
 | Malbolge | Extremely obfuscated |
 | Piet | Image-based |
+
+### Whitespace Language Parser (BYPASS CTF 2025)
+
+**Pattern (Whispers of the Cursed Scroll):** File contains only S (space), T (tab), L (linefeed) characters — or visible substitutes. Stack-based virtual machine (VM) with PUSH, OUTPUT, and EXIT instructions.
+
+**Instruction set (IMP = Instruction Modification Parameter):**
+| Instruction | Encoding | Action |
+|-------------|----------|--------|
+| PUSH | `S S` + sign + binary + `L` | Push number to stack (S=0, T=1, L=terminator) |
+| OUTPUT CHAR | `T L S S` | Pop stack, print as ASCII character |
+| EXIT | `L L L` | Halt program |
+
+```python
+def solve_whitespace(content):
+    # Convert to S/T/L tokens (handle both raw whitespace and visible chars)
+    if any(c in content for c in 'STL'):
+        code = [c for c in content if c in 'STL']
+    else:
+        code = [{'\\s': 'S', '\\t': 'T', '\\n': 'L'}.get(c, '') for c in content]
+        code = [c for c in code if c]
+
+    stack, output, i = [], "", 0
+
+    while i < len(code):
+        if code[i:i+2] == ['S', 'S']:  # PUSH
+            i += 2
+            sign = 1 if code[i] == 'S' else -1
+            i += 1
+            val = 0
+            while i < len(code) and code[i] != 'L':
+                val = (val << 1) + (1 if code[i] == 'T' else 0)
+                i += 1
+            i += 1  # skip terminator L
+            stack.append(sign * val)
+        elif code[i:i+4] == ['T', 'L', 'S', 'S']:  # OUTPUT CHAR
+            i += 4
+            if stack:
+                output += chr(stack.pop())
+        elif code[i:i+3] == ['L', 'L', 'L']:  # EXIT
+            break
+        else:
+            i += 1
+
+    return output
+```
+
+**Identification:** File with only whitespace characters, or challenge mentions "invisible code", "blank page", or uses S/T/L substitution. Try [Whitespace interpreter online](https://vii5ard.github.io/whitespace/) for quick testing.
+
+---
 
 ### Custom Brainfuck Variants (Themed Esolangs)
 
