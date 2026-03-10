@@ -386,7 +386,9 @@ Interactive disassembler/decompiler with rapid community growth.
 ```bash
 # Open binary
 binaryninja binary
+```
 
+```python
 # Headless analysis (Python API)
 import binaryninja
 bv = binaryninja.open_view("binary")

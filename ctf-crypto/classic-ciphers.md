@@ -60,9 +60,11 @@ def kasiski_examination(ciphertext, min_seq=3):
         for i in range(len(ct) - seq_len):
             seq = ct[i:i+seq_len]
             if seq in seen:
-                distances.append(i - seen[seq])
+                for prev_pos in seen[seq]:
+                    distances.append(i - prev_pos)
+                seen[seq].append(i)
             else:
-                seen[seq] = i
+                seen[seq] = [i]
 
     # Key length is likely the GCD of distances
     if distances:

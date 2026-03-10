@@ -50,7 +50,7 @@ tcpdump -r capture.pcap -A
 # Show hex + ASCII dump
 tcpdump -r capture.pcap -X
 
-# Count packets per protocol
+# Count total packets
 tcpdump -r capture.pcap -q | wc -l
 ```
 
@@ -89,6 +89,9 @@ CLIENT_RANDOM <32_bytes_client_random_hex> <48_bytes_master_secret_hex>
 ```
 
 **Method 2 — RSA private key (if server key is known):**
+
+**Note:** Only works with RSA key exchange. Sessions using forward secrecy (ECDHE/DHE cipher suites) cannot be decrypted with the server's private key — use Method 1 instead. CTF challenges with weak RSA keys typically use RSA key exchange.
+
 ```bash
 # Wireshark: Edit → Preferences → Protocols → TLS → RSA keys list
 # IP: 127.0.0.1, Port: 443, Protocol: http, Key File: server.key
