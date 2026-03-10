@@ -77,20 +77,20 @@ def kasiski_examination(ciphertext, min_seq=3):
 def frequency_attack(ciphertext, key_length):
     """Break Vigenere by frequency analysis on each key-position group."""
     ct = [c.upper() for c in ciphertext if c.isalpha()]
+    english_freq = [0.082,0.015,0.028,0.043,0.127,0.022,0.020,0.061,0.070,
+                   0.002,0.008,0.040,0.024,0.067,0.075,0.019,0.001,0.060,
+                   0.063,0.091,0.028,0.010,0.023,0.002,0.020,0.001]
     key = []
 
     for i in range(key_length):
         group = [ct[j] for j in range(i, len(ct), key_length)]
         # Try each shift, score by English letter frequency
         best_shift, best_score = 0, -1
-        english_freq = [0.082,0.015,0.028,0.043,0.127,0.022,0.020,0.061,0.070,
-                       0.002,0.008,0.040,0.024,0.067,0.075,0.019,0.001,0.060,
-                       0.063,0.091,0.028,0.010,0.023,0.002,0.020,0.001]
         for shift in range(26):
             decrypted = [chr((ord(c) - ord('A') - shift) % 26 + ord('A')) for c in group]
             freq = Counter(decrypted)
-            score = sum(freq.get(chr(i+65), 0) / len(group) * english_freq[i]
-                       for i in range(26))
+            score = sum(freq.get(chr(j+65), 0) / len(group) * english_freq[j]
+                       for j in range(26))
             if score > best_score:
                 best_score = score
                 best_shift = shift
