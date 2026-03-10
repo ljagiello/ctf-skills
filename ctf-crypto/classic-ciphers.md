@@ -129,6 +129,8 @@ def atbash(text):
 
 **Pattern (Wheel of Mystery):** Physical cipher wheel with inner/outer alphabets.
 
+**Automated solver:** Use [quipqiup.com](https://quipqiup.com/) for general substitution ciphers — it uses word pattern matching and language entropy to solve without knowing the key.
+
 **Brute force all rotations:**
 ```python
 outer = "ABCDEFGHIJKLMNOPQRSTUVWXYZ{}"

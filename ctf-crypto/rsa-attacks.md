@@ -1,7 +1,12 @@
 # CTF Crypto - RSA Attacks
 
 ## Table of Contents
-- [RSA with Consecutive Primes](#rsa-with-consecutive-primes)
+- [Small Public Exponent (Cube Root)](#small-public-exponent-cube-root)
+- [Common Modulus Attack](#common-modulus-attack)
+- [Wiener's Attack (Small Private Exponent)](#wieners-attack-small-private-exponent)
+- [Pollard's p-1 Factorization](#pollards-p-1-factorization)
+- [Hastad's Broadcast Attack](#hastads-broadcast-attack)
+- [RSA with Consecutive Primes (Fermat Factorization)](#rsa-with-consecutive-primes-fermat-factorization)
 - [Multi-Prime RSA](#multi-prime-rsa)
 - [RSA with Restricted-Digit Primes (LACTF 2026)](#rsa-with-restricted-digit-primes-lactf-2026)
 - [Coppersmith for Structured RSA Primes (LACTF 2026)](#coppersmith-for-structured-rsa-primes-lactf-2026)
@@ -12,9 +17,187 @@
 
 ---
 
-## RSA with Consecutive Primes
+## Small Public Exponent (Cube Root)
 
-**Pattern (Loopy Primes):** q = next_prime(p), making p ~ q ~ sqrt(N).
+**Pattern:** Small `e` (typically 3) with small message. When `m^e < n`, the ciphertext is just `m^e` without modular reduction — take the integer eth root.
+
+```python
+import gmpy2
+
+def small_e_attack(c, e):
+    """Recover plaintext when m^e < n (no modular wrap)."""
+    m, exact = gmpy2.iroot(c, e)
+    if exact:
+        return int(m)
+    return None
+
+# Usage
+m = small_e_attack(c, e=3)
+print(bytes.fromhex(hex(m)[2:]))
+```
+
+**When it fails:** If `m^e > n` (message padded or large), the modular reduction destroys the simple root. In that case, try Hastad's broadcast attack or Coppersmith's short-pad attack.
+
+---
+
+## Common Modulus Attack
+
+**Pattern:** Same message encrypted with same `n` but two different public exponents `e1`, `e2` where `gcd(e1, e2) = 1`. Recover plaintext without factoring `n`.
+
+```python
+from math import gcd
+
+def common_modulus_attack(c1, c2, e1, e2, n):
+    """Recover plaintext from two encryptions with same n, coprime e1/e2."""
+    # Extended GCD: find a, b such that a*e1 + b*e2 = 1
+    def extended_gcd(a, b):
+        if a == 0: return b, 0, 1
+        g, x, y = extended_gcd(b % a, a)
+        return g, y - (b // a) * x, x
+
+    g, a, b = extended_gcd(e1, e2)
+    assert g == 1, "e1 and e2 must be coprime"
+
+    # m = c1^a * c2^b mod n
+    # Handle negative exponent by using modular inverse
+    if a < 0:
+        c1 = pow(c1, -1, n)
+        a = -a
+    if b < 0:
+        c2 = pow(c2, -1, n)
+        b = -b
+    m = (pow(c1, a, n) * pow(c2, b, n)) % n
+    return m
+```
+
+**Key insight:** Two encryptions of the same message under the same modulus but different exponents leak the plaintext via Bezout's identity. No factoring required.
+
+---
+
+## Wiener's Attack (Small Private Exponent)
+
+**Pattern:** Private exponent `d` is small (d < N^0.25). The continued fraction expansion of `e/n` reveals `d`.
+
+```python
+def wiener_attack(e, n):
+    """Recover d when d < N^0.25 using continued fraction expansion of e/n."""
+    def continued_fraction(num, den):
+        cf = []
+        while den:
+            q, r = divmod(num, den)
+            cf.append(q)
+            num, den = den, r
+        return cf
+
+    def convergents(cf):
+        convs = []
+        h0, h1 = 0, 1
+        k0, k1 = 1, 0
+        for a in cf:
+            h0, h1 = h1, a * h1 + h0
+            k0, k1 = k1, a * k1 + k0
+            convs.append((h1, k1))
+        return convs
+
+    cf = continued_fraction(e, n)
+    for k, d in convergents(cf):
+        if k == 0:
+            continue
+        # Check if d is valid: phi = (e*d - 1) / k must be integer
+        if (e * d - 1) % k != 0:
+            continue
+        phi = (e * d - 1) // k
+        # phi = (p-1)(q-1) = n - p - q + 1, so p+q = n - phi + 1
+        s = n - phi + 1
+        # p and q are roots of x^2 - s*x + n = 0
+        discriminant = s * s - 4 * n
+        if discriminant < 0:
+            continue
+        from math import isqrt
+        t = isqrt(discriminant)
+        if t * t == discriminant:
+            return d
+    return None
+
+# Usage
+d = wiener_attack(e, n)
+m = pow(c, d, n)
+```
+
+**When to use:** Very large `e` (close to `n`) often indicates small `d`. Also try `owiener` Python package: `pip install owiener`.
+
+---
+
+## Pollard's p-1 Factorization
+
+**Pattern:** One prime factor `p` has a smooth `p-1` (all prime factors of `p-1` are small). Compute `a^(B!) mod n`; GCD with `n` reveals `p`.
+
+```python
+from math import gcd
+
+def pollard_p1(n, B=100000):
+    """Factor n when p-1 is B-smooth for some prime factor p."""
+    a = 2
+    for j in range(2, B + 1):
+        a = pow(a, j, n)
+        d = gcd(a - 1, n)
+        if 1 < d < n:
+            return d, n // d
+    return None
+
+# Usage
+result = pollard_p1(n)
+if result:
+    p, q = result
+```
+
+**Key insight:** By Fermat's little theorem, if `p-1` divides `B!`, then `a^(B!) ≡ 1 (mod p)`, so `gcd(a^(B!) - 1, n)` gives `p`. Increase `B` for larger smooth bounds. CTF primes generated with `getStrongPrime()` or similar are resistant.
+
+---
+
+## Hastad's Broadcast Attack
+
+**Pattern:** Same plaintext `m` encrypted with `e` different public keys (all with exponent `e`, typically `e=3`). Use CRT to reconstruct `m^e`, then take the eth root.
+
+```python
+from functools import reduce
+
+def hastad_broadcast(ciphertexts, moduli, e):
+    """Recover m from e encryptions with the same exponent e."""
+    assert len(ciphertexts) >= e and len(moduli) >= e
+
+    # Chinese Remainder Theorem
+    def crt(remainders, moduli):
+        N = reduce(lambda a, b: a * b, moduli)
+        result = 0
+        for r, m in zip(remainders, moduli):
+            Ni = N // m
+            Mi = pow(Ni, -1, m)
+            result += r * Ni * Mi
+        return result % N
+
+    # CRT gives m^e (mod N1*N2*...*Ne)
+    # Since m < each Ni, m^e < N1*N2*...*Ne, so no modular reduction occurred
+    me = crt(ciphertexts[:e], moduli[:e])
+
+    import gmpy2
+    m, exact = gmpy2.iroot(me, e)
+    if exact:
+        return int(m)
+    return None
+
+# Usage (e=3, three encryptions)
+m = hastad_broadcast([c1, c2, c3], [n1, n2, n3], e=3)
+print(bytes.fromhex(hex(m)[2:]))
+```
+
+**Key insight:** CRT reconstructs `m^e` exactly (no modular reduction) because `m < min(n_i)` and therefore `m^e < n_1 * n_2 * ... * n_e`. Taking the integer eth root recovers `m`.
+
+---
+
+## RSA with Consecutive Primes (Fermat Factorization)
+
+**Pattern (Loopy Primes):** q = next_prime(p), making p ~ q ~ sqrt(N). Also known as Fermat factorization — works whenever `|p - q|` is small.
 
 **Factorization:** Find first prime below sqrt(N):
 ```python
