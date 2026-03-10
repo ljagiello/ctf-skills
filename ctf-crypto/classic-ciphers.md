@@ -4,7 +4,9 @@
 - [Vigenere Cipher](#vigenere-cipher)
 - [Atbash Cipher](#atbash-cipher)
 - [Substitution Cipher with Rotating Wheel](#substitution-cipher-with-rotating-wheel)
+- [Kasiski Examination for Key Length](#kasiski-examination-for-key-length-ctf101)
 - [XOR Variants](#xor-variants)
+  - [Multi-Byte XOR Key Recovery via Frequency Analysis](#multi-byte-xor-key-recovery-via-frequency-analysis-ctf101)
 - [Deterministic OTP with Load-Balanced Backends (Pragyan 2026)](#deterministic-otp-with-load-balanced-backends-pragyan-2026)
 - [Book Cipher](#book-cipher)
 
@@ -37,6 +39,65 @@ def derive_key(ciphertext, plaintext):
             key.append(chr((c_val - p_val) % 26 + ord('A')))
     return ''.join(key)
 ```
+
+### Kasiski Examination for Key Length (CTF101)
+
+When no known plaintext is available, determine the Vigenere key length using Kasiski examination: find repeated sequences in the ciphertext and compute the GCD of their distances.
+
+```python
+from math import gcd
+from functools import reduce
+from collections import Counter
+
+def kasiski_examination(ciphertext, min_seq=3):
+    """Find repeating sequences and compute likely key lengths."""
+    ct = ''.join(c.upper() for c in ciphertext if c.isalpha())
+    distances = []
+
+    # Find repeated trigrams and their distances
+    for seq_len in range(min_seq, 6):
+        seen = {}
+        for i in range(len(ct) - seq_len):
+            seq = ct[i:i+seq_len]
+            if seq in seen:
+                distances.append(i - seen[seq])
+            else:
+                seen[seq] = i
+
+    # Key length is likely the GCD of distances
+    if distances:
+        key_len = reduce(gcd, distances)
+        print(f"Likely key length: {key_len}")
+        print(f"All distances: {sorted(set(distances))}")
+        return key_len
+    return None
+
+def frequency_attack(ciphertext, key_length):
+    """Break Vigenere by frequency analysis on each key-position group."""
+    ct = [c.upper() for c in ciphertext if c.isalpha()]
+    key = []
+
+    for i in range(key_length):
+        group = [ct[j] for j in range(i, len(ct), key_length)]
+        # Try each shift, score by English letter frequency
+        best_shift, best_score = 0, -1
+        english_freq = [0.082,0.015,0.028,0.043,0.127,0.022,0.020,0.061,0.070,
+                       0.002,0.008,0.040,0.024,0.067,0.075,0.019,0.001,0.060,
+                       0.063,0.091,0.028,0.010,0.023,0.002,0.020,0.001]
+        for shift in range(26):
+            decrypted = [chr((ord(c) - ord('A') - shift) % 26 + ord('A')) for c in group]
+            freq = Counter(decrypted)
+            score = sum(freq.get(chr(i+65), 0) / len(group) * english_freq[i]
+                       for i in range(26))
+            if score > best_score:
+                best_score = score
+                best_shift = shift
+        key.append(chr(best_shift + ord('A')))
+
+    return ''.join(key)
+```
+
+**Key insight:** Repeated sequences in Vigenere ciphertext occur at distances that are multiples of the key length. The GCD of all such distances reveals the key length, after which each position becomes a simple Caesar cipher solvable by frequency analysis.
 
 **When standard keys don't work:**
 1. Key may not repeat - could be as long as message
@@ -82,6 +143,58 @@ for rotation in range(len(outer)):
 ---
 
 ## XOR Variants
+
+### Multi-Byte XOR Key Recovery via Frequency Analysis (CTF101)
+
+**Pattern:** Ciphertext XOR'd with a repeating multi-byte key. Key length unknown.
+
+**Step 1 — Determine key length:** Try each candidate length, split ciphertext into groups by position modulo key length, score each group's byte frequency against English text (space = 0x20 is the most common byte).
+
+**Step 2 — Recover each key byte:** For each position, brute-force all 256 byte values and select the one producing the most English-like decrypted text.
+
+```python
+from collections import Counter
+
+def score_english(data):
+    """Score how English-like a byte sequence is."""
+    freq = Counter(data)
+    # Space is the most common character in English text
+    return freq.get(ord(' '), 0) + sum(freq.get(c, 0) for c in range(ord('a'), ord('z')+1))
+
+def find_key_length(ciphertext, max_len=40):
+    """Test key lengths by scoring single-byte XOR on each column."""
+    best_len, best_score = 1, 0
+    for kl in range(1, max_len + 1):
+        total = 0
+        for col in range(kl):
+            group = ciphertext[col::kl]
+            best_col_score = max(
+                score_english(bytes(b ^ k for b in group))
+                for k in range(256)
+            )
+            total += best_col_score
+        if total > best_score:
+            best_score = total
+            best_len = kl
+    return best_len
+
+def recover_key(ciphertext, key_length):
+    """Recover each key byte via frequency analysis."""
+    key = []
+    for col in range(key_length):
+        group = ciphertext[col::key_length]
+        best_k = max(range(256), key=lambda k: score_english(bytes(b ^ k for b in group)))
+        key.append(best_k)
+    return bytes(key)
+
+ct = open('encrypted.bin', 'rb').read()
+kl = find_key_length(ct)
+key = recover_key(ct, kl)
+print(f"Key ({kl} bytes): {key}")
+print(bytes(c ^ key[i % len(key)] for i, c in enumerate(ct)))
+```
+
+**Key insight:** Multi-byte repeating XOR splits into `key_length` independent single-byte XOR problems. English text frequency (especially space = 0x20) reliably identifies correct key bytes. Works best with ciphertext longer than ~100 bytes.
 
 ### Cascade XOR (First-Byte Brute Force)
 

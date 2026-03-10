@@ -38,6 +38,8 @@
 - [LLVM IR](#llvm-ir)
   - [Convert to Assembly](#convert-to-assembly)
 - [RISC-V Binary Analysis (EHAX 2026)](#risc-v-binary-analysis-ehax-2026)
+- [Binary Ninja](#binary-ninja-ctf101)
+- [Decompiler Comparison with dogbolt.org](#decompiler-comparison-with-dogboltorg-ctf101)
 - [Useful Commands](#useful-commands)
 
 ---
@@ -372,6 +374,54 @@ for insn in md.disasm(code[TEXT_OFFSET:], TEXT_OFFSET):
 - XOR decryption with incremental key: `decrypted[i] = enc[i] ^ (key & 0xFF) ^ 0xA5; key += 7`
 
 **Emulation:** `qemu-riscv64 -L /usr/riscv64-linux-gnu/ ./binary` (needs cross-toolchain sysroot)
+
+---
+
+## Binary Ninja (CTF101)
+
+Interactive disassembler/decompiler with rapid community growth.
+
+**Decompilation outputs:** High-Level Intermediate Language (HLIL), pseudo-C, pseudo-Rust, pseudo-Python.
+
+```bash
+# Open binary
+binaryninja binary
+
+# Headless analysis (Python API)
+import binaryninja
+bv = binaryninja.open_view("binary")
+for func in bv.functions:
+    print(func.name, hex(func.start))
+    print(func.hlil)  # High-Level IL
+```
+
+**Community plugins:** Available via Plugin Manager (Ctrl+Shift+P → "Plugin Manager").
+
+**Free version:** https://binary.ninja/free/ (cloud-based, limited features).
+
+**Advantages over Ghidra:** Faster startup, cleaner IL representations, better Python API for scripting.
+
+---
+
+## Decompiler Comparison with dogbolt.org (CTF101)
+
+**dogbolt.org** runs multiple decompilers simultaneously on the same binary and shows results side-by-side.
+
+**Supported decompilers:** Hex-Rays (IDA), Ghidra, Binary Ninja, angr, RetDec, Snowman, dewolf, Reko, Relyze.
+
+**When to use:**
+- Decompiler output is confusing — compare with alternatives for clarity
+- One decompiler mishandles a construct — another may get it right
+- Quick triage without installing every tool locally
+- Validate decompiler correctness by cross-referencing outputs
+
+```bash
+# Upload via web interface: https://dogbolt.org/
+# Or use the API:
+curl -F "file=@binary" https://dogbolt.org/api/binaries/
+```
+
+**Key insight:** Different decompilers excel at different constructs. When one produces unreadable output, another often generates clearer pseudocode. Cross-referencing catches decompiler bugs.
 
 ---
 

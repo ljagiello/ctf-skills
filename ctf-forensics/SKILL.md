@@ -16,7 +16,7 @@ Quick reference for forensics CTF challenges. Each technique has a one-liner her
 
 - [3d-printing.md](3d-printing.md) - 3D printing forensics (PrusaSlicer binary G-code, QOIF, heatshrink)
 - [windows.md](windows.md) - Windows forensics (registry, SAM, event logs, recycle bin, USN journal, PowerShell history, Defender MPLog, WMI persistence, Amcache)
-- [network.md](network.md) - Network forensics (PCAP, SMB3, WordPress, credentials, NTLMv2 cracking, USB HID steno, USB HID mouse/pen drawing recovery, BCD encoding, HTTP file upload exfiltration, packet interval timing encoding)
+- [network.md](network.md) - Network forensics (tcpdump, TLS/SSL keylog decryption, PCAP, SMB3, WordPress, credentials, NTLMv2 cracking, USB HID steno, USB HID mouse/pen drawing recovery, BCD encoding, HTTP file upload exfiltration, packet interval timing encoding)
 - [disk-and-memory.md](disk-and-memory.md) - Disk/memory forensics (Volatility, disk mounting/carving, VM/OVA/VMDK, coredumps, deleted partitions, ZFS, VMware snapshots, ransomware analysis, GPT GUID encoding, VMDK sparse parsing)
 - [steganography.md](steganography.md) - Steganography (binary border stego, PDF multi-layer stego, FFT frequency domain, DTMF audio, SSTV+LSB, SVG keyframes, PNG reorder, file overlays, JPEG unused DQT table LSB, custom frequency dual-tone keypad, multi-track audio differential subtraction, BMP bitplane QR extraction, image puzzle reassembly, audio FFT musical notes)
 - [linux-forensics.md](linux-forensics.md) - Linux/app forensics (log analysis, Docker image forensics, attack chains, browser credentials, Firefox history, TFTP, TLS weak RSA, USB audio, Git directory recovery, KeePass v4 cracking)
@@ -204,6 +204,7 @@ See [windows.md](windows.md) for WMI repository analysis details.
 ## Network Forensics Quick Reference
 
 - **TFTP netascii:** Binary transfers corrupted; fix with `data.replace(b'\r\n', b'\n').replace(b'\r\x00', b'\r')`
+- **TLS keylog decryption:** Import SSLKEYLOGFILE or RSA private key into Wireshark (Edit → Preferences → Protocols → TLS)
 - **TLS weak RSA:** Extract cert, factor modulus, generate private key with `rsatool`, add to Wireshark
 - **USB audio:** Extract isochronous data with `tshark -e usb.iso.data`, import as raw PCM in Audacity
 - **NTLMv2 from PCAP:** Extract server challenge + NTProofStr + blob from NTLMSSP_AUTH, brute-force

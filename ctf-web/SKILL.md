@@ -14,7 +14,7 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Server-side attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file write→RCE, eval bypass, ExifTool CVE, Go rune/byte mismatch, zip symlink
+- [server-side.md](server-side.md) - Server-side attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file write→RCE, eval bypass, ExifTool CVE, Go rune/byte mismatch, zip symlink, PHP type juggling, PHP file inclusion / php://filter
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: JWT, session, password inference, weak validation, client-side gates, NoSQL auth bypass
 - [node-and-prototype.md](node-and-prototype.md) - Node.js: prototype pollution, VM sandbox escape, Happy-DOM chain, flatnest CVE, Lodash+Pug AST injection
@@ -123,6 +123,18 @@ When cat/head blocked: `sed -n p flag.txt`, `awk '{print}'`, `tac flag.txt`
 ```
 
 PHP filter: `<!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=/flag.txt">`
+
+## PHP Type Juggling Quick Reference
+
+Loose `==` performs type coercion: `0 == "string"` is `true`, `"0e123" == "0e456"` is `true` (magic hashes). Send JSON integer `0` to bypass string password checks. `strcmp([], "str")` returns `NULL` which passes `!strcmp()`. Use `===` for defense.
+
+See [server-side.md](server-side.md#php-type-juggling-ctf101) for comparison table and exploit payloads.
+
+## PHP File Inclusion / LFI Quick Reference
+
+`php://filter/convert.base64-encode/resource=config` leaks PHP source code without execution. Common LFI targets: `/etc/passwd`, `/proc/self/environ`, app config files. Null byte (`%00`) truncates `.php` suffix on PHP < 5.3.4.
+
+See [server-side.md](server-side.md#php-file-inclusion--phpfilter-ctf101) for filter chains and RCE techniques.
 
 ## Code Injection Quick Reference
 

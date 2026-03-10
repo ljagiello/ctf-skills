@@ -14,7 +14,7 @@ Quick reference for crypto CTF challenges. Each technique has a one-liner here; 
 
 ## Additional Resources
 
-- [classic-ciphers.md](classic-ciphers.md) - Classic ciphers: Vigenere, Atbash, substitution wheels, XOR variants, deterministic OTP, cascade XOR, book cipher, OTP key reuse / many-time pad
+- [classic-ciphers.md](classic-ciphers.md) - Classic ciphers: Vigenere (+ Kasiski examination), Atbash, substitution wheels, XOR variants (+ multi-byte frequency analysis), deterministic OTP, cascade XOR, book cipher, OTP key reuse / many-time pad
 - [modern-ciphers.md](modern-ciphers.md) - Modern cipher attacks: AES (CFB-8, ECB leakage), CBC-MAC/OFB-MAC, padding oracle, S-box collisions, GF(2) elimination, LCG partial output recovery
 - [rsa-attacks.md](rsa-attacks.md) - RSA attacks: consecutive primes, multi-prime, restricted-digit, Coppersmith structured primes, Manger oracle, polynomial hash
 - [ecc-attacks.md](ecc-attacks.md) - ECC attacks: small subgroup, invalid curve, Smart's attack (anomalous, with Sage code), fault injection, clock group DLP, Pohlig-Hellman
@@ -28,9 +28,10 @@ Quick reference for crypto CTF challenges. Each technique has a one-liner here; 
 ## Classic Ciphers
 
 - **Caesar:** Frequency analysis or brute force 26 keys
-- **Vigenere:** Known plaintext attack with flag format prefix; derive key from `(ct - pt) mod 26`
+- **Vigenere:** Known plaintext attack with flag format prefix; derive key from `(ct - pt) mod 26`. Kasiski examination for unknown key length (GCD of repeated sequence distances)
 - **Atbash:** A<->Z substitution; look for "Abashed" hints in challenge name
 - **Substitution wheel:** Brute force all rotations of inner/outer alphabet mapping
+- **Multi-byte XOR:** Split ciphertext by key position, frequency-analyze each column independently; score by English letter frequency (space = 0x20)
 - **Cascade XOR:** Brute force first byte (256 attempts), rest follows deterministically
 - **XOR rotation (power-of-2):** Even/odd bits never mix; only 4 candidate states
 - **Weak XOR verification:** Single-byte XOR check has 1/256 pass rate; brute force with enough budget

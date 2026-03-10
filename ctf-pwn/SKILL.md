@@ -14,7 +14,7 @@ Quick reference for binary exploitation (pwn) CTF challenges. Each technique has
 
 ## Additional Resources
 
-- [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, struct pointer overwrite, signed integer bypass, hidden gadgets, stride-based OOB read leak
+- [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, canary byte-by-byte brute force on forking servers, struct pointer overwrite, signed integer bypass, hidden gadgets, stride-based OOB read leak
 - [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), SROP with UTF-8 constraints, shellcode with input reversal, seccomp bypass, .fini_array hijack, pwntools template
 - [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass, canary leak, __free_hook, .rela.plt patching)
 - [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, GC null-ref cascading corruption, kernel
@@ -61,6 +61,7 @@ bash -c '{ echo "cmd1"; echo "cmd2"; sleep 1; } | nc host port'
 2. Check protections: `checksec --file=binary`
 3. No PIE + No canary = direct ROP
 4. Canary leak via format string or partial overwrite
+5. Canary brute-force byte-by-byte on forking servers (7*256 attempts max)
 
 **ret2win with magic value:** Overflow -> `ret` (alignment) -> `pop rdi; ret` -> magic -> win(). See [overflow-basics.md](overflow-basics.md) for full exploit code.
 

