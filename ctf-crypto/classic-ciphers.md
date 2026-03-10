@@ -4,9 +4,9 @@
 - [Vigenere Cipher](#vigenere-cipher)
 - [Atbash Cipher](#atbash-cipher)
 - [Substitution Cipher with Rotating Wheel](#substitution-cipher-with-rotating-wheel)
-- [Kasiski Examination for Key Length](#kasiski-examination-for-key-length-ctf101)
+- [Kasiski Examination for Key Length](#kasiski-examination-for-key-length)
 - [XOR Variants](#xor-variants)
-  - [Multi-Byte XOR Key Recovery via Frequency Analysis](#multi-byte-xor-key-recovery-via-frequency-analysis-ctf101)
+  - [Multi-Byte XOR Key Recovery via Frequency Analysis](#multi-byte-xor-key-recovery-via-frequency-analysis)
 - [Deterministic OTP with Load-Balanced Backends (Pragyan 2026)](#deterministic-otp-with-load-balanced-backends-pragyan-2026)
 - [Book Cipher](#book-cipher)
 
@@ -40,7 +40,7 @@ def derive_key(ciphertext, plaintext):
     return ''.join(key)
 ```
 
-### Kasiski Examination for Key Length (CTF101)
+### Kasiski Examination for Key Length
 
 When no known plaintext is available, determine the Vigenere key length using Kasiski examination: find repeated sequences in the ciphertext and compute the GCD of their distances.
 
@@ -144,7 +144,7 @@ for rotation in range(len(outer)):
 
 ## XOR Variants
 
-### Multi-Byte XOR Key Recovery via Frequency Analysis (CTF101)
+### Multi-Byte XOR Key Recovery via Frequency Analysis
 
 **Pattern:** Ciphertext XOR'd with a repeating multi-byte key. Key length unknown.
 

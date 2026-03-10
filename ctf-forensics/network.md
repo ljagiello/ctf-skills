@@ -1,8 +1,8 @@
 # CTF Forensics - Network
 
 ## Table of Contents
-- [tcpdump Quick Reference](#tcpdump-quick-reference-ctf101)
-- [TLS/SSL Decryption via Keylog File](#tlsssl-decryption-via-keylog-file-ctf101)
+- [tcpdump Quick Reference](#tcpdump-quick-reference)
+- [TLS/SSL Decryption via Keylog File](#tlsssl-decryption-via-keylog-file)
 - [Wireshark Basics](#wireshark-basics)
 - [Port Scan Analysis](#port-scan-analysis)
 - [Gateway/Device via MAC OUI](#gatewaydevice-via-mac-oui)
@@ -21,7 +21,7 @@
 
 ---
 
-## tcpdump Quick Reference (CTF101)
+## tcpdump Quick Reference
 
 Command-line packet capture tool for quick network forensics triage.
 
@@ -67,7 +67,7 @@ tcpdump -r capture.pcap -q | wc -l
 
 ---
 
-## TLS/SSL Decryption via Keylog File (CTF101)
+## TLS/SSL Decryption via Keylog File
 
 To decrypt TLS traffic in Wireshark, provide either the pre-master secret or a keylog file.
 

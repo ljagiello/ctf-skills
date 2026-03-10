@@ -11,7 +11,7 @@
 - [Struct Pointer Overwrite (Heap Menu Challenges)](#struct-pointer-overwrite-heap-menu-challenges)
 - [Signed Integer Bypass (Negative Quantity)](#signed-integer-bypass-negative-quantity)
 - [Canary-Aware Partial Overflow](#canary-aware-partial-overflow)
-- [Stack Canary Byte-by-Byte Brute Force on Forking Servers](#stack-canary-byte-by-byte-brute-force-on-forking-servers-ctf101)
+- [Stack Canary Byte-by-Byte Brute Force on Forking Servers](#stack-canary-byte-by-byte-brute-force-on-forking-servers)
 - [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
 
 ---
@@ -240,7 +240,7 @@ p.sendline(payload)
 
 **Key insight:** Stride-based OOB reads leak one byte per iteration by controlling which offset lands on the target byte. With enough iterations, leak full canary + return address to defeat both stack canary and PIE.
 
-## Stack Canary Byte-by-Byte Brute Force on Forking Servers (CTF101)
+## Stack Canary Byte-by-Byte Brute Force on Forking Servers
 
 **Pattern:** Server calls `fork()` for each connection. The child process inherits the same canary value. Brute-force the canary one byte at a time — each wrong byte crashes the child, but the parent continues with the same canary.
 

@@ -128,13 +128,13 @@ PHP filter: `<!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=/f
 
 Loose `==` performs type coercion: `0 == "string"` is `true`, `"0e123" == "0e456"` is `true` (magic hashes). Send JSON integer `0` to bypass string password checks. `strcmp([], "str")` returns `NULL` which passes `!strcmp()`. Use `===` for defense.
 
-See [server-side.md](server-side.md#php-type-juggling-ctf101) for comparison table and exploit payloads.
+See [server-side.md](server-side.md#php-type-juggling) for comparison table and exploit payloads.
 
 ## PHP File Inclusion / LFI Quick Reference
 
 `php://filter/convert.base64-encode/resource=config` leaks PHP source code without execution. Common LFI targets: `/etc/passwd`, `/proc/self/environ`, app config files. Null byte (`%00`) truncates `.php` suffix on PHP < 5.3.4.
 
-See [server-side.md](server-side.md#php-file-inclusion--phpfilter-ctf101) for filter chains and RCE techniques.
+See [server-side.md](server-side.md#php-file-inclusion--phpfilter) for filter chains and RCE techniques.
 
 ## Code Injection Quick Reference
 

@@ -38,8 +38,8 @@
 - [LLVM IR](#llvm-ir)
   - [Convert to Assembly](#convert-to-assembly)
 - [RISC-V Binary Analysis (EHAX 2026)](#risc-v-binary-analysis-ehax-2026)
-- [Binary Ninja](#binary-ninja-ctf101)
-- [Decompiler Comparison with dogbolt.org](#decompiler-comparison-with-dogboltorg-ctf101)
+- [Binary Ninja](#binary-ninja)
+- [Decompiler Comparison with dogbolt.org](#decompiler-comparison-with-dogboltorg)
 - [Useful Commands](#useful-commands)
 
 ---
@@ -377,7 +377,7 @@ for insn in md.disasm(code[TEXT_OFFSET:], TEXT_OFFSET):
 
 ---
 
-## Binary Ninja (CTF101)
+## Binary Ninja
 
 Interactive disassembler/decompiler with rapid community growth.
 
@@ -403,7 +403,7 @@ for func in bv.functions:
 
 ---
 
-## Decompiler Comparison with dogbolt.org (CTF101)
+## Decompiler Comparison with dogbolt.org
 
 **dogbolt.org** runs multiple decompilers simultaneously on the same binary and shows results side-by-side.
 

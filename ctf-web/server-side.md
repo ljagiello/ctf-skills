@@ -1,8 +1,8 @@
 # CTF Web - Server-Side Attacks
 
 ## Table of Contents
-- [PHP Type Juggling](#php-type-juggling-ctf101)
-- [PHP File Inclusion / php://filter](#php-file-inclusion--phpfilter-ctf101)
+- [PHP Type Juggling](#php-type-juggling)
+- [PHP File Inclusion / php://filter](#php-file-inclusion--phpfilter)
 - [SQL Injection](#sql-injection)
   - [Backslash Escape Quote Bypass](#backslash-escape-quote-bypass)
   - [Hex Encoding for Quote Bypass](#hex-encoding-for-quote-bypass)
@@ -54,7 +54,7 @@
 
 ---
 
-## PHP Type Juggling (CTF101)
+## PHP Type Juggling
 
 **Pattern:** PHP loose comparison (`==`) performs implicit type conversion, leading to unexpected equality results that bypass authentication and validation checks.
 
@@ -100,7 +100,7 @@ curl http://target/login -d 'password[]=anything'
 
 ---
 
-## PHP File Inclusion / php://filter (CTF101)
+## PHP File Inclusion / php://filter
 
 **Pattern:** PHP `include`, `require`, `require_once` accept dynamic paths. Combined with `php://filter`, leak source code without execution.
 
