@@ -1,6 +1,6 @@
 ---
 name: ctf-pwn
-description: Provides binary exploitation (pwn) techniques for CTF challenges. Use when exploiting buffer overflows, format strings, heap vulnerabilities, race conditions, kernel bugs, ROP chains, ret2libc, shellcode, GOT overwrite, use-after-free, seccomp bypass, FSOP, stack pivot, or sandbox escape.
+description: Provides binary exploitation (pwn) techniques for CTF challenges. Use when exploiting buffer overflows, format strings, heap vulnerabilities, race conditions, kernel bugs, ROP chains, ret2libc, shellcode, GOT overwrite, use-after-free, seccomp bypass, FSOP, stack pivot, sandbox escape, or Linux kernel exploitation (modprobe_path, tty_struct, userfaultfd, KASLR bypass, SLUB heap spray).
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
@@ -17,8 +17,9 @@ Quick reference for binary exploitation (pwn) CTF challenges. Each technique has
 - [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, canary byte-by-byte brute force on forking servers, struct pointer overwrite, signed integer bypass, hidden gadgets, stride-based OOB read leak
 - [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), SROP with UTF-8 constraints, shellcode with input reversal, seccomp bypass, .fini_array hijack, pwntools template
 - [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass, canary leak, __free_hook, .rela.plt patching)
-- [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, GC null-ref cascading corruption, kernel
+- [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, GC null-ref cascading corruption
 - [sandbox-escape.md](sandbox-escape.md) - Python sandbox escape, custom VM exploitation, FUSE/CUSE devices, busybox/restricted shell, shell tricks
+- [kernel.md](kernel.md) - Linux kernel exploitation: modprobe_path overwrite, core_pattern, tty_struct kROP, userfaultfd race stabilization, SLUB heap spray structures, KASLR/FGKASLR/KPTI/SMEP/SMAP bypass, kernel config recon
 
 ---
 
@@ -132,6 +133,24 @@ Writable `.fini_array` + arbitrary write -> overwrite with win/shellcode address
 **Pattern:** Sanitizer skips char after banned char match; double chars to bypass (e.g., `....//....//etc//passwd`). Also try `/proc/self/fd/3` if binary has flag fd open. See [advanced.md](advanced.md).
 
 ## Kernel Exploitation
+
+**modprobe_path overwrite (smallkirby/kernelpwn):** Overwrite `modprobe_path` with evil script path, then `execve` a binary with non-printable first 4 bytes. Kernel runs the script as root. Requires AAW; blocked by `CONFIG_STATIC_USERMODEHELPER`. See [kernel.md](kernel.md).
+
+**tty_struct kROP (smallkirby/kernelpwn):** `open("/dev/ptmx")` allocates `tty_struct` in kmalloc-1024. Overwrite `ops` with fake vtable → `ioctl()` hijacks RIP. Build two-phase kROP within `tty_struct` itself via `leave` gadget stack pivot. See [kernel.md](kernel.md).
+
+**userfaultfd race stabilization (smallkirby/kernelpwn):** Register mmap'd region with uffd. Kernel page fault blocks the thread → deterministic race window for heap manipulation. See [kernel.md](kernel.md).
+
+**Heap spray structures:** `tty_struct` (kmalloc-1024, kbase leak), `tty_file_private` (kmalloc-32, kheap leak), `poll_list` (variable, arbitrary free via linked list), `user_key_payload` (variable, `add_key()` controlled data), `seq_operations` (kmalloc-32, kbase leak). See [kernel.md](kernel.md).
+
+**ret2usr (hxp CTF 2020):** When SMEP/SMAP are disabled, call `prepare_kernel_cred(0)` → `commit_creds()` directly from userland function, then `swapgs; iretq` to return as root. See [kernel.md](kernel.md).
+
+**Kernel ROP chain (hxp CTF 2020):** With SMEP, build ROP: `pop rdi; ret` → 0 → `prepare_kernel_cred` → `mov rdi, rax` → `commit_creds` → `swapgs` → `iretq` → userland. See [kernel.md](kernel.md).
+
+**KPTI bypass methods (hxp CTF 2020):** Four approaches: `swapgs_restore_regs_and_return_to_usermode + 22` trampoline, SIGSEGV signal handler, modprobe_path overwrite via ROP, core_pattern pipe via ROP. See [kernel.md](kernel.md).
+
+**FGKASLR bypass (hxp CTF 2020):** Early `.text` section gadgets are unaffected. Resolve randomized functions via `__ksymtab` relative offsets in multi-stage exploit. See [kernel.md](kernel.md).
+
+**Config recon:** Check QEMU script for SMEP/SMAP/KASLR/KPTI. Detect FGKASLR via `readelf -S vmlinux` section count (30 vs 36000+). Check `CONFIG_KALLSYMS_ALL` via `grep modprobe_path /proc/kallsyms`. See [kernel.md](kernel.md).
 
 OOB via vulnerable `lseek`, heap grooming with `fork()`, SUID exploits. Check `CONFIG_SLAB_FREELIST_RANDOM` and `CONFIG_SLAB_MERGE_DEFAULT`. See [advanced.md](advanced.md).
 

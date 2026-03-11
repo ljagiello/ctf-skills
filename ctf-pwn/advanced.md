@@ -36,7 +36,7 @@
 - [1-Byte Overflow via 8-bit Loop Counter (srdnlenCTF 2026)](#1-byte-overflow-via-8-bit-loop-counter-srdnlenctf-2026)
 - [Bytecode Validator Bypass via Self-Modification (srdnlenCTF 2026)](#bytecode-validator-bypass-via-self-modification-srdnlenctf-2026)
 - [Classic Heap Unlink Attack (Crypto-Cat)](#classic-heap-unlink-attack-crypto-cat)
-- [Kernel Exploitation](#kernel-exploitation)
+- [Kernel Exploitation](#kernel-exploitation) (basic; see [kernel.md](kernel.md) for full coverage)
 
 ---
 
@@ -944,12 +944,22 @@ payload += p64(b_size & ~1)   # overwrite B's size, clear PREV_INUSE bit
 
 ## Kernel Exploitation
 
-- Look for vulnerable `lseek` handlers allowing OOB read/write
+For comprehensive kernel exploitation techniques, see [kernel.md](kernel.md). Quick reference:
+
+- `modprobe_path` overwrite for root code execution (requires AAW)
+- `tty_struct` kROP via fake vtable and stack pivot
+- `userfaultfd` for deterministic race conditions
+- Heap spray with `tty_struct`, `poll_list`, `user_key_payload`, `seq_operations`
+- KASLR/FGKASLR/SMEP/SMAP/KPTI bypass techniques
+- Kernel config recon checklist
+
+**Basic patterns (userland-adjacent):**
+- OOB via vulnerable `lseek` handlers
 - Heap grooming with forked processes
 - SUID binary exploitation via kernel-to-userland buffer overflow
 - Check kernel config for disabled protections:
-  - `CONFIG_SLAB_FREELIST_RANDOM=n` -> sequential heap chunks
-  - `CONFIG_SLAB_MERGE_DEFAULT=n` -> predictable allocations
+  - `CONFIG_SLAB_FREELIST_RANDOM=n` → sequential heap chunks
+  - `CONFIG_SLAB_MERGE_DEFAULT=n` → predictable allocations
 
 ---
 
