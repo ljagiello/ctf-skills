@@ -17,6 +17,7 @@
 - [WordPerfect Macro XOR Extraction (srdnlenCTF 2026)](#wordperfect-macro-xor-extraction-srdnlenctf-2026)
 - [Minidump ISO 9660 Recovery + XOR Key (srdnlenCTF 2026)](#minidump-iso-9660-recovery--xor-key-srdnlenctf-2026)
 - [APFS Snapshot Historical File Recovery (srdnlenCTF 2026)](#apfs-snapshot-historical-file-recovery-srdnlenctf-2026)
+- [RAID 5 Disk Recovery via XOR (Crypto-Cat)](#raid-5-disk-recovery-via-xor-crypto-cat)
 - [PowerShell Ransomware Analysis](#powershell-ransomware-analysis)
 
 ---
@@ -433,6 +434,43 @@ plaintext = cipher.decrypt(encrypted_flag)
 ```
 
 **Key insight:** APFS (and other copy-on-write filesystems like ZFS/Btrfs) preserve historical file states in snapshots. When a challenge involves "poisoned" or "tampered" data, always check for older snapshots containing the original values. Use `icat` with different block offsets to read the same inode across different transaction IDs.
+
+---
+
+## RAID 5 Disk Recovery via XOR (Crypto-Cat)
+
+**Pattern:** RAID 5 array with one damaged/missing disk. Two working disks are provided and the third must be reconstructed using XOR parity.
+
+**How RAID 5 parity works:** Data is striped across N disks with distributed parity. For any stripe, `Disk1 XOR Disk2 XOR ... XOR DiskN = 0`. If one disk is missing, XOR the remaining disks to recover it.
+
+**Recovery script:**
+```python
+# Recover missing disk2 from disk1 and disk3
+with open('disk1.img', 'rb') as f:
+    disk1 = f.read()
+with open('disk3.img', 'rb') as f:
+    disk3 = f.read()
+
+# XOR byte-by-byte to recover the missing disk
+disk2 = bytes(a ^ b for a, b in zip(disk1, disk3))
+
+with open('disk2.img', 'wb') as f:
+    f.write(disk2)
+```
+
+**After recovery:**
+```bash
+# Reassemble the RAID array
+mdadm --create /dev/md0 --level=5 --raid-devices=3 \
+  disk1.img disk2.img disk3.img
+
+# Or mount individual recovered disk if it contains a filesystem
+mount -o loop,ro disk2.img /mnt/recovered
+```
+
+**Key insight:** RAID 5 uses XOR parity across all disks in each stripe. XOR is self-inverse: if `A XOR B XOR C = 0`, then `B = A XOR C`. For N-disk RAID 5, XOR all N-1 working disks together to recover the missing one.
+
+**Detection:** Challenge provides multiple disk images of identical size, mentions "array", "redundancy", or "parity". `file` command may identify them as filesystem images or raw data.
 
 ---
 

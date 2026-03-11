@@ -174,6 +174,7 @@ Common checks:
 - Timing checks
 
 Bypass: Set breakpoint at check, modify register to bypass conditional.
+Pwntools patch: `elf.asm(elf.symbols.ptrace, 'ret')` to replace function with immediate return. See [patterns.md](patterns.md#pwntools-binary-patching-crypto-cat).
 
 ## S-Box / Keystream Patterns
 

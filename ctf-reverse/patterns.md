@@ -145,6 +145,23 @@ long int ptrace(enum __ptrace_request req, ...) {
 Compile: `gcc -shared -fPIC -ldl hook.c -o hook.so`
 Run: `LD_PRELOAD=./hook.so ./binary`
 
+### Pwntools Binary Patching (Crypto-Cat)
+Patch out anti-debug calls directly using pwntools — replaces function with `ret` instruction:
+```python
+from pwn import *
+
+elf = ELF('./challenge', checksec=False)
+elf.asm(elf.symbols.ptrace, 'ret')   # Replace ptrace() with immediate return
+elf.save('patched')                   # Save patched binary
+```
+
+Other common patches:
+```python
+elf.asm(addr, 'nop')                  # NOP out an instruction
+elf.asm(addr, 'xor eax, eax; ret')    # Return 0 (bypass checks)
+elf.asm(addr, 'mov eax, 1; ret')      # Return 1 (force success)
+```
+
 ---
 
 ## Nanomites
