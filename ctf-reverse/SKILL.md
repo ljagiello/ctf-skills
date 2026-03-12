@@ -15,8 +15,8 @@ Quick reference for RE challenges. For detailed techniques, see supporting files
 ## Additional Resources
 
 - [tools.md](tools.md) - Tool-specific commands (GDB, Ghidra, radare2, IDA, Binary Ninja, dogbolt.org, RISC-V with Capstone)
-- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher, mathematical convergence bitmap, Sprague-Grundy game theory, kernel module maze solving, multi-threaded VM channels, multi-layer self-decrypting brute-force
-- [languages.md](languages.md) - Language/platform-specific: Python bytecode & opcode remapping, Python version-specific bytecode, DOS stubs, Unity IL2CPP, Brainfuck/esolangs, UEFI, transpilation to C, code coverage side-channel, OPAL functional reversing, non-bijective substitution
+- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher, mathematical convergence bitmap, Sprague-Grundy game theory, kernel module maze solving, multi-threaded VM channels, multi-layer self-decrypting brute-force, CVP/LLL lattice for integer validation, decision tree function obfuscation, GLSL shader VM, GF(2^8) Gaussian elimination, Z3 single-line Python circuit, sliding window popcount
+- [languages.md](languages.md) - Language/platform-specific: Python bytecode & opcode remapping, Python version-specific bytecode, DOS stubs, Unity IL2CPP, Brainfuck/esolangs, UEFI, transpilation to C, code coverage side-channel, OPAL functional reversing, non-bijective substitution, Android JNI RegisterNatives, Ruby/Perl polyglot
 
 ---
 
@@ -324,6 +324,38 @@ Rust kernel module implements maze via device ioctls. Enumerate commands dynamic
 
 Custom VM with 16+ threads communicating via futex channels. Trace data flow across thread boundaries, extract constants from GDB, watch for inverted validity logic, solve via BFS state space search. See [patterns.md](patterns.md#multi-threaded-vm-with-channel-synchronization-dicectf-2026).
 
+## CVP/LLL Lattice for Constrained Integer Validation (HTB ShadowLabyrinth)
+
+Binary validates flag via matrix multiplication with 64-bit coefficients; solutions must be printable ASCII. Use LLL reduction + CVP in SageMath to find nearest lattice point in the constrained range. Two-phase pattern: Phase 1 recovers AES key, Phase 2 decrypts custom VM bytecode with another linear system (mod 2^32). See [patterns.md](patterns.md#cvplll-lattice-for-constrained-integer-validation-htb-shadowlabyrinth).
+
+## Decision Tree Function Obfuscation (HTB WonderSMS)
+
+~200+ auto-generated functions routing input through polynomial comparisons. Script extraction via Ghidra headless rather than reversing each function manually. Constraint propagation from known output format cascades through arithmetic constraints. See [patterns.md](patterns.md#decision-tree-function-obfuscation-htb-wondersms).
+
+## Android JNI RegisterNatives Obfuscation (HTB WonderSMS)
+
+`RegisterNatives` in `JNI_OnLoad` hides which C++ function handles each Java native method (no standard `Java_com_pkg_Class_method` symbol). Find the real handler by tracing `JNI_OnLoad` → `RegisterNatives` → `fnPtr`. Use x86_64 `.so` from APK for best Ghidra decompilation. See [languages.md](languages.md#android-jni-registernatives-obfuscation-htb-wondersms).
+
 ## Multi-Layer Self-Decrypting Binary
 
 N-layer binary where each layer decrypts the next using user-provided key bytes + SHA-NI. Use oracle (correct key → valid code with expected pattern). JIT execution with fork-per-candidate COW isolation for speed. See [patterns.md](patterns.md#multi-layer-self-decrypting-binary-dicectf-2026).
+
+## GLSL Shader VM with Self-Modifying Code
+
+**Pattern:** WebGL2 fragment shader implements Turing-complete VM on a 256x256 RGBA texture (program memory + VRAM). Self-modifying code (STORE opcode) patches drawing instructions. GPU parallelism causes write conflicts — emulate sequentially in Python to recover full output. See [patterns.md](patterns.md#glsl-shader-vm-with-self-modifying-code-apoorvctf-2026).
+
+## GF(2^8) Gaussian Elimination for Flag Recovery
+
+**Pattern:** Binary performs Gaussian elimination over GF(2^8) with the AES polynomial (0x11b). Matrix + augmentation vector in `.rodata`; solution vector is the flag. Look for constant `0x1b` in disassembly. Addition is XOR, multiplication uses polynomial reduction. See [patterns.md](patterns.md#gf28-gaussian-elimination-for-flag-recovery-apoorvctf-2026).
+
+## Z3 for Single-Line Python Boolean Circuit
+
+**Pattern:** Single-line Python (2000+ semicolons) with walrus operator chains validates flag as big-endian integer via boolean circuit. Obfuscated XOR `(a | b) & ~(a & b)`. Split on semicolons, translate to Z3 symbolically, solve in under a second. See [patterns.md](patterns.md#z3-for-single-line-python-boolean-circuit-bearcatctf-2026).
+
+## Sliding Window Popcount Differential Propagation
+
+**Pattern:** Binary validates input via expected popcount for each position of a 16-bit sliding window. Popcount differences create a recurrence: `bit[i+16] = bit[i] + (data[i+1] - data[i])`. Brute-force ~4000-8000 valid initial 16-bit windows; each determines the entire bit sequence. See [patterns.md](patterns.md#sliding-window-popcount-differential-propagation-bearcatctf-2026).
+
+## Ruby/Perl Polyglot Constraint Satisfaction
+
+**Pattern:** Single file valid in both Ruby and Perl, each imposing different constraints on a key. Exploits `=begin`/`=end` (Ruby block comment) vs `=begin`/`=cut` (Perl POD) to run different code per interpreter. Intersect constraints from both languages to recover the unique key. See [languages.md](languages.md#rubyperl-polyglot-constraint-satisfaction-bearcatctf-2026).

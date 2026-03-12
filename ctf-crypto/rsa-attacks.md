@@ -11,9 +11,14 @@
 - [RSA with Restricted-Digit Primes (LACTF 2026)](#rsa-with-restricted-digit-primes-lactf-2026)
 - [Coppersmith for Structured RSA Primes (LACTF 2026)](#coppersmith-for-structured-rsa-primes-lactf-2026)
 - [Manger's RSA Padding Oracle Attack (Nullcon 2026)](#mangers-rsa-padding-oracle-attack-nullcon-2026)
+- [Manger's Attack on RSA-OAEP via Timing Oracle (HTB Early Bird)](#mangers-attack-on-rsa-oaep-via-timing-oracle-htb-early-bird)
 - [Polynomial Hash with Trivial Root (Pragyan 2026)](#polynomial-hash-with-trivial-root-pragyan-2026)
 - [Polynomial CRT in GF(2)[x] (Nullcon 2026)](#polynomial-crt-in-gf2x-nullcon-2026)
 - [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
+- [ECDSA Nonce Reuse (BearCatCTF 2026)](#ecdsa-nonce-reuse-bearcatctf-2026)
+- [RSA p=q Validation Bypass (BearCatCTF 2026)](#rsa-pq-validation-bypass-bearcatctf-2026)
+- [RSA Cube Root CRT when gcd(e, phi) > 1 (BearCatCTF 2026)](#rsa-cube-root-crt-when-gcde-phi--1-bearcatctf-2026)
+- [Factoring n from Multiple of phi(n) (BearCatCTF 2026)](#factoring-n-from-multiple-of-phin-bearcatctf-2026)
 
 ---
 
@@ -283,6 +288,87 @@ See [advanced-math.md](advanced-math.md) for full implementation.
 
 ---
 
+## Manger's Attack on RSA-OAEP via Timing Oracle (HTB Early Bird)
+
+**Pattern:** Flask app implements RSA-OAEP with custom hash (PBKDF2, 2M iterations). Python's short-circuit `or` evaluation creates a timing oracle: if the first byte Y != 0, PBKDF2 is never called (~0.6s). If Y == 0, PBKDF2 runs (~2s).
+
+**Vulnerable code pattern:**
+```python
+if Y != 0 or not self.H_verify(self.L, DB[:self.hLen]) or self.os2ip(PS) != 0:
+    return {"ok": False, "error": "decryption error"}
+```
+
+**Oracle mapping:** Fast response → Y != 0 (decrypted message >= B). Slow response → Y == 0 (decrypted message < B = 2^(8*(k-1))).
+
+**Calibration for network reliability:**
+```python
+def calibrate(n, e, k):
+    B = pow(2, 8 * (k - 1))
+    slow_times, fast_times = [], []
+    for i in range(5):
+        # Known-slow: encrypt values < B
+        enc = pow(B - 1 - i*100, e, n).to_bytes(k, 'big')
+        slow_times.append(measure(enc))
+        # Known-fast: encrypt values > B
+        enc = pow(B + 1 + i*100, e, n).to_bytes(k, 'big')
+        fast_times.append(measure(enc))
+    FAST_UPPER = max(fast_times) * 1.5
+    SLOW_LOWER = min(slow_times) * 0.9
+```
+
+**Oracle with retry for ambiguous results:**
+```python
+def padding_oracle(c_int):
+    while True:
+        total = measure_response_time(c_int)
+        if SLOW_LOWER < total < SLOW_UPPER:
+            return True   # Y == 0 (below B)
+        elif total < FAST_UPPER:
+            return False  # Y != 0 (above B)
+        # Ambiguous: retry
+```
+
+**Full 3-step Manger's attack (~1024 iterations for 1024-bit RSA):**
+```python
+# Step 1: Find f1 where f1 * m >= B
+f1 = 2
+while oracle((pow(f1, e, n) * c) % n):
+    f1 *= 2
+
+# Step 2: Find f2 where n <= f2 * m < n + B
+f2 = (n + B) // B * f1 // 2
+while not oracle((pow(f2, e, n) * c) % n):
+    f2 += f1 // 2
+
+# Step 3: Binary search narrowing m to exact value
+mmin, mmax = ceil_div(n, f2), floor_div(n + B, f2)
+while mmin < mmax:
+    f = floor_div(2 * B, mmax - mmin)
+    i = floor_div(f * mmin, n)
+    f3 = ceil_div(i * n, mmin)
+    if oracle((pow(f3, e, n) * c) % n):
+        mmax = floor_div(i * n + B, f3)
+    else:
+        mmin = ceil_div(i * n + B, f3)
+m = mmin
+```
+
+**Post-recovery OAEP decode:**
+```python
+from Crypto.Signature.pss import MGF1
+maskedSeed = EM[1:hLen+1]
+maskedDB = EM[hLen+1:]
+seed = bytes(a ^ b for a, b in zip(maskedSeed, MGF1(maskedDB, hLen, HF)))
+DB = bytes(a ^ b for a, b in zip(maskedDB, MGF1(seed, k - hLen - 1, HF)))
+# DB[:hLen] should match lHash; rest is 0x00...0x01 || message
+```
+
+**Key insight:** Python's `or` short-circuits left-to-right. When expensive operations (PBKDF2, bcrypt, argon2) appear in chained conditions, the first condition becomes a timing oracle. RFC 8017 explicitly warns implementations must not let attackers distinguish error conditions — timing differences violate this.
+
+**Detection:** RSA-OAEP with custom hash or slow KDF. Flask/Python backend. `/verify-token` or similar decryption endpoint returning generic errors. Timing differences between responses.
+
+---
+
 ## Polynomial Hash with Trivial Root (Pragyan 2026)
 
 **Pattern (!!Cand1esaNdCrypt0!!):** RSA signature scheme using polynomial hash `g(x,a,b) = x(x^2 + ax + b) mod P`.
@@ -322,3 +408,133 @@ See [advanced-math.md](advanced-math.md) for GF(2)[x] polynomial arithmetic and 
 **Pattern (Matrixfun, Nullcon 2026):** `c = A @ p + b (mod m)` with composite m. Chosen-plaintext difference attack. For composite modulus, solve via CRT in each prime factor field separately.
 
 See [advanced-math.md](advanced-math.md) for CRT approach and Gauss-Jordan implementation.
+
+---
+
+## ECDSA Nonce Reuse (BearCatCTF 2026)
+
+**Pattern (Chatroom):** ECDSA signatures on secp256k1 with constant nonce `k`. When two signatures share the same `r` value, the nonce and private key are recoverable.
+
+**Recovery:**
+```python
+from hashlib import sha256
+
+# Two signatures (r, s1) and (r, s2) with same r → same nonce k
+h1 = int(sha256(msg1).hexdigest(), 16)
+h2 = int(sha256(msg2).hexdigest(), 16)
+n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141  # secp256k1 order
+
+k = ((h1 - h2) * pow(s1 - s2, -1, n)) % n
+d = ((s1 * k - h1) * pow(r, -1, n)) % n  # private key
+```
+
+**Key insight:** Same `r` value across multiple ECDSA signatures means the nonce `k` was reused. This is the same class of bug that compromised the PlayStation 3 signing key. Always check for repeated `r` values in signature datasets.
+
+**Detection:** Multiple ECDSA signatures with identical `r` component. Challenge mentions "nonce", "deterministic signing", or provides a signing oracle.
+
+---
+
+## RSA p=q Validation Bypass (BearCatCTF 2026)
+
+**Pattern (Pickme):** Server validates user-submitted RSA key (checks `n`, `e`, `d`, `p*q=n`, `e*d ≡ 1 mod phi`), encrypts the flag, then tries test decryption. If decryption fails, leaks ciphertext in error message.
+
+**Exploit:** Set `p = q`. The server computes `phi = (p-1)*(q-1) = (p-1)^2` (incorrect — real totient of `p^2` is `p*(p-1)`). All validation checks pass, but decryption with the wrong `d` fails, leaking the ciphertext.
+
+```python
+from Crypto.Util.number import getPrime, inverse
+
+p = getPrime(512)
+q = p  # p = q!
+n = p * q  # = p^2
+e = 65537
+wrong_phi = (p - 1) * (q - 1)  # = (p-1)^2
+d = inverse(e, wrong_phi)  # passes server validation
+
+# Server encrypts flag with our key, test decryption fails → leaks ciphertext c
+# Decrypt with correct totient:
+real_phi = p * (p - 1)
+real_d = inverse(e, real_phi)
+flag = pow(c, real_d, n)
+```
+
+**Key insight:** `phi(p^2) = p*(p-1)`, NOT `(p-1)^2`. When a server validates RSA parameters but uses `(p-1)*(q-1)` without checking `p != q`, setting `p=q` creates a working key that the server will miscompute the private exponent for, causing decryption failure and error-path data leakage.
+
+---
+
+## RSA Cube Root CRT when gcd(e, phi) > 1 (BearCatCTF 2026)
+
+**Pattern (Kidd's Crypto):** RSA with `e=3`, modulus composed of many small primes all ≡ 1 (mod 3). Since each `p-1` is divisible by 3, `gcd(e, phi(n)) = 3^k` and the standard modular inverse `d = e^-1 mod phi` doesn't exist.
+
+**Solution:** Compute cube roots per-prime via CRT:
+```python
+from sympy.ntheory.residues import nthroot_mod
+from sympy.ntheory.modular import crt
+
+primes = [p1, p2, ..., p13]  # All ≡ 1 mod 3
+
+# For each prime, find all 3 cube roots of c mod p
+roots_per_prime = []
+for p in primes:
+    roots = nthroot_mod(c % p, 3, p, all_roots=True)
+    roots_per_prime.append(roots)
+
+# Try all 3^13 = 1,594,323 combinations
+from itertools import product
+for combo in product(*roots_per_prime):
+    result, mod = crt(primes, list(combo))
+    try:
+        text = long_to_bytes(result).decode('ascii')
+        if text.isprintable():
+            print(f"Flag: {text}")
+            break
+    except:
+        continue
+```
+
+**Key insight:** When `gcd(e, phi(n)) > 1`, standard RSA decryption fails. Factor `n`, compute eth roots modulo each prime separately (each prime ≡ 1 mod e gives `e` roots), then enumerate all CRT combinations. Feasible when the number of primes is small (3^13 ≈ 1.6M combinations).
+
+---
+
+## Factoring n from Multiple of phi(n) (BearCatCTF 2026)
+
+**Pattern (Twisted Pair):** Given RSA `n` and a leaked pair `(re, rd)` where `re * rd ≡ 1 (mod k*phi(n))`. The value `re*rd - 1` is a multiple of `phi(n)`, enabling probabilistic factoring.
+
+```python
+import random
+from math import gcd
+
+def factor_from_phi_multiple(n, phi_multiple):
+    """Factor n given any multiple of phi(n) using Miller-Rabin variant."""
+    # Write phi_multiple = 2^s * d where d is odd
+    s, d = 0, phi_multiple
+    while d % 2 == 0:
+        s += 1
+        d //= 2
+
+    for _ in range(100):  # 100 attempts
+        a = random.randrange(2, n - 1)
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1:
+            continue
+        for _ in range(s - 1):
+            prev = x
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+            if x == 1:
+                # prev is non-trivial square root of 1
+                p = gcd(prev - 1, n)
+                if 1 < p < n:
+                    return p, n // p
+        # Check final
+        if x != n - 1:
+            p = gcd(x - 1, n)
+            if 1 < p < n:
+                return p, n // p
+    return None
+
+phi_mult = re * rd - 1
+p, q = factor_from_phi_multiple(n, phi_mult)
+```
+
+**Key insight:** Any multiple of `phi(n)` — not just `phi(n)` itself — enables factoring via the Miller-Rabin square root technique. If a server leaks `e*d` for any key pair, or if `re*rd - 1` is given, compute `gcd(a^(m/2) - 1, n)` for random `a` values. Succeeds with probability ≥ 1/2 per attempt.

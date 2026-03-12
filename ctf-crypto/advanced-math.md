@@ -17,6 +17,7 @@
 - [Manger's RSA Padding Oracle Attack (Nullcon 2026)](#mangers-rsa-padding-oracle-attack-nullcon-2026)
 - [LWE Lattice Attack via CVP (EHAX 2026)](#lwe-lattice-attack-via-cvp-ehax-2026)
 - [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
+- [Tropical Semiring Residuation Attack (BearCatCTF 2026)](#tropical-semiring-residuation-attack-bearcatctf-2026)
 
 ---
 
@@ -780,3 +781,36 @@ x5 = gauss_elim(A5, b5, mod=5)
 x13 = gauss_elim(A13, b13, mod=13)
 x = [crt2(x5[i], 5, x13[i], 13) for i in range(len(x5))]
 ```
+
+---
+
+## Tropical Semiring Residuation Attack (BearCatCTF 2026)
+
+**Pattern (Tropped):** Diffie-Hellman key exchange using tropical matrices (min-plus algebra). Per-character shared secret XOR'd with encrypted flag.
+
+**Tropical algebra:**
+- Addition = `min(a, b)`
+- Multiplication = `a + b`
+- Matrix multiply: `(A*B)[i,j] = min_k(A[i,k] + B[k,j])`
+
+**Tropical residuation recovers shared secret from public data:**
+```python
+def tropical_residuate(M, Mb, aM, n):
+    """Recover shared secret from public matrices.
+    M = public matrix, Mb = M*b (Bob's public), aM = a*M (Alice's public)
+    """
+    # Right residual: b*[j] = max_i(Mb[i] - M[i][j])
+    b_star = [max(Mb[i] - M[i][j] for i in range(n)) for j in range(n)]
+    # Shared secret: aMb = min_j(aM[j] + b*[j])
+    aMb = min(aM[j] + b_star[j] for j in range(n))
+    return aMb
+
+# Decrypt per-character: key = aMb % 32; plaintext = key ^ ciphertext
+for i, enc_char in enumerate(encrypted):
+    key = shared_secret % 32
+    plaintext_char = chr(key ^ ord(enc_char))
+```
+
+**Key insight:** Tropical DH is broken because the min-plus semiring lacks cancellation — given `M` and `M*b`, the "residual" `b*` can be computed directly via `max(Mb[i] - M[i][j])`. Unlike standard DH where recovering `b` from `g^b` is hard, tropical residuation recovers enough of `b`'s effect to compute the shared secret. This makes tropical matrix DH insecure for any matrix size.
+
+**Detection:** Challenge mentions "tropical", "min-plus", "exotic algebra", or defines custom matrix multiplication using `min` and `+`.

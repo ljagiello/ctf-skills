@@ -26,6 +26,10 @@
 - [Flask Session Cookie Game State Leakage (BYPASS CTF 2025)](#flask-session-cookie-game-state-leakage-bypass-ctf-2025)
 - [WebSocket Game Manipulation + Cryptic Hint Decoding (BYPASS CTF 2025)](#websocket-game-manipulation--cryptic-hint-decoding-bypass-ctf-2025)
 - [Server Time-Only Validation Bypass (BYPASS CTF 2025)](#server-time-only-validation-bypass-bypass-ctf-2025)
+- [LoRA Adapter Weight Merging and Visualization (ApoorvCTF 2026)](#lora-adapter-weight-merging-and-visualization-apoorvctf-2026)
+- [De Bruijn Sequence for Substring Coverage (BearCatCTF 2026)](#de-bruijn-sequence-for-substring-coverage-bearcatctf-2026)
+- [Brainfuck Interpreter Instrumentation (BearCatCTF 2026)](#brainfuck-interpreter-instrumentation-bearcatctf-2026)
+- [WASM Linear Memory Manipulation (BearCatCTF 2026)](#wasm-linear-memory-manipulation-bearcatctf-2026)
 - [References](#references)
 
 ---
@@ -624,6 +628,143 @@ print(r.json().get('flag'))
 
 ---
 
+## LoRA Adapter Weight Merging and Visualization (ApoorvCTF 2026)
+
+**Pattern (Hefty Secrets):** Two PyTorch checkpoints — a base model and a LoRA (Low-Rank Adaptation) adapter. Merging the adapter into the base model produces a weight matrix encoding a hidden bitmap image.
+
+**LoRA merging:** `W' = W + B @ A` where `B` (256×64) and `A` (64×256) are the low-rank matrices. The product is a full 256×256 matrix.
+
+```python
+import torch
+import numpy as np
+from PIL import Image
+
+base = torch.load('base_model.pt', map_location='cpu', weights_only=False)
+lora = torch.load('lora_adapter.pt', map_location='cpu', weights_only=False)
+
+# Merge: W' = W + B @ A
+merged = base['layer2.weight'] + lora['layer2.lora_B'] @ lora['layer2.lora_A']
+
+# Threshold to binary image — values cluster at 0 or 1
+binary = (merged > 0.5).int().numpy().astype(np.uint8)
+img = Image.fromarray((1 - binary) * 255)  # Invert: 0→white, 1→black
+img.save('flag.png')
+```
+
+**Key insight:** LoRA adapters are low-rank matrix decompositions designed for fine-tuning. The product of the two small matrices can encode arbitrary data in the full weight matrix. Threshold and visualize — if values cluster near 0 and 1, it's a binary image.
+
+**Detection:** Challenge provides two PyTorch `.pt` files (base + adapter), mentions "LoRA", "fine-tuning", or "adapter". PyTorch unzipped checkpoint format stores `data.pkl` + numbered data files in a directory; re-zip to load with `torch.load()`.
+
+---
+
+## De Bruijn Sequence for Substring Coverage (BearCatCTF 2026)
+
+**Pattern (Brown's Revenge):** Server generates random n-bit binary code each round. Input must contain the code as a substring. Pass 20+ rounds with a single fixed input under a character limit.
+
+```python
+def de_bruijn(k, n):
+    """Generate de Bruijn sequence B(k, n): cyclic sequence containing
+    every k-ary string of length n exactly once as a substring."""
+    a = [0] * k * n
+    sequence = []
+    def db(t, p):
+        if t > n:
+            if n % p == 0:
+                sequence.extend(a[1:p+1])
+        else:
+            a[t] = a[t - p]
+            db(t + 1, p)
+            for j in range(a[t - p] + 1, k):
+                a[t] = j
+                db(t + 1, t)
+    db(1, 1)
+    return sequence
+
+# For 12-bit binary codes: B(2, 12) has length 4096
+seq = ''.join(map(str, de_bruijn(2, 12)))
+payload = seq + seq[:11]  # Linearize: 4096 + 11 = 4107 chars
+# Every possible 12-bit code appears as a substring
+```
+
+**Key insight:** De Bruijn sequence B(k, n) contains all k^n possible n-length strings over alphabet k as substrings, with cyclic length k^n. To linearize (non-cyclic), append the first n-1 characters. Total length = k^n + n - 1. Send the same string every round — it contains every possible code.
+
+**Detection:** Must find arbitrary n-bit pattern as substring of limited-length input. Character budget matches de Bruijn length (k^n + n - 1).
+
+---
+
+## Brainfuck Interpreter Instrumentation (BearCatCTF 2026)
+
+**Pattern (Ghost Ship):** Large Brainfuck program (10K+ instructions) validates a flag character-by-character. Full reverse engineering is impractical.
+
+**Per-character brute-force via instrumentation:**
+1. Instrument a Brainfuck interpreter to track tape cell values
+2. Identify a "wrong count" cell that increments per incorrect character
+3. For each position, try all printable ASCII — pick the character that doesn't increment the wrong counter
+
+```python
+def run_bf_instrumented(code, input_bytes, max_steps=500000):
+    tape = [0] * 30000
+    dp, ip, inp_idx = 0, 0, 0
+    for _ in range(max_steps):
+        if ip >= len(code): break
+        c = code[ip]
+        if c == '+': tape[dp] = (tape[dp] + 1) % 256
+        elif c == '-': tape[dp] = (tape[dp] - 1) % 256
+        elif c == '>': dp += 1
+        elif c == '<': dp -= 1
+        elif c == '.': pass  # output
+        elif c == ',':
+            tape[dp] = input_bytes[inp_idx] if inp_idx < len(input_bytes) else 0
+            inp_idx += 1
+        elif c == '[' and tape[dp] == 0:
+            # skip to matching ]
+            ...
+        elif c == ']' and tape[dp] != 0:
+            # jump back to matching [
+            ...
+        ip += 1
+    return tape
+
+# Brute-force: ~40 positions × 95 chars = 3800 runs
+flag = []
+for pos in range(40):
+    for c in range(32, 127):
+        candidate = flag + [c] + [ord('A')] * (39 - pos)
+        tape = run_bf_instrumented(code, candidate)
+        if tape[WRONG_COUNT_CELL] == 0:  # No errors up to this position
+            flag.append(c)
+            break
+```
+
+**Key insight:** Brainfuck programs that validate input character-by-character can be brute-forced without understanding the program logic. Instrument the interpreter to observe tape state, find the cell that tracks validation progress, and optimize per-character search. ~3800 runs completes in minutes.
+
+---
+
+## WASM Linear Memory Manipulation (BearCatCTF 2026)
+
+**Pattern (Dubious Doubloon):** Browser game compiled to WebAssembly with win conditions requiring luck (e.g., 15 consecutive coin flips). WASM linear memory is flat and unprotected.
+
+**Direct memory patching in Node.js:**
+```javascript
+const { readFileSync } = require('fs');
+const wasmBuffer = readFileSync('game.wasm');
+const { instance } = await WebAssembly.instantiate(wasmBuffer, imports);
+const mem = new DataView(instance.exports.memory.buffer);
+
+// Patch game variables at known offsets
+mem.setInt32(0x102918, 14, true);   // streak counter = 14 (need 15)
+mem.setInt32(0x102898, 100, true);  // win chance = 100%
+
+// One more flip → guaranteed win → flag decoded
+const result = instance.exports.flipCoin();
+```
+
+**Key insight:** Unlike WAT patching (modifying the binary), memory manipulation patches runtime state after loading. All WASM variables live in flat linear memory at fixed offsets. Use `wasm-objdump -x game.wasm` or search for known constants to find variable offsets. No need to understand the full game logic — just set the state to "about to win".
+
+**Detection:** WASM game requiring statistically impossible sequences (streaks, perfect scores). Game logic is in `.wasm` file loadable in Node.js.
+
+---
+
 ## References
 - Pragyan 2026 "Tac Tic Toe": WASM minimax patching
 - LACTF 2026 "CTFaaS": K8s RBAC bypass via hostPath
@@ -636,3 +777,7 @@ print(r.json().get('flag'))
 - BYPASS CTF 2025 "Hungry, Not Stupid": Flask cookie game state leakage
 - BYPASS CTF 2025 "Maze of the Unseen": WebSocket teleportation + cryptic hints
 - BYPASS CTF 2025 "Level Devil": Server time-only validation bypass
+- ApoorvCTF 2026 "Hefty Secrets": LoRA adapter weight merging and bitmap visualization
+- BearCatCTF 2026 "Brown's Revenge": De Bruijn sequence substring coverage
+- BearCatCTF 2026 "Ghost Ship": Brainfuck instrumentation brute-force
+- BearCatCTF 2026 "Dubious Doubloon": WASM linear memory state patching

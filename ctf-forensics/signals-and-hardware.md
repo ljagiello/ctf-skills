@@ -8,6 +8,7 @@
 - [Side-Channel Power Analysis (EHAX 2026)](#side-channel-power-analysis-ehax-2026)
 - [Saleae Logic 2 UART Decode (EHAX 2026)](#saleae-logic-2-uart-decode-ehax-2026)
 - [Flipper Zero .sub File (0xFun 2026)](#flipper-zero-sub-file-0xfun-2026)
+- [Keyboard Acoustic Side-Channel (ApoorvCTF 2026)](#keyboard-acoustic-side-channel-apoorvctf-2026)
 
 ---
 
@@ -255,3 +256,62 @@ def uart_decode(transitions, sample_rate=1_000_000, baud=115200):
 ## Flipper Zero .sub File (0xFun 2026)
 
 RAW_Data binary -> filter noise bytes (0x80-0xFF) -> expand batch variable references -> XOR with hint text.
+
+---
+
+## Keyboard Acoustic Side-Channel (ApoorvCTF 2026)
+
+**Pattern (Author on the Run):** Recover typed text from audio recordings of keystrokes. Reference audio provides labeled samples (known keys), flag audio contains unknown keystrokes to classify.
+
+**Step 1 — Detect keystrokes via energy peaks:**
+```python
+import numpy as np
+from scipy.signal import find_peaks
+from scipy.io import wavfile
+
+sr, audio = wavfile.read('flag.wav')
+if audio.ndim > 1:
+    audio = audio.mean(axis=1)
+
+# Sliding window energy envelope (10ms window)
+win = int(0.01 * sr)
+energy = np.array([np.sum(audio[i:i+win]**2) for i in range(0, len(audio) - win, win)])
+
+# Find peaks with minimum 175ms separation
+min_dist = int(0.175 * sr / win)
+peaks, _ = find_peaks(energy, height=0.03 * energy.max(), distance=min_dist)
+```
+
+**Step 2 — Extract MFCC features per keystroke:**
+```python
+import librosa
+
+def extract_features(audio, sr, peak_sample, window_ms=10):
+    win = int(window_ms / 1000 * sr)
+    start = max(0, peak_sample - win // 2)
+    segment = audio[start:start + win]
+    mfccs = librosa.feature.mfcc(y=segment.astype(float), sr=sr, n_mfcc=20)
+    return np.concatenate([mfccs.mean(axis=1), mfccs.std(axis=1)])  # 40-dim
+```
+
+**Step 3 — Classify with KNN against labeled reference:**
+```python
+from sklearn.neighbors import KNeighborsClassifier
+
+# Build reference from labeled audio (26 keys × 50 presses each)
+X_ref, y_ref = [], []
+for key_idx, key in enumerate('abcdefghijklmnopqrstuvwxyz'):
+    for peak in reference_peaks[key_idx * 50:(key_idx + 1) * 50]:
+        X_ref.append(extract_features(ref_audio, sr, peak))
+        y_ref.append(key)
+
+knn = KNeighborsClassifier(n_neighbors=5)
+knn.fit(X_ref, y_ref)
+
+# Classify flag keystrokes
+flag = ''.join(knn.predict([extract_features(flag_audio, sr, p) for p in flag_peaks]))
+```
+
+**Key insight:** Window size is critical — 10ms captures the initial impact transient which is most distinctive per key. Larger windows (20-30ms) include key release noise that reduces classification accuracy. Use all individual reference samples rather than averaging, as KNN handles variance better with more data points.
+
+**Detection:** Two audio files provided (reference + target), or challenge mentions "typing", "keyboard", "acoustic".

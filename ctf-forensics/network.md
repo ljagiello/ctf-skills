@@ -18,6 +18,8 @@
 - [Packet Interval Timing-Based Encoding (EHAX 2026)](#packet-interval-timing-based-encoding-ehax-2026)
 - [USB HID Mouse/Pen Drawing Recovery (EHAX 2026)](#usb-hid-mousepen-drawing-recovery-ehax-2026)
 - [NTLMv2 Hash Cracking from PCAP (Pragyan 2026)](#ntlmv2-hash-cracking-from-pcap-pragyan-2026)
+- [TCP Flag Covert Channel (BearCatCTF 2026)](#tcp-flag-covert-channel-bearcatctf-2026)
+- [Brotli Decompression Bomb Seam Analysis (BearCatCTF 2026)](#brotli-decompression-bomb-seam-analysis-bearcatctf-2026)
 
 ---
 
@@ -542,3 +544,59 @@ def try_password(password, username, domain, server_challenge, blob, expected_pr
     proof = hmac.new(ntlmv2_hash, server_challenge + blob, hashlib.md5).digest()
     return proof == expected_proof
 ```
+
+---
+
+## TCP Flag Covert Channel (BearCatCTF 2026)
+
+**Pattern (pCapsized):** Suspicious TCP packets with chaotic flag combinations (FIN+SYN, SYN+RST+PSH+URG, etc.). The 6 TCP flag bits encode base64 characters.
+
+**Decoding:**
+```python
+from scapy.all import rdpcap, TCP
+
+pkts = rdpcap('capture.pcap')
+suspicious = [p for p in pkts if TCP in p and p[TCP].dport == 5748]
+
+# Map 6-bit flag value to base64 alphabet
+b64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+encoded = ''.join(b64[p[TCP].flags & 0x3F] for p in suspicious)
+
+import base64
+flag = base64.b64decode(encoded).decode()
+```
+
+**Key insight:** TCP has 6 standard flag bits (FIN, SYN, RST, PSH, ACK, URG) = values 0-63, matching the base64 alphabet exactly. Unusual flag combinations on otherwise normal-looking packets indicate covert channel usage. Filter by destination port or source IP to isolate the channel.
+
+**Detection:** Packets with nonsensical flag combinations (e.g., FIN+SYN simultaneously). Consistent destination port. Packet count is a multiple of 4 (base64 alignment).
+
+---
+
+## Brotli Decompression Bomb Seam Analysis (BearCatCTF 2026)
+
+**Pattern (Cursed Map):** HTTP download of a file that decompresses to gigabytes (decompression bomb). The flag is sandwiched between two bomb halves at a seam in the compressed data.
+
+**Identification:** Compressed data shows a repeating block pattern (e.g., 105-byte period). One block breaks the pattern — the flag is at this discontinuity.
+
+```python
+import brotli
+
+with open('flag.txt.br', 'rb') as f:
+    data = f.read()
+
+# Find the repeating block size
+block_size = 105  # Determined by comparing adjacent blocks
+for i in range(0, len(data) - block_size, block_size):
+    if data[i:i+block_size] != data[i+block_size:i+2*block_size]:
+        seam_offset = i + block_size
+        break
+
+# Decompress only the anomalous block
+dec = brotli.Decompressor()
+result = dec.process(data[seam_offset:seam_offset+block_size])
+# Flag is in the decompressed output
+```
+
+**Key insight:** Decompression bombs use highly repetitive compressed data. The flag breaks this repetition, creating a detectable anomaly in the compressed stream. Compare adjacent fixed-size blocks to find the discontinuity, then decompress only that region — no need to decompress the entire multi-gigabyte output.
+
+**Detection:** File with extreme compression ratio (MB → GB), HTTP Content-Encoding: br, or file identified as Brotli. Tools hang or OOM when trying to decompress.

@@ -16,11 +16,11 @@ Quick reference for forensics CTF challenges. Each technique has a one-liner her
 
 - [3d-printing.md](3d-printing.md) - 3D printing forensics (PrusaSlicer binary G-code, QOIF, heatshrink)
 - [windows.md](windows.md) - Windows forensics (registry, SAM, event logs, recycle bin, USN journal, PowerShell history, Defender MPLog, WMI persistence, Amcache)
-- [network.md](network.md) - Network forensics (tcpdump, TLS/SSL keylog decryption, PCAP, SMB3, WordPress, credentials, NTLMv2 cracking, USB HID steno, USB HID mouse/pen drawing recovery, BCD encoding, HTTP file upload exfiltration, packet interval timing encoding)
+- [network.md](network.md) - Network forensics (tcpdump, TLS/SSL keylog decryption, PCAP, SMB3, WordPress, credentials, NTLMv2 cracking, USB HID steno, USB HID mouse/pen drawing recovery, BCD encoding, HTTP file upload exfiltration, packet interval timing encoding, TCP flag covert channel, Brotli decompression bomb seam)
 - [disk-and-memory.md](disk-and-memory.md) - Disk/memory forensics (Volatility, disk mounting/carving, VM/OVA/VMDK, coredumps, deleted partitions, ZFS, VMware snapshots, ransomware analysis, GPT GUID encoding, VMDK sparse parsing)
-- [steganography.md](steganography.md) - Steganography (binary border stego, PDF multi-layer stego, FFT frequency domain, DTMF audio, SSTV+LSB, SVG keyframes, PNG reorder, file overlays, JPEG unused DQT table LSB, custom frequency dual-tone keypad, multi-track audio differential subtraction, BMP bitplane QR extraction, image puzzle reassembly, audio FFT musical notes)
-- [linux-forensics.md](linux-forensics.md) - Linux/app forensics (log analysis, Docker image forensics, attack chains, browser credentials, Firefox history, TFTP, TLS weak RSA, USB audio, Git directory recovery, KeePass v4 cracking)
-- [signals-and-hardware.md](signals-and-hardware.md) - Hardware signal decoding with decode code (VGA frame parsing, HDMI TMDS symbol decode, DisplayPort 8b/10b + LFSR descrambler), Voyager Golden Record audio, Saleae Logic 2 UART decode, Flipper Zero .sub files, side-channel power analysis (DPA)
+- [steganography.md](steganography.md) - Steganography (binary border stego, PDF multi-layer stego, FFT frequency domain, DTMF audio, SSTV+LSB, SVG keyframes, PNG reorder, file overlays, JPEG unused DQT table LSB, custom frequency dual-tone keypad, multi-track audio differential subtraction, BMP bitplane QR extraction, image puzzle reassembly, audio FFT musical notes, cross-channel multi-bit LSB, F5 JPEG DCT ratio detection, PNG unused palette entry stego)
+- [linux-forensics.md](linux-forensics.md) - Linux/app forensics (log analysis, Docker image forensics, attack chains, browser credentials, Firefox history, TFTP, TLS weak RSA, USB audio, Git directory recovery, KeePass v4 cracking, Git reflog/fsck squash recovery)
+- [signals-and-hardware.md](signals-and-hardware.md) - Hardware signal decoding with decode code (VGA frame parsing, HDMI TMDS symbol decode, DisplayPort 8b/10b + LFSR descrambler), Voyager Golden Record audio, Saleae Logic 2 UART decode, Flipper Zero .sub files, side-channel power analysis (DPA), keyboard acoustic side-channel
 
 ---
 
@@ -238,6 +238,13 @@ See [linux-forensics.md](linux-forensics.md) for full browser credential decrypt
 - **G-code visualization:** Side projections (XZ/YZ) reveal text. See [3d-printing.md](3d-printing.md).
 - **Git directory recovery:** `gitdumper.sh` for exposed `.git` dirs. See [linux-forensics.md](linux-forensics.md).
 - **KeePass v4 cracking:** Standard `keepass2john` lacks v4/Argon2 support; use `ivanmrsulja/keepass2john` fork or `keepass4brute`. Generate wordlists with `cewl`. See [linux-forensics.md](linux-forensics.md).
+- **Cross-channel multi-bit LSB:** Different bit positions per RGB channel (R[0], G[1], B[2]) encode hidden data. See [steganography.md](steganography.md).
+- **F5 JPEG DCT detection:** Ratio of ±1 to ±2 AC coefficients drops from ~3:1 to ~1:1 with F5; sparse images need secondary ±2/±3 metric. See [steganography.md](steganography.md).
+- **PNG unused palette stego:** Unused PLTE entries (not referenced by pixels) carry hidden data in red channel values. See [steganography.md](steganography.md).
+- **Keyboard acoustic side-channel:** MFCC features from keystroke audio + KNN classification against labeled reference. 10ms window captures impact transient. See [signals-and-hardware.md](signals-and-hardware.md).
+- **TCP flag covert channel:** 6 TCP flag bits (FIN/SYN/RST/PSH/ACK/URG) = values 0-63, encoding base64 characters. Nonsensical flag combos on a consistent dest port = covert data. See [network.md](network.md).
+- **Brotli decompression bomb seam:** Compressed bomb has repeating blocks; flag breaks the pattern at a seam. Compare adjacent blocks to find discontinuity, decompress only that region. See [network.md](network.md).
+- **Git reflog/fsck squash recovery:** `git rebase --squash` leaves orphaned objects recoverable via `git fsck --unreachable --no-reflogs`. See [linux-forensics.md](linux-forensics.md).
 
 ## HTTP Exfiltration in PCAP
 

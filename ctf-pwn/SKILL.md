@@ -15,9 +15,9 @@ Quick reference for binary exploitation (pwn) CTF challenges. Each technique has
 ## Additional Resources
 
 - [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, canary byte-by-byte brute force on forking servers, struct pointer overwrite, signed integer bypass, hidden gadgets, stride-based OOB read leak
-- [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), SROP with UTF-8 constraints, shellcode with input reversal, seccomp bypass, .fini_array hijack, pwntools template
+- [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), SROP with UTF-8 constraints, shellcode with input reversal, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template
 - [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass, canary leak, __free_hook, .rela.plt patching)
-- [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, GC null-ref cascading corruption
+- [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, GC null-ref cascading corruption, io_uring UAF with SQE injection, integer truncation int32→int16 bypass
 - [sandbox-escape.md](sandbox-escape.md) - Python sandbox escape, custom VM exploitation, FUSE/CUSE devices, busybox/restricted shell, shell tricks
 - [kernel.md](kernel.md) - Linux kernel exploitation: modprobe_path overwrite, core_pattern, tty_struct kROP, userfaultfd race stabilization, SLUB heap spray structures, KASLR/FGKASLR/KPTI/SMEP/SMAP bypass, kernel config recon
 
@@ -108,6 +108,10 @@ Leak libc via `puts@PLT(puts@GOT)`, return to vuln, stage 2 with `system("/bin/s
 
 **Shell interaction:** After `execve`, `sleep(1)` then `sendline(b'cat /flag*')`. See [rop-and-shellcode.md](rop-and-shellcode.md).
 
+## ret2vdso — No-Gadget Binary Exploitation
+
+**Pattern:** Statically-linked binary with minimal functions and no useful ROP gadgets. The Linux kernel maps a vDSO into every process, containing usable gadgets. Leak vDSO base from `AT_SYSINFO_EHDR` (auxv type `0x21`) on the stack, dump the vDSO, extract gadgets for `execve`. vDSO is kernel-specific — always dump the remote copy. See [rop-and-shellcode.md](rop-and-shellcode.md#ret2vdso--using-kernel-vdso-gadgets-htb-nowhere-to-go).
+
 ## Use-After-Free (UAF) Exploitation
 
 **Pattern:** Menu create/delete/view where `free()` doesn't NULL pointer. Create -> leak -> free -> allocate same-size object to overwrite function pointer -> trigger callback. Key: both structs must be same size for tcache reuse. See [advanced.md](advanced.md) for full exploit code.
@@ -153,6 +157,14 @@ Writable `.fini_array` + arbitrary write -> overwrite with win/shellcode address
 **Config recon:** Check QEMU script for SMEP/SMAP/KASLR/KPTI. Detect FGKASLR via `readelf -S vmlinux` section count (30 vs 36000+). Check `CONFIG_KALLSYMS_ALL` via `grep modprobe_path /proc/kallsyms`. See [kernel.md](kernel.md).
 
 OOB via vulnerable `lseek`, heap grooming with `fork()`, SUID exploits. Check `CONFIG_SLAB_FREELIST_RANDOM` and `CONFIG_SLAB_MERGE_DEFAULT`. See [advanced.md](advanced.md).
+
+## io_uring UAF with SQE Injection
+
+**Pattern:** Custom slab allocator + io_uring worker thread. FLUSH frees objects (UAF), type confusion via slab fallback, craft `IORING_OP_OPENAT` SQE in reused memory. io_uring trusts SQE contents from userland shared memory. See [advanced.md](advanced.md#io_uring-uaf-with-sqe-injection-apoorvctf-2026).
+
+## Integer Truncation Bypass (int32→int16)
+
+**Pattern:** Input validated as int32 (>= 0), cast to int16_t for bounds check. Value 65534 passes int32 check, becomes -2 as int16_t → OOB array access. Use `xchg rdi, rax; cld; ret` gadget for dynamic fd capture in containerized ORW chains. See [advanced.md](advanced.md#integer-truncation-bypass-int32int16-apoorvctf-2026).
 
 ## Format String Quick Reference
 

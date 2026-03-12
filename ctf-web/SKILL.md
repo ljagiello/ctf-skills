@@ -14,12 +14,12 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Server-side attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file write→RCE, eval bypass, ExifTool CVE, Go rune/byte mismatch, zip symlink, PHP type juggling, PHP file inclusion / php://filter
-- [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements
+- [server-side.md](server-side.md) - Server-side attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file write→RCE, eval bypass, ExifTool CVE, Go rune/byte mismatch, zip symlink, PHP type juggling, PHP file inclusion / php://filter, React Server Components Flight RCE, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass
+- [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: JWT, session, password inference, weak validation, client-side gates, NoSQL auth bypass
 - [node-and-prototype.md](node-and-prototype.md) - Node.js: prototype pollution, VM sandbox escape, Happy-DOM chain, flatnest CVE, Lodash+Pug AST injection
 - [web3.md](web3.md) - Blockchain/Web3: Solidity exploits, proxy patterns, ABI encoding tricks, Foundry tooling
-- [cves.md](cves.md) - CVE-specific exploits: Next.js middleware bypass, curl credential leak, Uvicorn CRLF, urllib scheme bypass, ExifTool DjVu, broken auth, AAEncode/JJEncode, protocol multiplexing
+- [cves.md](cves.md) - CVE-specific exploits: Next.js middleware bypass, curl credential leak, Uvicorn CRLF, urllib scheme bypass, ExifTool DjVu, broken auth, AAEncode/JJEncode, protocol multiplexing, React Server Components Flight RCE (CVE-2025-55182)
 
 ---
 
@@ -100,7 +100,13 @@ See [auth-and-access.md](auth-and-access.md) for full JWT attacks and session ma
 {{.ReadFile "/flag.txt"}}
 # EJS
 <%- global.process.mainModule.require('child_process').execSync('id') %>
+# Jinja2 quote bypass (keyword args):
+{{obj.__dict__.update(attr=value) or obj.name}}
 ```
+
+**Quote filter bypass:** Use `__dict__.update(key=value)` — keyword arguments need no quotes. See [server-side.md](server-side.md#ssti-quote-filter-bypass-via-__dict__update-apoorvctf-2026).
+
+**ERB SSTI (Ruby/Sinatra):** `<%= Sequel::DATABASES.first[:table].all %>` bypasses ERBSandbox variable-name restrictions via the global `Sequel::DATABASES` array. See [server-side.md](server-side.md#erb-ssti--sequeldatabases-bypass-bearcatctf-2026).
 
 ## SSRF Quick Reference
 
@@ -286,6 +292,14 @@ AI chatbots guarding flags can be bypassed with system override prompts, role-re
 ## Admin Bot javascript: URL Scheme Bypass
 
 `new URL()` validates syntax only, not protocol — `javascript:` URLs pass and execute in Puppeteer's authenticated context. CSP/SRI on the target page are irrelevant since JS runs in navigation context. See [client-side.md](client-side.md#admin-bot-javascript-url-scheme-bypass-dicectf-2026).
+
+## XS-Leak via Image Load Timing + GraphQL CSRF (HTB GrandMonty)
+
+HTML injection → meta refresh redirect (CSP bypass) → admin bot loads attacker page → JavaScript makes cross-origin GET requests to `localhost` GraphQL endpoint via `new Image().src` → measures time-based SQLi (`SLEEP(1)`) through image error timing → character-by-character flag exfiltration. GraphQL GET requests bypass CORS preflight. See [client-side.md](client-side.md#xs-leak-via-image-load-timing--graphql-csrf-htb-grandmonty).
+
+## React Server Components Flight Protocol RCE (Ehax 2026)
+
+Identify via `Next-Action` + `Accept: text/x-component` headers. CVE-2025-55182: fake Flight chunk exploits constructor chain for server-side JS execution. Exfiltrate via `NEXT_REDIRECT` error → `x-action-redirect` header. WAF bypass: `'chi'+'ld_pro'+'cess'` or hex `'\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73'`. See [server-side.md](server-side.md#react-server-components-flight-protocol-rce-ehax-2026) and [cves.md](cves.md#cve-2025-55182-react-server-components-flight-protocol-rce).
 
 ## Common Flag Locations
 

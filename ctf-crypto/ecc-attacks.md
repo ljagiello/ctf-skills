@@ -7,6 +7,7 @@
 - [Smart's Attack (Anomalous Curves)](#smarts-attack-anomalous-curves)
 - [ECC Fault Injection](#ecc-fault-injection)
 - [Clock Group DLP via Pohlig-Hellman (LACTF 2026)](#clock-group-dlp-via-pohlig-hellman-lactf-2026)
+- [Ed25519 Torsion Side Channel (BearCatCTF 2026)](#ed25519-torsion-side-channel-bearcatctf-2026)
 
 ---
 
@@ -141,3 +142,35 @@ p = reduce(gcd, vals)
 ```
 
 **Identification:** Challenge mentions "clock", "circle", or gives points satisfying x^2+y^2=1. Always check if p+1 (not p-1) is smooth.
+
+---
+
+## Ed25519 Torsion Side Channel (BearCatCTF 2026)
+
+**Pattern (Curvy Wurvy):** Ed25519 signing oracle derives per-user keys as `user_key = MASTER_KEY * uid mod l` (where `l` is the Ed25519 subgroup order). Goal: recover `MASTER_KEY` from oracle queries.
+
+**The attack exploits Ed25519's cofactor h=8:**
+- Full curve order = `8*l`, but scalars are reduced mod `l`
+- When `MASTER_KEY * 2^t` wraps around `l`, multiplication produces a torsion component visible as y-coordinate change
+
+**Key extraction via binary decomposition:**
+```python
+# Query sign(uid=3, 2^t) for t = 0..255
+# S_t = (MASTER_KEY * 2^t mod l) * P3
+# Check: does doubling S_t match S_{t+1}?
+
+bits = []
+for t in range(255):
+    S_t = query_sign(3, 2**t)
+    S_t1 = query_sign(3, 2**(t+1))
+    doubled = point_double(S_t)
+    # Wrap occurred if doubled.y != S_{t+1}.y (torsion shift)
+    bits.append(0 if doubled.y == S_t1.y else 1)
+
+# Reconstruct: MASTER_KEY ≈ l * (0.bit0 bit1 bit2 ...)_binary
+# Try all 8 torsion corrections for exact value
+```
+
+**Key insight:** Ed25519's cofactor creates an observable side channel: when scalar multiplication wraps around the subgroup order `l`, the result shifts by a torsion element (one of 8 points). By querying powers of 2 and checking y-coordinate consistency, each bit of the secret scalar is leaked. Libraries like `ecpy` that reduce mod `l` are vulnerable to this when used in multi-user key derivation schemes.
+
+**Detection:** Ed25519 signing oracle with user-controlled UID or multiplier. Key derivation formula `key = master * uid mod l`.

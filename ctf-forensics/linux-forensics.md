@@ -13,6 +13,7 @@
 - [Common Encodings](#common-encodings)
 - [Git Directory Recovery (UTCTF 2024)](#git-directory-recovery-utctf-2024)
 - [KeePass Database Extraction and Cracking (H7CTF 2025)](#keepass-database-extraction-and-cracking-h7ctf-2025)
+- [Git Reflog and fsck for Squashed Commit Recovery (BearCatCTF 2026)](#git-reflog-and-fsck-for-squashed-commit-recovery-bearcatctf-2026)
 
 ---
 
@@ -274,3 +275,29 @@ hashcat -m 13400 hash.txt cewl_words.txt
 3. SSH keys are typically stored in the "Notes" or "Advanced" attachment fields
 
 **Key insight:** Standard `keepass2john` does not support KeePass v4 (KDBX 4.x) databases that use Argon2 key derivation. Use the `ivanmrsulja/keepass2john` fork or `keepass4brute` for v4 support. Generate context-aware wordlists with `cewl` targeting related web services.
+
+---
+
+## Git Reflog and fsck for Squashed Commit Recovery (BearCatCTF 2026)
+
+**Pattern (Poem About Pirates):** Git repository with clean history where data was overwritten and history rewritten via `git rebase --squash`. The original commits survive as orphaned objects.
+
+**Recovery steps:**
+```bash
+# Check reflog for rebase/squash operations
+git reflog --all
+
+# Find orphaned (unreachable) commits
+git fsck --unreachable --no-reflogs
+
+# Inspect each unreachable commit
+git show <commit-hash>
+git diff <commit-hash>^ <commit-hash>
+
+# Extract specific file version from orphaned commit
+git show <commit-hash>:path/to/file
+```
+
+**Key insight:** `git rebase --squash` removes commits from the branch history but doesn't delete the underlying objects. They remain as unreachable objects until garbage collection runs (`git gc`). Even after `git gc`, objects younger than the expiry period (default 2 weeks) survive. Always check `git reflog` and `git fsck --unreachable` when investigating git repos for hidden data.
+
+**Detection:** Git repo with suspiciously clean history (single commit, or squash-merge commits). Challenge mentions "rewrite", "rebase", "squash", or "clean history".

@@ -18,6 +18,9 @@
 - [Multi-Track Audio Differential Subtraction (EHAX 2026)](#multi-track-audio-differential-subtraction-ehax-2026)
 - [BMP Bitplane QR Code Extraction + Steghide (BYPASS CTF 2025)](#bmp-bitplane-qr-code-extraction--steghide-bypass-ctf-2025)
 - [Image Jigsaw Puzzle Reassembly via Edge Matching (BYPASS CTF 2025)](#image-jigsaw-puzzle-reassembly-via-edge-matching-bypass-ctf-2025)
+- [Cross-Channel Multi-Bit LSB Steganography (ApoorvCTF 2026)](#cross-channel-multi-bit-lsb-steganography-apoorvctf-2026)
+- [F5 JPEG DCT Coefficient Ratio Detection (ApoorvCTF 2026)](#f5-jpeg-dct-coefficient-ratio-detection-apoorvctf-2026)
+- [PNG Unused Palette Entry Steganography (ApoorvCTF 2026)](#png-unused-palette-entry-steganography-apoorvctf-2026)
 - [Audio FFT Musical Note Identification (BYPASS CTF 2025)](#audio-fft-musical-note-identification-bypass-ctf-2025)
 - [Audio Metadata Octal Encoding (BYPASS CTF 2025)](#audio-metadata-octal-encoding-bypass-ctf-2025)
 
@@ -623,3 +626,104 @@ sox filtered.wav -n spectrogram -o filtered_spec.png -X 2000 -Y 1000 -z 100 -h
 - Decoy flags in metadata/comments — always verify
 - Mislabeled channel configurations (stereo as 5.1)
 - Flag may only be visible in a narrow time window — use high-resolution spectrogram (`-X 2000+`)
+
+---
+
+## Cross-Channel Multi-Bit LSB Steganography (ApoorvCTF 2026)
+
+**Pattern (Beneath the Armor):** Standard LSB tools (zsteg, stegsolve) fail because different bit positions are used per RGB channel: Red channel bit 0, Green channel bit 1, Blue channel bit 2.
+
+```python
+from PIL import Image
+
+img = Image.open("challenge.png")
+pixels = img.load()
+bits = []
+for y in range(img.height):
+    for x in range(img.width):
+        r, g, b = pixels[x, y][:3]
+        bits.append((r >> 0) & 1)  # Red: bit 0
+        bits.append((g >> 1) & 1)  # Green: bit 1
+        bits.append((b >> 2) & 1)  # Blue: bit 2
+
+# Pack 3 bits per pixel into bytes
+data = bytearray()
+for i in range(0, len(bits) - 7, 8):
+    byte = 0
+    for j in range(8):
+        byte = (byte << 1) | bits[i + j]
+    data.append(byte)
+print(data.decode('ascii', errors='ignore'))
+```
+
+**Key insight:** When standard LSB tools find nothing, the data may use different bit positions per channel. The hint "cycles" or "modular" suggests cycling through bit positions (0→1→2) across channels. Always try non-standard bit combinations: R[0]G[1]B[2], R[1]G[2]B[0], R[2]G[0]B[1], etc.
+
+**Detection:** Standard `zsteg -a` and `stegsolve` produce no results on an image that metadata hints contain hidden data.
+
+---
+
+## F5 JPEG DCT Coefficient Ratio Detection (ApoorvCTF 2026)
+
+**Pattern (Engraver's Fault):** Detect F5 steganography in JPEG images by analyzing DCT coefficient distributions. F5 decrements ±1 AC coefficients toward 0, creating a measurable ratio shift.
+
+**Detection metric — ±1/±2 AC coefficient ratio:**
+```python
+import numpy as np
+from PIL import Image
+import jpegio  # or use jpeg_toolbox
+
+def f5_ratio(jpeg_path):
+    """Ratio below 0.15 indicates F5 modification; above 0.20 indicates clean."""
+    jpg = jpegio.read(jpeg_path)
+    coeffs = jpg.coef_arrays[0].flatten()  # Luminance Y channel
+    coeffs = coeffs[coeffs != 0]  # Remove DC/zeros
+    count_1 = np.sum(np.abs(coeffs) == 1)
+    count_2 = np.sum(np.abs(coeffs) == 2)
+    return count_1 / max(count_2, 1)
+```
+
+**Sparse image edge case:** Images with >80% zero DCT coefficients give misleading ±1/±2 ratios. Use a secondary metric:
+```python
+def f5_sparse_check(jpeg_path):
+    """For sparse images, ±2/±3 ratio below 2.5 indicates modification."""
+    jpg = jpegio.read(jpeg_path)
+    coeffs = jpg.coef_arrays[0].flatten()
+    count_2 = np.sum(np.abs(coeffs) == 2)
+    count_3 = np.sum(np.abs(coeffs) == 3)
+    return count_2 / max(count_3, 1)
+
+# Combined classifier:
+r12 = f5_ratio(path)
+r23 = f5_sparse_check(path)
+is_modified = r12 < 0.15 or (r12 < 0.25 and r23 < 2.5)
+```
+
+**Key insight:** F5 steganography shifts ±1 coefficients toward 0, reducing the ±1/±2 ratio. Natural JPEGs have ratio 0.25-0.45; F5-modified drop below 0.10. Sparse images (mostly flat/white) need the secondary ±2/±3 metric because their ±1 counts are inherently low.
+
+---
+
+## PNG Unused Palette Entry Steganography (ApoorvCTF 2026)
+
+**Pattern (The Gotham Files):** Paletted PNG (8-bit indexed color) hides data in palette entries that no pixel references. The image uses indices 0-199 but the PLTE chunk has 256 entries — indices 200-255 contain hidden ASCII in their red channel values.
+
+```python
+from PIL import Image
+import struct
+
+def extract_unused_plte(png_path):
+    img = Image.open(png_path)
+    palette = img.getpalette()  # Flat list: [R0,G0,B0, R1,G1,B1, ...]
+    pixels = list(img.getdata())
+    used_indices = set(pixels)
+
+    # Extract red channel from unused palette entries
+    flag = ''
+    for i in range(256):
+        if i not in used_indices:
+            r = palette[i * 3]  # Red channel
+            if 32 <= r <= 126:
+                flag += chr(r)
+    return flag
+```
+
+**Key insight:** PNG palette can have up to 256 entries but images typically use fewer. Unused entries are invisible to viewers but persist in the file. Metadata hints like "collector", "the entries that don't make it to the page", or "red light" point to this technique. Always check which palette indices are actually referenced vs. allocated.
