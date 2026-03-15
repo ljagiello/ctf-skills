@@ -16,7 +16,7 @@ Quick reference for miscellaneous CTF challenges. Each technique has a one-liner
 
 - [pyjails.md](pyjails.md) - Python jail/sandbox escape techniques, quine context detection, restricted character repunit decomposition
 - [bashjails.md](bashjails.md) - Bash jail/restricted shell escape techniques
-- [encodings.md](encodings.md) - Encodings, QR codes, esolangs, Verilog/HDL, UTF-16 tricks, BCD encoding, multi-layer auto-decoding, Gray code cyclic encoding
+- [encodings.md](encodings.md) - Encodings, QR codes, esolangs, Verilog/HDL, UTF-16 tricks, BCD encoding, multi-layer auto-decoding, Gray code cyclic encoding, indexed directory QR reassembly, multi-stage URL encoding chains
 - [rf-sdr.md](rf-sdr.md) - RF/SDR/IQ signal processing (QAM-16, carrier recovery, timing sync)
 - [dns.md](dns.md) - DNS exploitation (ECS spoofing, NSEC walking, IXFR, rebinding, tunneling)
 - [games-and-vms.md](games-and-vms.md) - WASM patching, Roblox place file reversing, PyInstaller, marshal, Python env RCE, Z3, K8s RBAC, floating-point precision exploitation, multi-phase crypto games with HMAC commitment-reveal and GF(256) Nim, custom assembly language sandbox escape via Python MRO chain, ML weight perturbation negation, cookie checkpoint game brute-forcing, Flask cookie game state leakage, WebSocket game manipulation, server time-only validation bypass, LoRA adapter weight merging and visualization, De Bruijn sequence, Brainfuck instrumentation, WASM linear memory manipulation
@@ -105,7 +105,7 @@ zbarimg qrcode.png       # Decode
 qrencode -o out.png "data"
 ```
 
-See [encodings.md](encodings.md) for QR structure, repair techniques, and chunk reassembly.
+See [encodings.md](encodings.md) for QR structure, repair techniques, chunk reassembly (structural and indexed-directory variants), and multi-stage URL encoding chains.
 
 ## Audio Challenges
 
@@ -186,6 +186,7 @@ new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_
 - **De Bruijn sequence:** B(k, n) contains all k^n possible n-length strings as substrings; linearize by appending first n-1 chars. See [games-and-vms.md](games-and-vms.md).
 - **Brainfuck instrumentation:** Instrument BF interpreter to track tape cells, brute-force flag character-by-character via validation cell. See [games-and-vms.md](games-and-vms.md).
 - **WASM memory manipulation:** Patch WASM linear memory at runtime to set game state variables directly, bypassing game logic. See [games-and-vms.md](games-and-vms.md).
+- **Neural network encoder collision:** Greedy search + simulated annealing finds collisions in dimensionality-reducing encoders (16D→4D). See [games-and-vms.md](games-and-vms.md).
 
 ## 3D Printer Video Nozzle Tracking (LACTF 2026)
 

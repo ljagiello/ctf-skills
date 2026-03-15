@@ -21,7 +21,10 @@
 - [Rust serde_json Schema Recovery](#rust-serde_json-schema-recovery)
 - [Android JNI RegisterNatives Obfuscation (HTB WonderSMS)](#android-jni-registernatives-obfuscation-htb-wondersms)
 - [Verilog/Hardware Reverse Engineering (srdnlenCTF 2026)](#veriloghardware-reverse-engineering-srdnlenctf-2026)
+- [Prefix-by-Prefix Hash Reversal (Nullcon 2026)](#prefix-by-prefix-hash-reversal-nullcon-2026)
 - [Ruby/Perl Polyglot Constraint Satisfaction (BearCatCTF 2026)](#rubyperl-polyglot-constraint-satisfaction-bearcatctf-2026)
+- [Electron App + Native Binary Reversing (RootAccess2026)](#electron-app--native-binary-reversing-rootaccess2026)
+- [Node.js npm Package Runtime Introspection (RootAccess2026)](#nodejs-npm-package-runtime-introspection-rootaccess2026)
 
 ---
 
@@ -430,3 +433,99 @@ def reconstruct_from_inversions(chars, inv_counts):
 **Key insight:** Polyglot files exploit language-specific comment/block syntax to run different code in each interpreter. The constraints from both languages intersect to uniquely determine the key. Identify which code runs in which language by testing the file with both interpreters and comparing behavior.
 
 **Detection:** File that runs under multiple interpreters (`ruby file && perl file`). Challenge mentions "polyglot" or provides a file ending in `.rb` that also looks like Perl.
+
+---
+
+## Electron App + Native Binary Reversing (RootAccess2026)
+
+**Pattern (Rootium Browser):** Electron desktop app bundles a native ELF/DLL binary for sensitive operations (vault, crypto, auth). The Electron layer is a wrapper; the real flag logic is in the native binary.
+
+**Extraction workflow:**
+1. **Unpack Electron ASAR archive:**
+```bash
+# Install ASAR tool
+npm install -g @electron/asar
+
+# Extract the app.asar archive
+asar extract resources/app.asar app_extracted/
+ls app_extracted/
+```
+
+2. **Locate native binary:** Search for ELF/DLL files called from JavaScript:
+```bash
+# Find native binaries
+find app_extracted/ -name "*.node" -o -name "*.so" -o -name "*vault*" -o -name "*auth*"
+
+# Check JS for child_process.spawn or ffi-napi calls
+grep -r "spawn\|execFile\|ffi\|require.*native" app_extracted/
+```
+
+3. **Reverse the native binary** (XOR + rotation cipher example):
+```python
+def decrypt_password(encrypted_bytes, key):
+    """Common pattern: XOR with constant + bit rotation + key XOR."""
+    result = []
+    for i, byte in enumerate(encrypted_bytes):
+        decrypted = ((byte ^ 0x42) >> 3) ^ key[i % len(key)]
+        result.append(chr(decrypted))
+    return ''.join(result)
+
+def decrypt_flag(encrypted_flag, password):
+    """Flag uses password as key with position-dependent rotation."""
+    result = []
+    for i, byte in enumerate(encrypted_flag):
+        key_byte = ord(password[i % len(password)])
+        decrypted = ((byte ^ 0x7E) >> (i % 8)) ^ key_byte
+        result.append(chr(decrypted))
+    return ''.join(result)
+```
+
+**Key insight:** Electron apps are JavaScript wrapping native code. Extract with `asar`, then focus on the native binary. The JS layer often contains the password verification flow in plaintext, revealing what the native binary expects. Look for encrypted data in the `.data` or `.rodata` sections of the ELF.
+
+**Detection:** `.asar` files in `resources/` directory, Electron framework files, `package.json` with electron dependency.
+
+---
+
+## Node.js npm Package Runtime Introspection (RootAccess2026)
+
+**Pattern (RootAccess CLI):** Obfuscated npm package with RC4 encoding, control flow flattening, and flag split across multiple fragments. Static analysis is impractical — use runtime introspection instead.
+
+**Dynamic analysis approach:**
+```javascript
+#!/usr/bin/env node
+
+// 1. Load obfuscated modules
+const cryptoMod = require('target-package/dist/lib/crypto.js');
+const vaultMod = require('target-package/dist/lib/vault.js');
+
+// 2. Enumerate all exported properties
+for (const mod of [cryptoMod, vaultMod]) {
+    for (const key of Object.keys(mod)) {
+        const obj = mod[key];
+        console.log(`Export: ${key}`);
+        // List all methods including hidden ones
+        const props = Object.getOwnPropertyNames(obj);
+        const proto = Object.getOwnPropertyNames(obj.prototype || {});
+        console.log('  Own:', props);
+        console.log('  Proto:', proto);
+    }
+}
+
+// 3. Extract flag fragments
+const Engine = cryptoMod.CryptoEngine;
+const total = Engine.getTotalFragments();
+let flag = '';
+for (let i = 1; i <= total; i++) {
+    flag += Engine.getFragment(i);
+}
+console.log('Flag:', flag);
+
+// 4. Check for hidden methods (common: __getFullFlag__, _debug, _raw)
+const hidden = Object.getOwnPropertyNames(Engine)
+    .filter(p => p.startsWith('__') || p.startsWith('_'));
+console.log('Hidden methods:', hidden);
+```
+
+**Key insight:** Heavily obfuscated JavaScript (control flow flattening, RC4 string encoding, dead code) makes static analysis prohibitively slow. Runtime introspection via `Object.getOwnPropertyNames()` reveals all methods including hidden ones. The module's own decryption runs automatically when loaded — just call the decoded functions directly.
+
+**Detection:** npm package with minified/obfuscated `dist/` directory, challenge says "reverse engineer the CLI tool", `package.json` with custom commands.

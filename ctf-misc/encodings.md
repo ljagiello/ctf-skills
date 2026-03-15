@@ -18,6 +18,8 @@
   - [Repairing Damaged QR](#repairing-damaged-qr)
   - [Finder Pattern Template](#finder-pattern-template)
   - [QR Code Chunk Reassembly (LACTF 2026)](#qr-code-chunk-reassembly-lactf-2026)
+  - [QR Code Chunk Reassembly via Indexed Directories (UTCTF 2026)](#qr-code-chunk-reassembly-via-indexed-directories-utctf-2026)
+- [Multi-Stage URL Encoding Chain (UTCTF 2026)](#multi-stage-url-encoding-chain-utctf-2026)
 - [Esoteric Languages](#esoteric-languages)
   - [Whitespace Language Parser (BYPASS CTF 2025)](#whitespace-language-parser-bypass-ctf-2025)
   - [Custom Brainfuck Variants (Themed Esolangs)](#custom-brainfuck-variants-themed-esolangs)
@@ -206,6 +208,76 @@ finder_pattern = [
 3. **Backtracking search:** Assign remaining chunks under pixel constraints until QR decodes successfully
 
 **Tools:** `segno` (Python QR library), `zbarimg` for decoding.
+
+### QR Code Chunk Reassembly via Indexed Directories (UTCTF 2026)
+
+**Pattern (QRecreate):** QR code split into numbered chunks stored in separate directories. Directory names encode the chunk index as base64 (e.g., `MDAx` → `001` → index 1).
+
+**Solving approach:**
+1. Decode each directory name from base64 to get the numeric index
+2. Sort chunks by decoded index
+3. Arrange in a grid (e.g., 100 chunks → 10x10) and stitch into a single image
+4. Decode the reconstructed QR code
+
+```python
+import os, base64, math
+from PIL import Image
+
+# 1. Decode directory names to get indices
+chunks = []
+for dirname in os.listdir('chunks/'):
+    index = int(base64.b64decode(dirname).decode())
+    tile = Image.open(f'chunks/{dirname}/tile.png')
+    chunks.append((index, tile))
+
+# 2. Sort by index and arrange in grid
+chunks.sort(key=lambda x: x[0])
+n = len(chunks)
+side = int(math.isqrt(n))
+tile_w, tile_h = chunks[0][1].size
+
+canvas = Image.new("RGB", (side * tile_w, side * tile_h), (255, 255, 255))
+for i, (_, tile) in enumerate(chunks):
+    r, c = divmod(i, side)
+    canvas.paste(tile, (c * tile_w, r * tile_h))
+
+canvas.save('reconstructed_qr.png')
+# 3. Decode with zbarimg or pyzbar
+```
+
+**Key insight:** Unlike the LACTF variant (shuffled chunks requiring structural analysis), indexed chunks just need sorting. The challenge is recognizing that directory names are base64-encoded indices. Check `base64 -d` on folder names when they look like random strings.
+
+---
+
+## Multi-Stage URL Encoding Chain (UTCTF 2026)
+
+**Pattern (Breadcrumbs):** Flag is hidden behind a chain of URLs, each encoded differently. Follow the breadcrumbs across external resources (GitHub Gists, Pastebin, etc.), decoding at each hop.
+
+**Common encoding layers per hop:**
+1. **Base64** → URL to next resource
+2. **Hex** → URL to next resource (e.g., `68747470733a2f2f...` = `https://...`)
+3. **ROT13** → final flag
+
+**Decoding workflow:**
+```python
+import base64, codecs
+
+# Hop 1: Base64
+hop1 = "aHR0cHM6Ly9naXN0Lmdp..."
+url2 = base64.b64decode(hop1).decode()
+
+# Hop 2: Hex-encoded URL
+hop2 = "68747470733a2f2f..."
+url3 = bytes.fromhex(hop2).decode()
+
+# Hop 3: ROT13-encoded flag
+hop3 = "hgsynt{...}"
+flag = codecs.decode(hop3, 'rot_13')
+```
+
+**Key insight:** Each resource contains a hint about the next encoding (e.g., "Three letters follow" hints at 3-character encoding like hex). Look for contextual clues in surrounding text (poetry, comments, filenames) that indicate the encoding type.
+
+**Detection:** Challenge mentions "trail", "breadcrumbs", "follow", or "scavenger hunt". First resource contains what looks like encoded data rather than a direct flag.
 
 ---
 

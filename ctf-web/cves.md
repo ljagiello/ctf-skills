@@ -221,9 +221,9 @@ pdfdetach -save 1 -o flag.txt output.pdf  # Extract
 
 ---
 
-## CVE-2025-55182: React Server Components Flight Protocol RCE
+## CVE-2025-55182 / CVE-2025-66478: React Server Components Flight Protocol RCE
 
-**Affected:** React Server Components / Next.js (Flight protocol deserialization). A crafted fake Flight chunk exploits the constructor chain (`constructor → constructor → Function`) for arbitrary server-side JavaScript execution. Identify via `Next-Action` + `Accept: text/x-component` headers.
+**Affected:** React Server Components / Next.js (Flight protocol deserialization). A crafted fake Flight chunk exploits the constructor chain (`constructor → constructor → Function`) for arbitrary server-side JavaScript execution. Identify via `Next-Action` + `Accept: text/x-component` headers. Also reported as CVE-2025-66478 with an alternate prototype chain variant (`__proto__:then` instead of `constructor:constructor`).
 
 See [server-side-advanced.md](server-side-advanced.md#react-server-components-flight-protocol-rce-ehax-2026) for full exploit chain.
 

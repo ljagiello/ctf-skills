@@ -20,6 +20,7 @@
 - [NTLMv2 Hash Cracking from PCAP (Pragyan 2026)](#ntlmv2-hash-cracking-from-pcap-pragyan-2026)
 - [TCP Flag Covert Channel (BearCatCTF 2026)](#tcp-flag-covert-channel-bearcatctf-2026)
 - [DNS Query Name Last-Byte Steganography (UTCTF 2026)](#dns-query-name-last-byte-steganography-utctf-2026)
+  - [DNS Trailing Byte Binary Encoding (UTCTF 2026)](#dns-trailing-byte-binary-encoding-utctf-2026)
 - [Multi-Layer PCAP with XOR + ZIP (UTCTF 2026)](#multi-layer-pcap-with-xor--zip-utctf-2026)
 - [Brotli Decompression Bomb Seam Analysis (BearCatCTF 2026)](#brotli-decompression-bomb-seam-analysis-bearcatctf-2026)
 
@@ -604,50 +605,100 @@ print(message)
 - Specific character position (first, Nth, last)
 - Hex-encoded bytes across multiple queries
 - Subdomain labels as base32/base64 chunks (DNS tunneling)
+- **Trailing byte after DNS question structure** (see below)
 
 **Key insight:** DNS exfiltration often hides data in query names. When queries look random but follow a pattern, extract specific character positions. The "last byte" pattern is simple but effective — each query contributes one byte to the message.
 
 **Detection:** Large number of DNS queries to a single domain, queries with no legitimate purpose, sequential or patterned subdomain names.
 
+### DNS Trailing Byte Binary Encoding (UTCTF 2026)
+
+**Pattern (Last Byte Standing variant):** Each DNS query packet contains a single extra byte appended AFTER the standard DNS question structure (after the null terminator + Type A + Class IN fields). The extra byte is `0x30` ('0') or `0x31` ('1'), encoding one bit per packet.
+
+**Decoding workflow:**
+```python
+from scapy.all import rdpcap, DNS, DNSQR, Raw
+
+packets = rdpcap('challenge.pcap')
+
+bits = []
+for pkt in packets:
+    if pkt.haslayer(DNSQR):
+        # Get raw DNS payload
+        raw = bytes(pkt[DNS])
+        # Standard DNS question ends at: header(12) + qname + null(1) + type(2) + class(2)
+        qname = pkt[DNSQR].qname
+        expected_len = 12 + len(qname) + 1 + 2 + 2  # +1 for leading length byte
+        if len(raw) > expected_len:
+            trailing = raw[expected_len:]
+            for b in trailing:
+                bits.append(chr(b))  # '0' or '1'
+
+# Convert bit string to ASCII (MSB-first, 8-bit chunks)
+bitstring = ''.join(bits)
+flag = ''.join(chr(int(bitstring[i:i+8], 2)) for i in range(0, len(bitstring) - 7, 8))
+print(flag)
+```
+
+**Key insight:** Data is hidden not in the DNS query name but in extra bytes padding the packet after the question record. Wireshark hex inspection reveals non-standard packet lengths. Each trailing byte represents ASCII '0' or '1', forming a binary stream that decodes to the flag.
+
+**Detection:** DNS packets slightly larger than expected for their query name. Hex dump shows `0x30`/`0x31` bytes after the Class IN field (`00 01`). Consistent query domain across all packets.
+
 ---
 
 ## Multi-Layer PCAP with XOR + ZIP (UTCTF 2026)
 
-**Pattern (Half Awake):** Small PCAP containing data that requires multiple decoding layers: extract raw data from packets, XOR-decrypt, then decompress (ZIP/gzip).
+**Pattern (Half Awake):** PCAP with multiple protocol layers hiding data. Requires protocol-aware extraction, XOR decryption with a key found in-band, and merging parallel data streams.
 
-**Workflow:**
+**Detailed workflow:**
+
+1. **Inspect HTTP streams** for instructions or hints (e.g., "mDNS names are hints", "Not every TCP blob is what it pretends to be")
+2. **Identify fake protocol streams:** A TCP stream labeled as TLS may actually contain a raw ZIP file (PK magic bytes `50 4b`). Check raw hex of suspicious streams
+3. **Extract XOR key from mDNS:** Look for mDNS TXT records (e.g., `key.version.local`) containing the XOR key
+4. **XOR-decrypt** the extracted data using the mDNS key
+5. **Merge parallel datasets** using printability as selector
+
 ```python
-from scapy.all import rdpcap, Raw
+import string
+from scapy.all import rdpcap, Raw, DNS, DNSRR
 
 packets = rdpcap('half-awake.pcap')
 
-# 1. Extract raw payload data from TCP/UDP streams
-raw_data = b''
+# 1. Extract XOR key from mDNS TXT record
+xor_key = None
 for pkt in packets:
-    if pkt.haslayer(Raw):
-        raw_data += pkt[Raw].load
+    if pkt.haslayer(DNSRR):
+        rr = pkt[DNSRR]
+        if b'key' in rr.rrname.lower():
+            xor_key = int(rr.rdata, 16)  # e.g., 0xb7
 
-# 2. Try XOR with common single-byte keys
-for key in range(256):
-    decrypted = bytes(b ^ key for b in raw_data)
-    # Check for known magic bytes
-    if decrypted[:2] == b'PK':  # ZIP
-        with open(f'decrypted_{key}.zip', 'wb') as f:
-            f.write(decrypted)
-        print(f"ZIP found with XOR key {key:#04x}")
-    elif decrypted[:3] == b'\x1f\x8b\x08':  # gzip
-        print(f"gzip found with XOR key {key:#04x}")
+# 2. Extract fake TLS stream (look for PK header in raw TCP data)
+# Use Wireshark: tcp.stream eq N → Export raw bytes
+# Or extract with scapy by filtering the right stream
 
-# 3. Extract and search for flag
-import zipfile, io
-zf = zipfile.ZipFile(io.BytesIO(decrypted))
-for name in zf.namelist():
-    content = zf.read(name)
-    if b'flag' in content.lower():
-        print(f"{name}: {content}")
+# 3. XOR-decrypt two datasets from ZIP contents
+def xor_decrypt(data, key):
+    return bytes(b ^ key for b in data)
+
+p1 = xor_decrypt(stage1_data, xor_key)
+p2 = xor_decrypt(stage2_data, xor_key)
+
+# 4. Merge using printability: take the printable character from each position
+flag = ''.join(
+    chr(p1[i]) if chr(p1[i]) in string.printable and chr(p1[i]).isprintable()
+    else chr(p2[i])
+    for i in range(len(p1))
+)
+print(flag)
 ```
 
-**Key insight:** Small PCAPs with seemingly random data often require multi-layer decoding. Try XOR brute-force first (only 256 keys for single-byte), then check for archive magic bytes in the decrypted output.
+**Key insight:** When a PCAP contains two XOR-decoded byte arrays of equal length where neither alone produces readable text, merge them character-by-character using printability as the selector — take whichever byte at each position is a printable ASCII character. The XOR key is often hidden in an in-band protocol like mDNS TXT records rather than requiring brute-force.
+
+**Indicators:**
+- HTTP stream with meta-instructions ("not every TCP blob is what it pretends to be")
+- TCP stream with mismatched protocol dissection (Wireshark shows TLS but raw bytes contain PK/ZIP headers)
+- mDNS queries for suspicious service names (e.g., `key.version.local`)
+- Two data files of identical length in extracted archive
 
 ---
 

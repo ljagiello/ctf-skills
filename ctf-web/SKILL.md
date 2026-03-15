@@ -14,7 +14,7 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass
+- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass
 - [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: JWT, session, password inference, weak validation, client-side gates, NoSQL auth bypass, OAuth/OIDC exploitation (redirect_uri bypass, token manipulation, state CSRF), CORS misconfiguration
@@ -108,6 +108,8 @@ See [auth-and-access.md](auth-and-access.md) for full JWT attacks and session ma
 **Quote filter bypass:** Use `__dict__.update(key=value)` — keyword arguments need no quotes. See [server-side.md](server-side.md#ssti-quote-filter-bypass-via-__dict__update-apoorvctf-2026).
 
 **ERB SSTI (Ruby/Sinatra):** `<%= Sequel::DATABASES.first[:table].all %>` bypasses ERBSandbox variable-name restrictions via the global `Sequel::DATABASES` array. See [server-side.md](server-side.md#erb-ssti--sequeldatabases-bypass-bearcatctf-2026).
+
+**Thymeleaf SpEL SSTI (Java/Spring):** `${T(org.springframework.util.FileCopyUtils).copyToByteArray(new java.io.File("/flag.txt"))}` reads files via Spring utility classes when standard I/O is WAF-blocked. Works in distroless containers (no shell). See [server-side.md](server-side.md#thymeleaf-spel-ssti--spring-filecopyutils-waf-bypass-apoorvctf-2026).
 
 ## SSRF Quick Reference
 

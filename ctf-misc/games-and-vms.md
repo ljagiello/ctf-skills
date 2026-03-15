@@ -31,6 +31,7 @@
 - [De Bruijn Sequence for Substring Coverage (BearCatCTF 2026)](#de-bruijn-sequence-for-substring-coverage-bearcatctf-2026)
 - [Brainfuck Interpreter Instrumentation (BearCatCTF 2026)](#brainfuck-interpreter-instrumentation-bearcatctf-2026)
 - [WASM Linear Memory Manipulation (BearCatCTF 2026)](#wasm-linear-memory-manipulation-bearcatctf-2026)
+- [Neural Network Encoder Collision via Optimization (RootAccess2026)](#neural-network-encoder-collision-via-optimization-rootaccess2026)
 - [References](#references)
 
 ---
@@ -766,6 +767,88 @@ const result = instance.exports.flipCoin();
 
 ---
 
+## Neural Network Encoder Collision via Optimization (RootAccess2026)
+
+**Pattern (The AI Techbro):** Neural network encoder (e.g., 16D → 4D) replaces password hashing. Find a 16-character alphanumeric input whose encoder output is within distance threshold (e.g., 0.00025) of a target vector.
+
+**Why it's exploitable:** 16D → 4D compression discards ~50+ bits of information, guaranteeing many collisions. Unlike cryptographic hashes, neural encoders have smooth loss landscapes amenable to gradient-free optimization.
+
+```python
+import torch
+import numpy as np
+import random
+
+# Load the encoder model
+encoder = Encoder()
+encoder.load_state_dict(torch.load('encoder_weights.npz'))
+encoder.eval()
+
+target = torch.tensor([-8.175, -1.710, -0.700, 5.345])
+CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789'
+
+def encode_string(s):
+    return [(ord(c) - 80) / 40 for c in s]
+
+def distance(password):
+    inp = torch.tensor([encode_string(password)], dtype=torch.float32)
+    with torch.no_grad():
+        out = encoder(inp).squeeze()
+    return torch.dist(out, target).item()
+
+# Phase 1: Greedy local search (fast convergence)
+def greedy_search(password):
+    current = list(password)
+    improved = True
+    while improved:
+        improved = False
+        for pos in range(len(current)):
+            best_char, best_dist = current[pos], distance(''.join(current))
+            for c in CHARS:
+                current[pos] = c
+                d = distance(''.join(current))
+                if d < best_dist:
+                    best_dist, best_char, improved = d, c, True
+            current[pos] = best_char
+            if best_dist < 0.00025:
+                return ''.join(current), best_dist
+    return ''.join(current), distance(''.join(current))
+
+# Phase 2: Simulated annealing (escape local minima)
+def simulated_annealing(password, iters=10000):
+    current = list(password)
+    best = current[:]
+    best_dist = distance(''.join(best))
+    T_start, T_end = 0.3, 0.00005
+    for i in range(iters):
+        T = T_start * (T_end / T_start) ** (i / iters)
+        neighbor = current[:]
+        for _ in range(random.randint(1, 3)):
+            neighbor[random.randint(0, len(neighbor)-1)] = random.choice(CHARS)
+        d = distance(''.join(neighbor))
+        if d < distance(''.join(current)) or random.random() < np.exp(-(d - distance(''.join(current))) / T):
+            current = neighbor
+            if d < best_dist:
+                best, best_dist = neighbor[:], d
+        if best_dist < 0.00025:
+            break
+    return ''.join(best), best_dist
+
+# Combined: random restart + greedy + SA + greedy refinement
+for _ in range(100):
+    pw = ''.join(random.choices(CHARS, k=16))
+    pw, d = greedy_search(pw)
+    if d < 0.00025: break
+    pw, d = simulated_annealing(pw)
+    pw, d = greedy_search(pw)
+    if d < 0.00025: break
+```
+
+**Key insight:** Dimensionality reduction (16D → 4D) guarantees collisions. Greedy search converges quickly for smooth loss surfaces; simulated annealing escapes local minima. Combined approach with random restarts finds solutions in seconds. This attack applies to any neural encoder used as a hash function.
+
+**Detection:** Challenge provides a trained model file (`.npz`, `.pt`, `.h5`) and asks for an input matching a target output. Encoder architecture reduces dimensionality.
+
+---
+
 ## References
 - Pragyan 2026 "Tac Tic Toe": WASM minimax patching
 - LACTF 2026 "CTFaaS": K8s RBAC bypass via hostPath
@@ -782,3 +865,4 @@ const result = instance.exports.flipCoin();
 - BearCatCTF 2026 "Brown's Revenge": De Bruijn sequence substring coverage
 - BearCatCTF 2026 "Ghost Ship": Brainfuck instrumentation brute-force
 - BearCatCTF 2026 "Dubious Doubloon": WASM linear memory state patching
+- RootAccess2026 "The AI Techbro": Neural network encoder collision via greedy + simulated annealing

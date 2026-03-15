@@ -45,6 +45,7 @@
 - [Malware Anti-Analysis Bypass via Patching](#malware-anti-analysis-bypass-via-patching)
 - [Multi-Stage Shellcode Loaders](#multi-stage-shellcode-loaders)
 - [Timing Side-Channel Attack](#timing-side-channel-attack)
+- [Multi-Thread Anti-Debug with Decoy + Signal Handler MBA (ApoorvCTF 2026)](#multi-thread-anti-debug-with-decoy--signal-handler-mba-apoorvctf-2026)
 
 ---
 
@@ -577,3 +578,61 @@ for pos in range(flag_length):
         io.close()
     flag += best_char
 ```
+
+---
+
+## Multi-Thread Anti-Debug with Decoy + Signal Handler MBA (ApoorvCTF 2026)
+
+**Pattern (A Golden Experience Requiem):** Multi-threaded binary with layered anti-analysis: Thread 1 performs decoy operations (fake AES + deliberate crash via `ud2`), Thread 2 does the real flag computation in a SIGSEGV signal handler using Mixed Boolean Arithmetic (MBA), Thread 3 erases memory to prevent post-mortem analysis.
+
+**Thread layout:**
+| Thread | Purpose | Trap |
+|--------|---------|------|
+| Thread 1 | Decoy: AES-looking operations → `ud2` crash | Analysts waste time reversing fake crypto |
+| Thread 2 | Real flag: SIGSEGV handler with MBA transforms | Hidden in signal handler, not main code path |
+| Thread 3 | Memory eraser: zeros out flag data after computation | Prevents memory dumping |
+| Main | rdtsc-based anti-debug timing check | Penalizes debugger-attached execution |
+
+**Solving approach — pure Python emulation of MBA logic:**
+```python
+# MBA helpers (extracted from assembly)
+def mba_add(a, b): return (a + b) & 0xff
+def mba_xor(a, b): return (a ^ b) & 0xff
+
+def mba_transform(i):
+    """Position-dependent transform from signal handler."""
+    val = (i * 7 + 0x3f) & 0xff
+    rotated = ((i << 3) | (i >> 5)) & 0xff
+    return mba_xor(val, rotated)
+
+# S-box (SHA-256 initial hash values repurposed)
+SBOX = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]
+
+def sbox_lookup(i):
+    idx = i & 7
+    shift = ((i >> 3) & 3) * 8
+    return (SBOX[idx] >> shift) & 0xff
+
+# Two interleaved rodata arrays (even indices → array1, odd → array2)
+rodata1 = bytes.fromhex("39407691b717c97879013adf3a2adea11c2b04e0")
+rodata2 = bytes.fromhex("bb19b025e37eaa786c4116e7aeea00c9c623940d")
+
+flag = []
+for i in range(40):  # flag length
+    t = mba_transform(i)
+    s = sbox_lookup(i)
+    mem = rodata1[i // 2] if i % 2 == 0 else rodata2[i // 2]
+    flag.append(chr(t ^ s ^ mem))
+
+print(''.join(flag))
+```
+
+**Key insight:** The real flag logic is in the signal handler (SIGSEGV/SIGILL), not the main thread. Thread 1's AES-like code and `ud2` crash are intentional misdirection. The `rdtsc` timing check detects debuggers and corrupts output. Bypass by extracting the MBA logic from assembly and reimplementing in Python — never run the binary under a debugger.
+
+**Detection indicators:**
+- Multiple `pthread_create` calls with different handler functions
+- `signal(SIGSEGV, handler)` or `sigaction` setup
+- `ud2` instruction (deliberate illegal instruction)
+- `rdtsc` instructions for timing checks
+- SHA-256 constants (0x6a09e667...) used as lookup tables, not for hashing

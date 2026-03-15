@@ -15,6 +15,7 @@
 - [F5 JPEG DCT Coefficient Ratio Detection (ApoorvCTF 2026)](#f5-jpeg-dct-coefficient-ratio-detection-apoorvctf-2026)
 - [PNG Unused Palette Entry Steganography (ApoorvCTF 2026)](#png-unused-palette-entry-steganography-apoorvctf-2026)
 - [QR Code Tile Reconstruction (UTCTF 2026)](#qr-code-tile-reconstruction-utctf-2026)
+- [Seed-Based Pixel Permutation + Multi-Bitplane QR (L3m0nCTF 2025)](#seed-based-pixel-permutation--multi-bitplane-qr-l3monctf-2025)
 
 ---
 
@@ -497,3 +498,55 @@ for perm in permutations(range(len(tiles))):
 ```
 
 **Key insight:** QR codes have structural constraints (finder patterns, timing patterns, format info) that drastically reduce the search space. Use QR structure as anchors before brute-forcing tile positions.
+
+---
+
+## Seed-Based Pixel Permutation + Multi-Bitplane QR (L3m0nCTF 2025)
+
+**Pattern (Lost Signal):** Image with randomized pixel colors hides a QR code. Pixels are visited in a seed-determined permutation order, and data is interleaved across multiple bitplanes of the luminance (Y) channel.
+
+**Extraction workflow:**
+1. Convert image to YCbCr and extract Y (luminance) channel
+2. Generate the pixel visit order using the known seed
+3. Extract LSB bits from multiple bitplanes in interleaved order
+4. Reconstruct as a binary image and scan as QR code
+
+```python
+from PIL import Image
+import numpy as np
+
+SEED = 739391  # Given or brute-forced
+
+# 1. Extract Y channel
+img = Image.open("challenge.png").convert("YCbCr")
+Y = np.array(img.split()[0], dtype=np.uint8)
+h, w = Y.shape
+
+# 2. Generate deterministic pixel permutation
+rng = np.random.RandomState(SEED)
+perm = np.arange(h * w)
+rng.shuffle(perm)
+
+# 3. Extract bits from multiple bitplanes (interleaved)
+bitplanes = [0, 1]  # LSB0 and LSB1
+total_bits = h * w
+bits = np.zeros(total_bits, dtype=np.uint8)
+
+for i in range(total_bits):
+    pix_idx = perm[i // len(bitplanes)]
+    bp = bitplanes[i % len(bitplanes)]
+    y, x = divmod(pix_idx, w)
+    bits[i] = (Y[y, x] >> bp) & 1
+
+# 4. Reconstruct QR code
+qr = bits.reshape((h, w))
+qr_img = Image.fromarray((255 * (1 - qr)).astype(np.uint8))
+qr_img.save("recovered_qr.png")
+# zbarimg recovered_qr.png
+```
+
+**Key insight:** The seed defines a deterministic pixel visit order (Fisher-Yates shuffle via `RandomState`). Without the correct seed, output is random noise. Bits from different bitplanes are interleaved (bit 0 from pixel N, bit 1 from pixel N, bit 0 from pixel N+1, ...), doubling the data density. Try the Y (luminance) channel first — it has the highest contrast for hidden binary data.
+
+**Seed recovery:** If the seed is unknown, look for it in: EXIF metadata, filename, image dimensions, challenge description numbers, or brute-force small ranges.
+
+**Detection:** Image appears as random colored noise but has suspicious dimensions (perfect square, power of 2). Challenge mentions "seed", "random", or "signal".
