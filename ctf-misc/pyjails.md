@@ -197,7 +197,7 @@ print(open("/flag.txt").read())
 ## Mastermind-Style Jails
 
 **Output interpretation:**
-```
+```text
 function("aaa...") => "1 0"  # 1 exists wrong pos, 0 correct
 ```
 
@@ -254,7 +254,7 @@ def test_with_delay(cmd, delay=5):
 ## Magic File ReDoS
 
 **Evil magic file:**
-```
+```text
 0 regex (a+)+$ Vulnerable pattern
 ```
 
@@ -313,7 +313,7 @@ def key_name():              # function with __name__ == "key_name"
 
 ### Technique 3: Accessing Real Builtins via __loader__
 
-```
+```python
 __loader__.load_module.__func__.__globals__["__builtins__"]
 ```
 Contains real `exec`, `__import__`, `print`, `compile`, `chr`, `type`, `getattr`, `setattr`, etc.

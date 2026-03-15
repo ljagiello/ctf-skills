@@ -7,6 +7,7 @@
 - [Smart's Attack (Anomalous Curves)](#smarts-attack-anomalous-curves)
 - [ECC Fault Injection](#ecc-fault-injection)
 - [Clock Group DLP via Pohlig-Hellman (LACTF 2026)](#clock-group-dlp-via-pohlig-hellman-lactf-2026)
+- [ECDSA Nonce Reuse (BearCatCTF 2026)](#ecdsa-nonce-reuse-bearcatctf-2026)
 - [Ed25519 Torsion Side Channel (BearCatCTF 2026)](#ed25519-torsion-side-channel-bearcatctf-2026)
 
 ---
@@ -174,3 +175,26 @@ for t in range(255):
 **Key insight:** Ed25519's cofactor creates an observable side channel: when scalar multiplication wraps around the subgroup order `l`, the result shifts by a torsion element (one of 8 points). By querying powers of 2 and checking y-coordinate consistency, each bit of the secret scalar is leaked. Libraries like `ecpy` that reduce mod `l` are vulnerable to this when used in multi-user key derivation schemes.
 
 **Detection:** Ed25519 signing oracle with user-controlled UID or multiplier. Key derivation formula `key = master * uid mod l`.
+
+---
+
+## ECDSA Nonce Reuse (BearCatCTF 2026)
+
+**Pattern (Chatroom):** ECDSA signatures on secp256k1 with constant nonce `k`. When two signatures share the same `r` value, the nonce and private key are recoverable.
+
+**Recovery:**
+```python
+from hashlib import sha256
+
+# Two signatures (r, s1) and (r, s2) with same r → same nonce k
+h1 = int(sha256(msg1).hexdigest(), 16)
+h2 = int(sha256(msg2).hexdigest(), 16)
+n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141  # secp256k1 order
+
+k = ((h1 - h2) * pow(s1 - s2, -1, n)) % n
+d = ((s1 * k - h1) * pow(r, -1, n)) % n  # private key
+```
+
+**Key insight:** Same `r` value across multiple ECDSA signatures means the nonce `k` was reused. This is the same class of bug that compromised the PlayStation 3 signing key. Always check for repeated `r` values in signature datasets.
+
+**Detection:** Multiple ECDSA signatures with identical `r` component. Challenge mentions "nonce", "deterministic signing", or provides a signing oracle.

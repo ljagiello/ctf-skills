@@ -22,6 +22,7 @@
 - [Custom Assembly Language Sandbox Escape (EHAX 2026)](#custom-assembly-language-sandbox-escape-ehax-2026)
 - [memfd_create Packed Binaries](#memfd_create-packed-binaries)
 - [Multi-Phase Interactive Crypto Game (EHAX 2026)](#multi-phase-interactive-crypto-game-ehax-2026)
+- [ML Model Weight Perturbation Negation (DiceCTF 2026)](#ml-model-weight-perturbation-negation-dicectf-2026)
 - [Cookie Checkpoint Game Brute-Forcing (BYPASS CTF 2025)](#cookie-checkpoint-game-brute-forcing-bypass-ctf-2025)
 - [Flask Session Cookie Game State Leakage (BYPASS CTF 2025)](#flask-session-cookie-game-state-leakage-bypass-ctf-2025)
 - [WebSocket Game Manipulation + Cryptic Hint Decoding (BYPASS CTF 2025)](#websocket-game-manipulation--cryptic-hint-decoding-bypass-ctf-2025)
@@ -275,7 +276,7 @@ for i in range(1, 100):
 3. **Key trick**: Sell the INTEGER part of inventory, keeping the fractional "free money"
 
 **Example (time-travel trading game):**
-```
+```text
 Initial: balance=5.00, inventory=0.00, flag_price=5.00, fee=0.05
 Multiplier: 1e15 (time travel)
 
@@ -338,7 +339,7 @@ find_exploit(1e15, 5e15, 0.05)  # Returns 0.56
 **Key insight:** `PROP` (property access) and `CALL` (function invocation) instructions allow traversing Python's MRO chain from any object to achieve RCE, similar to Jinja2 SSTI.
 
 **Exploit chain:**
-```
+```text
 LD 0x48656c6c6f A     # Load "Hello" string into register A
 PROP __class__ A      # str → <class 'str'>
 PROP __base__ E       # str → <class 'object'> (E = result register)

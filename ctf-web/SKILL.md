@@ -14,9 +14,10 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Server-side attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file write→RCE, eval bypass, ExifTool CVE, Go rune/byte mismatch, zip symlink, PHP type juggling, PHP file inclusion / php://filter, React Server Components Flight RCE, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass
+- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass
+- [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF
-- [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: JWT, session, password inference, weak validation, client-side gates, NoSQL auth bypass
+- [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: JWT, session, password inference, weak validation, client-side gates, NoSQL auth bypass, OAuth/OIDC exploitation (redirect_uri bypass, token manipulation, state CSRF), CORS misconfiguration
 - [node-and-prototype.md](node-and-prototype.md) - Node.js: prototype pollution, VM sandbox escape, Happy-DOM chain, flatnest CVE, Lodash+Pug AST injection
 - [web3.md](web3.md) - Blockchain/Web3: Solidity exploits, proxy patterns, ABI encoding tricks, Foundry tooling
 - [cves.md](cves.md) - CVE-specific exploits: Next.js middleware bypass, curl credential leak, Uvicorn CRLF, urllib scheme bypass, ExifTool DjVu, broken auth, AAEncode/JJEncode, protocol multiplexing, React Server Components Flight RCE (CVE-2025-55182)
@@ -39,7 +40,7 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 **Detection:** Send `'` — syntax error indicates SQLi
 
-```
+```sql
 ' OR '1'='1                    # Classic auth bypass
 ' OR 1=1--                     # Comment termination
 username=\&password= OR 1=1--  # Backslash escape quote bypass
@@ -65,7 +66,7 @@ See [client-side.md](client-side.md) for DOMPurify bypass, cache poisoning, CSPT
 
 ## Path Traversal / LFI Quick Reference
 
-```
+```text
 ../../../etc/passwd
 ....//....//....//etc/passwd     # Filter bypass
 ..%2f..%2f..%2fetc/passwd        # URL encoding
@@ -110,7 +111,7 @@ See [auth-and-access.md](auth-and-access.md) for full JWT attacks and session ma
 
 ## SSRF Quick Reference
 
-```
+```text
 127.0.0.1, localhost, 127.1, 0.0.0.0, [::1]
 127.0.0.1.nip.io, 2130706433, 0x7f000001
 ```
@@ -222,11 +223,11 @@ dalfox url http://target/?q=test             # XSS
 
 ## Flask/Werkzeug Debug Mode
 
-Weak session secret brute-force + forge admin session + Werkzeug debugger PIN RCE. See [server-side.md](server-side.md#flaskwerkzeug-debug-mode-exploitation) for full attack chain.
+Weak session secret brute-force + forge admin session + Werkzeug debugger PIN RCE. See [server-side-advanced.md](server-side-advanced.md#flaskwerkzeug-debug-mode-exploitation) for full attack chain.
 
 ## XXE with External DTD Filter Bypass
 
-Host malicious DTD externally to bypass upload keyword filters. See [server-side.md](server-side.md#xxe-with-external-dtd-filter-bypass) for payload and webhook.site setup.
+Host malicious DTD externally to bypass upload keyword filters. See [server-side-advanced.md](server-side-advanced.md#xxe-with-external-dtd-filter-bypass) for payload and webhook.site setup.
 
 ## JSFuck Decoding
 
@@ -250,27 +251,27 @@ Cache proxy desync for cookie theft via incomplete POST body. See [client-side.m
 
 ## Path Traversal: URL-Encoded Slash Bypass
 
-`%2f` bypasses nginx route matching but filesystem resolves it. See [server-side.md](server-side.md#path-traversal-url-encoded-slash-bypass).
+`%2f` bypasses nginx route matching but filesystem resolves it. See [server-side-advanced.md](server-side-advanced.md#path-traversal-url-encoded-slash-bypass).
 
 ## WeasyPrint SSRF & File Read (CVE-2024-28184)
 
-`<a rel="attachment" href="file:///flag.txt">` or `<link rel="attachment" href="http://127.0.0.1/admin">` -- WeasyPrint embeds fetched content as PDF attachments, bypassing header checks. Boolean oracle via `/Type /EmbeddedFile` presence. See [server-side.md](server-side.md#weasyprint-ssrf--file-read-cve-2024-28184-nullcon-2026) and [cves.md](cves.md#cve-2024-28184-weasyprint-attachment-ssrf--file-read).
+`<a rel="attachment" href="file:///flag.txt">` or `<link rel="attachment" href="http://127.0.0.1/admin">` -- WeasyPrint embeds fetched content as PDF attachments, bypassing header checks. Boolean oracle via `/Type /EmbeddedFile` presence. See [server-side-advanced.md](server-side-advanced.md#weasyprint-ssrf--file-read-cve-2024-28184-nullcon-2026) and [cves.md](cves.md#cve-2024-28184-weasyprint-attachment-ssrf--file-read).
 
 ## MongoDB Regex / $where Blind Injection
 
-Break out of `/.../i` with `a^/)||(<condition>)&&(/a^`. Binary search `charCodeAt()` for extraction. See [server-side.md](server-side.md#mongodb-regex-injection--where-blind-oracle-nullcon-2026).
+Break out of `/.../i` with `a^/)||(<condition>)&&(/a^`. Binary search `charCodeAt()` for extraction. See [server-side-advanced.md](server-side-advanced.md#mongodb-regex-injection--where-blind-oracle-nullcon-2026).
 
 ## Pongo2 / Go Template Injection
 
-`{% include "/flag.txt" %}` in uploaded file + path traversal in template parameter. See [server-side.md](server-side.md#pongo2--go-template-injection-via-path-traversal-nullcon-2026).
+`{% include "/flag.txt" %}` in uploaded file + path traversal in template parameter. See [server-side-advanced.md](server-side-advanced.md#pongo2--go-template-injection-via-path-traversal-nullcon-2026).
 
 ## ZIP Upload with PHP Webshell
 
-Upload ZIP containing `.php` file → extract to web-accessible dir → `file_get_contents('/flag.txt')`. See [server-side.md](server-side.md#zip-upload-with-php-webshell-nullcon-2026).
+Upload ZIP containing `.php` file → extract to web-accessible dir → `file_get_contents('/flag.txt')`. See [server-side-advanced.md](server-side-advanced.md#zip-upload-with-php-webshell-nullcon-2026).
 
 ## basename() Bypass for Hidden Files
 
-`basename()` only strips dirs, doesn't filter `.lock` or hidden files in same directory. See [server-side.md](server-side.md#basename-bypass-for-hidden-files-nullcon-2026).
+`basename()` only strips dirs, doesn't filter `.lock` or hidden files in same directory. See [server-side-advanced.md](server-side-advanced.md#basename-bypass-for-hidden-files-nullcon-2026).
 
 ## Custom Linear MAC Forgery
 
@@ -282,7 +283,7 @@ Content behind CSS overlay (`position: fixed; z-index: 99999`) is still in the r
 
 ## SSRF → Docker API RCE Chain
 
-SSRF to unauthenticated Docker daemon on port 2375. Use `/archive` for file extraction, `/exec` + `/exec/{id}/start` for command execution. Chain through internal POST relay when SSRF is GET-only. See [server-side.md](server-side.md#ssrf--docker-api-rce-chain-h7ctf-2025).
+SSRF to unauthenticated Docker daemon on port 2375. Use `/archive` for file extraction, `/exec` + `/exec/{id}/start` for command execution. Chain through internal POST relay when SSRF is GET-only. See [server-side-advanced.md](server-side-advanced.md#ssrf--docker-api-rce-chain-h7ctf-2025).
 
 ## HTTP TRACE Method Bypass
 
@@ -302,11 +303,11 @@ HTML injection → meta refresh redirect (CSP bypass) → admin bot loads attack
 
 ## React Server Components Flight Protocol RCE (Ehax 2026)
 
-Identify via `Next-Action` + `Accept: text/x-component` headers. CVE-2025-55182: fake Flight chunk exploits constructor chain for server-side JS execution. Exfiltrate via `NEXT_REDIRECT` error → `x-action-redirect` header. WAF bypass: `'chi'+'ld_pro'+'cess'` or hex `'\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73'`. See [server-side.md](server-side.md#react-server-components-flight-protocol-rce-ehax-2026) and [cves.md](cves.md#cve-2025-55182-react-server-components-flight-protocol-rce).
+Identify via `Next-Action` + `Accept: text/x-component` headers. CVE-2025-55182: fake Flight chunk exploits constructor chain for server-side JS execution. Exfiltrate via `NEXT_REDIRECT` error → `x-action-redirect` header. WAF bypass: `'chi'+'ld_pro'+'cess'` or hex `'\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73'`. See [server-side-advanced.md](server-side-advanced.md#react-server-components-flight-protocol-rce-ehax-2026) and [cves.md](cves.md#cve-2025-55182-react-server-components-flight-protocol-rce).
 
 ## Common Flag Locations
 
-```
+```text
 /flag.txt, /flag, /app/flag.txt, /home/*/flag*
 Environment variables: /proc/self/environ
 Database: flag, flags, secret tables

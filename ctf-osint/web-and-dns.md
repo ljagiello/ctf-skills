@@ -10,13 +10,14 @@
 - [Telegram Bot Investigation](#telegram-bot-investigation)
 - [FEC Political Donation Research](#fec-political-donation-research)
 - [Wayback Machine](#wayback-machine)
+- [WHOIS Investigation](#whois-investigation)
 - [Resources](#resources)
 
 ---
 
 ## Google Dorking
 
-```
+```text
 site:example.com filetype:pdf
 intitle:"index of" password
 inurl:admin
@@ -55,7 +56,7 @@ dig ANY domain.org
 
 ## Tor Relay Lookups
 
-```
+```text
 https://metrics.torproject.org/rs.html#simple/<FINGERPRINT>
 ```
 Check family members and sort by "first seen" date for ordered flags.
@@ -92,7 +93,7 @@ cur.execute("SELECT url FROM urls WHERE url LIKE '%t.me/%'")
 - "What file did you access?" -> Check MRU, Recent files, Shellbags
 
 **Example bot flow:**
-```
+```text
 Bot: "TIER 1: Which account used for online search?"
 -> Answer from Edge history showing Bing/Google searches
 
@@ -126,6 +127,41 @@ curl "http://web.archive.org/cdx/search/cdx?url=example.com*&output=json&fl=time
 
 - Check for deleted posts, old profiles, cached pages
 - CDX API for programmatic access to archive index
+
+## WHOIS Investigation
+
+```bash
+# Basic WHOIS lookup
+whois example.com
+
+# Key fields to extract:
+# - Registrant name/email/org (often redacted by privacy services)
+# - Creation/expiration dates (timeline correlation)
+# - Name servers (shared hosting identification)
+# - Registrar (can indicate sophistication level)
+
+# Historical WHOIS (before privacy was enabled)
+# Use SecurityTrails, WhoisXML API, or DomainTools
+curl "https://api.securitytrails.com/v1/domain/example.com/whois" \
+  -H "APIKEY: YOUR_KEY"
+
+# Reverse WHOIS — find all domains registered by same entity
+# Search by registrant email, org name, or phone number
+curl "https://reverse-whois-api.whoisxmlapi.com/api/v2" \
+  -d '{"searchType":"current","mode":"purchase","basicSearchTerms":{"include":["target@email.com"]}}'
+
+# IP WHOIS (find network owner)
+whois 1.2.3.4
+# Look for: NetName, OrgName, CIDR range, abuse contact
+
+# ASN lookup
+whois -h whois.radb.net AS12345
+# Or use bgp.tools: https://bgp.tools/as/12345
+```
+
+**Key insight:** WHOIS data is most useful for timeline correlation (when was the domain registered relative to CTF events?), reverse lookups (what other domains share the same registrant?), and identifying shared infrastructure. Historical WHOIS via SecurityTrails or Wayback Machine can reveal pre-privacy registrant details.
+
+---
 
 ## Resources
 

@@ -12,6 +12,7 @@
 - [Byte-by-Byte Oracle with Random Mode Matching (VuwCTF 2025)](#byte-by-byte-oracle-with-random-mode-matching-vuwctf-2025)
 - [RSA Key Reuse / Replay (UTCTF 2024)](#rsa-key-reuse-replay-utctf-2024)
 - [Password Cracking Strategy](#password-cracking-strategy)
+- [Logistic Map / Chaotic PRNG Seed Recovery (BYPASS CTF 2025)](#logistic-map--chaotic-prng-seed-recovery-bypass-ctf-2025)
 
 ---
 
@@ -360,7 +361,7 @@ for precision in range(6, 12):
 **SHA256 with hex salt (VuwCTF 2025, Delicious Cooking):** Format `hash$hex_salt`. Salt must be hex-decoded before `SHA256(password + salt_bytes)`. Password often derivable from security questions (e.g., "fav movie + PIN" = "ratatouille0000"-"ratatouille9999").
 
 **CTF password patterns:**
-```
+```text
 base_password + year     → actnowonclimatechange2026
 username + digits        → nemo123, admin2026
 theme + numbers          → flag2026, ctf2025

@@ -16,7 +16,7 @@
 The `.g` extension is PrusaSlicer's binary G-code format (bgcode). It stores G-code in a block-based structure with compression.
 
 **File structure:**
-```
+```text
 Header: "GCDE"(4) + version(4) + checksum_type(2)
 Blocks: [type(2) + compression(2) + uncompressed_size(4)
          + compressed_size(4) if compressed

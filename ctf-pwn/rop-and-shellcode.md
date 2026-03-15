@@ -13,7 +13,7 @@
 - [Seccomp Bypass](#seccomp-bypass)
 - [Stack Shellcode with Input Reversal](#stack-shellcode-with-input-reversal)
 - [.fini_array Hijack](#fini_array-hijack)
-- [Pwntools Template](#pwntools-template)
+- [pwntools Template](#pwntools-template)
 - [ret2vdso — Using Kernel vDSO Gadgets (HTB Nowhere to go)](#ret2vdso--using-kernel-vdso-gadgets-htb-nowhere-to-go)
 - [Useful Commands](#useful-commands)
 
@@ -439,7 +439,7 @@ writes = {
 
 **Advantages over GOT overwrite:** Works even with Full RELRO (`.fini_array` is in a different section). Especially useful when combined with RWX regions for shellcode.
 
-## Pwntools Template
+## pwntools Template
 
 ```python
 from pwn import *
@@ -475,7 +475,7 @@ def find_offset(exe):
     return offset
 ```
 
-**Key insight:** Pwntools auto-generates a core file from the crashed process. Reading the saved return address from `corefile.sp` (x64) or `corefile.pc` (x86) and passing it to `cyclic_find()` gives the exact offset. Eliminates manual GDB inspection.
+**Key insight:** pwntools auto-generates a core file from the crashed process. Reading the saved return address from `corefile.sp` (x64) or `corefile.pc` (x86) and passing it to `cyclic_find()` gives the exact offset. Eliminates manual GDB inspection.
 
 ## ret2vdso — Using Kernel vDSO Gadgets (HTB Nowhere to go)
 

@@ -54,7 +54,7 @@ def decrypt_byte(block, prev_block, position, oracle, known):
 OFB mode creates a keystream that can be XORed for signature forgery.
 
 **Attack:** If you have signature for known plaintext P1, forge for P2:
-```
+```text
 new_sig = known_sig XOR block2_of_P1 XOR block2_of_P2
 ```
 

@@ -15,7 +15,6 @@
 - [Polynomial Hash with Trivial Root (Pragyan 2026)](#polynomial-hash-with-trivial-root-pragyan-2026)
 - [Polynomial CRT in GF(2)[x] (Nullcon 2026)](#polynomial-crt-in-gf2x-nullcon-2026)
 - [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
-- [ECDSA Nonce Reuse (BearCatCTF 2026)](#ecdsa-nonce-reuse-bearcatctf-2026)
 - [RSA p=q Validation Bypass (BearCatCTF 2026)](#rsa-pq-validation-bypass-bearcatctf-2026)
 - [RSA Cube Root CRT when gcd(e, phi) > 1 (BearCatCTF 2026)](#rsa-cube-root-crt-when-gcde-phi--1-bearcatctf-2026)
 - [Factoring n from Multiple of phi(n) (BearCatCTF 2026)](#factoring-n-from-multiple-of-phin-bearcatctf-2026)
@@ -408,29 +407,6 @@ See [advanced-math.md](advanced-math.md) for GF(2)[x] polynomial arithmetic and 
 **Pattern (Matrixfun, Nullcon 2026):** `c = A @ p + b (mod m)` with composite m. Chosen-plaintext difference attack. For composite modulus, solve via CRT in each prime factor field separately.
 
 See [advanced-math.md](advanced-math.md) for CRT approach and Gauss-Jordan implementation.
-
----
-
-## ECDSA Nonce Reuse (BearCatCTF 2026)
-
-**Pattern (Chatroom):** ECDSA signatures on secp256k1 with constant nonce `k`. When two signatures share the same `r` value, the nonce and private key are recoverable.
-
-**Recovery:**
-```python
-from hashlib import sha256
-
-# Two signatures (r, s1) and (r, s2) with same r → same nonce k
-h1 = int(sha256(msg1).hexdigest(), 16)
-h2 = int(sha256(msg2).hexdigest(), 16)
-n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141  # secp256k1 order
-
-k = ((h1 - h2) * pow(s1 - s2, -1, n)) % n
-d = ((s1 * k - h1) * pow(r, -1, n)) % n  # private key
-```
-
-**Key insight:** Same `r` value across multiple ECDSA signatures means the nonce `k` was reused. This is the same class of bug that compromised the PlayStation 3 signing key. Always check for repeated `r` values in signature datasets.
-
-**Detection:** Multiple ECDSA signatures with identical `r` component. Challenge mentions "nonce", "deterministic signing", or provides a signing oracle.
 
 ---
 

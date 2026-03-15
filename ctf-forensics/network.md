@@ -88,7 +88,7 @@ curl https://target/secret
 ```
 
 **Keylog file format (NSS Key Log Format):**
-```
+```text
 CLIENT_RANDOM <32_bytes_client_random_hex> <48_bytes_master_secret_hex>
 ```
 

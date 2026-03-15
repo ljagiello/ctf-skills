@@ -71,7 +71,7 @@ curl "http://web.archive.org/cdx/search/cdx?url=t.co/SHORTCODE&output=json"
 **Pattern (Ms Blue Sky):** Find target's posts on BlueSky social media.
 
 **Search filters:**
-```
+```text
 from:username        # Posts from specific user
 since:2025-01-01     # Date range
 has:images           # Posts with images

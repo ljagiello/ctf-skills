@@ -197,7 +197,7 @@ flag = hashlib.sha256(key.encode()).hexdigest()
 **File structure:** `.sal` is a ZIP containing `digital-0.bin` through `digital-7.bin` + `meta.json`. Only channel 0 typically has data.
 
 **Binary format (digital-*.bin):**
-```
+```text
 <SALEAE> magic (8 bytes)
 version: u32 = 2
 type: u32 = 100 (digital)

@@ -15,7 +15,8 @@ Quick reference for RE challenges. For detailed techniques, see supporting files
 ## Additional Resources
 
 - [tools.md](tools.md) - Tool-specific commands (GDB, Ghidra, radare2, IDA, Binary Ninja, dogbolt.org, RISC-V with Capstone)
-- [patterns.md](patterns.md) - Core binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher, mathematical convergence bitmap, Sprague-Grundy game theory, kernel module maze solving, multi-threaded VM channels, multi-layer self-decrypting brute-force, CVP/LLL lattice for integer validation, decision tree function obfuscation, GLSL shader VM, GF(2^8) Gaussian elimination, Z3 single-line Python circuit, sliding window popcount
+- [patterns.md](patterns.md) - Foundational binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, signal-based exploration, malware anti-analysis, multi-stage shellcode, timing side-channel
+- [patterns-ctf.md](patterns-ctf.md) - Competition-specific patterns: hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher, mathematical convergence bitmap, Windows PE XOR bitmap OCR, two-stage RC4+VM loaders, GBA ROM meet-in-the-middle, Sprague-Grundy game theory, kernel module maze solving, multi-threaded VM channels, multi-layer self-decrypting brute-force, embedded ZIP+XOR license, stack string deobfuscation, prefix hash brute-force, CVP/LLL lattice for integer validation, decision tree function obfuscation, GLSL shader VM, GF(2^8) Gaussian elimination, Z3 single-line Python circuit, sliding window popcount
 - [languages.md](languages.md) - Language/platform-specific: Python bytecode & opcode remapping, Python version-specific bytecode, DOS stubs, Unity IL2CPP, Brainfuck/esolangs, UEFI, transpilation to C, code coverage side-channel, OPAL functional reversing, non-bijective substitution, Android JNI RegisterNatives, Ruby/Perl polyglot
 
 ---
@@ -147,7 +148,7 @@ wasm2wat main.wasm -o main.wat    # Binary → text
 wat2wasm main.wat -o patched.wasm # Text → binary
 ```
 
-**WASM game patching (Tac Tic Toe, Pragyan 2026):** If proof generation is independent of move quality, patch minimax (flip `i64.lt_s` → `i64.gt_s`, change bestScore sign) to make AI play badly while proofs remain valid. See [ctf-misc games-and-vms.md](../ctf-misc/games-and-vms.md) for full pattern.
+**WASM game patching (Tac Tic Toe, Pragyan 2026):** If proof generation is independent of move quality, patch minimax (flip `i64.lt_s` → `i64.gt_s`, change bestScore sign) to make AI play badly while proofs remain valid. Invoke `/ctf-misc` for full game patching patterns (games-and-vms).
 
 ### Android APK
 ```bash
@@ -174,7 +175,7 @@ Common checks:
 - Timing checks
 
 Bypass: Set breakpoint at check, modify register to bypass conditional.
-Pwntools patch: `elf.asm(elf.symbols.ptrace, 'ret')` to replace function with immediate return. See [patterns.md](patterns.md#pwntools-binary-patching-crypto-cat).
+pwntools patch: `elf.asm(elf.symbols.ptrace, 'ret')` to replace function with immediate return. See [patterns.md](patterns.md#pwntools-binary-patching-crypto-cat).
 
 ## S-Box / Keystream Patterns
 
@@ -294,19 +295,19 @@ Input converted to hex, compared against constant. Decode with `xxd -r -p`. See 
 
 ## Embedded ZIP + XOR License Decryption
 
-Binary with named symbols (`EMBEDDED_ZIP`, `ENCRYPTED_MESSAGE`) in `.rodata` → extract ZIP containing license, XOR encrypted message with license bytes to recover flag. No execution needed. See [patterns.md](patterns.md#embedded-zip--xor-license-decryption-metactf-2026).
+Binary with named symbols (`EMBEDDED_ZIP`, `ENCRYPTED_MESSAGE`) in `.rodata` → extract ZIP containing license, XOR encrypted message with license bytes to recover flag. No execution needed. See [patterns-ctf.md](patterns-ctf.md#embedded-zip--xor-license-decryption-metactf-2026).
 
 ## Stack String Deobfuscation (.rodata XOR Blob)
 
-Binary mmaps `.rodata` blob, XOR-deobfuscates, uses it to validate input. Reimplement verification loop with pyelftools to extract blob. Look for `0x9E3779B9`, `0x85EBCA6B` constants and `rol32()`. See [patterns.md](patterns.md#stack-string-deobfuscation-from-rodata-xor-blob-nullcon-2026).
+Binary mmaps `.rodata` blob, XOR-deobfuscates, uses it to validate input. Reimplement verification loop with pyelftools to extract blob. Look for `0x9E3779B9`, `0x85EBCA6B` constants and `rol32()`. See [patterns-ctf.md](patterns-ctf.md#stack-string-deobfuscation-from-rodata-xor-blob-nullcon-2026).
 
 ## Prefix Hash Brute-Force
 
-Binary hashes every prefix independently. Recover one character at a time by matching prefix hashes. See [patterns.md](patterns.md#prefix-hash-brute-force-nullcon-2026).
+Binary hashes every prefix independently. Recover one character at a time by matching prefix hashes. See [patterns-ctf.md](patterns-ctf.md#prefix-hash-brute-force-nullcon-2026).
 
 ## Mathematical Convergence Bitmap
 
-**Pattern:** Binary classifies coordinate pairs by Newton's method convergence (e.g., z^3-1=0). Grid of pass/fail results renders ASCII art flag. Key: the binary is a classifier, not a checker — reverse the math and visualize. See [patterns.md](patterns.md#mathematical-convergence-bitmap-ehax-2026).
+**Pattern:** Binary classifies coordinate pairs by Newton's method convergence (e.g., z^3-1=0). Grid of pass/fail results renders ASCII art flag. Key: the binary is a classifier, not a checker — reverse the math and visualize. See [patterns-ctf.md](patterns-ctf.md#mathematical-convergence-bitmap-ehax-2026).
 
 ## RISC-V Binary Analysis
 
@@ -314,23 +315,23 @@ Statically linked, stripped RISC-V ELF. Use Capstone with `CS_MODE_RISCVC | CS_M
 
 ## Sprague-Grundy Game Theory Binary
 
-Game binary plays bounded Nim with PRNG for losing-position moves. Identify game framework (Grundy values = pile % (k+1), XOR determines position), track PRNG state evolution through user input feedback. See [patterns.md](patterns.md#sprague-grundy-game-theory-binary-dicectf-2026).
+Game binary plays bounded Nim with PRNG for losing-position moves. Identify game framework (Grundy values = pile % (k+1), XOR determines position), track PRNG state evolution through user input feedback. See [patterns-ctf.md](patterns-ctf.md#sprague-grundy-game-theory-binary-dicectf-2026).
 
 ## Kernel Module Maze Solving
 
-Rust kernel module implements maze via device ioctls. Enumerate commands dynamically, build DFS solver with decoy avoidance, deploy as minimal static binary (raw syscalls, no libc). See [patterns.md](patterns.md#kernel-module-maze-solving-dicectf-2026).
+Rust kernel module implements maze via device ioctls. Enumerate commands dynamically, build DFS solver with decoy avoidance, deploy as minimal static binary (raw syscalls, no libc). See [patterns-ctf.md](patterns-ctf.md#kernel-module-maze-solving-dicectf-2026).
 
 ## Multi-Threaded VM with Channels
 
-Custom VM with 16+ threads communicating via futex channels. Trace data flow across thread boundaries, extract constants from GDB, watch for inverted validity logic, solve via BFS state space search. See [patterns.md](patterns.md#multi-threaded-vm-with-channel-synchronization-dicectf-2026).
+Custom VM with 16+ threads communicating via futex channels. Trace data flow across thread boundaries, extract constants from GDB, watch for inverted validity logic, solve via BFS state space search. See [patterns-ctf.md](patterns-ctf.md#multi-threaded-vm-with-channel-synchronization-dicectf-2026).
 
 ## CVP/LLL Lattice for Constrained Integer Validation (HTB ShadowLabyrinth)
 
-Binary validates flag via matrix multiplication with 64-bit coefficients; solutions must be printable ASCII. Use LLL reduction + CVP in SageMath to find nearest lattice point in the constrained range. Two-phase pattern: Phase 1 recovers AES key, Phase 2 decrypts custom VM bytecode with another linear system (mod 2^32). See [patterns.md](patterns.md#cvplll-lattice-for-constrained-integer-validation-htb-shadowlabyrinth).
+Binary validates flag via matrix multiplication with 64-bit coefficients; solutions must be printable ASCII. Use LLL reduction + CVP in SageMath to find nearest lattice point in the constrained range. Two-phase pattern: Phase 1 recovers AES key, Phase 2 decrypts custom VM bytecode with another linear system (mod 2^32). See [patterns-ctf.md](patterns-ctf.md#cvplll-lattice-for-constrained-integer-validation-htb-shadowlabyrinth).
 
 ## Decision Tree Function Obfuscation (HTB WonderSMS)
 
-~200+ auto-generated functions routing input through polynomial comparisons. Script extraction via Ghidra headless rather than reversing each function manually. Constraint propagation from known output format cascades through arithmetic constraints. See [patterns.md](patterns.md#decision-tree-function-obfuscation-htb-wondersms).
+~200+ auto-generated functions routing input through polynomial comparisons. Script extraction via Ghidra headless rather than reversing each function manually. Constraint propagation from known output format cascades through arithmetic constraints. See [patterns-ctf.md](patterns-ctf.md#decision-tree-function-obfuscation-htb-wondersms).
 
 ## Android JNI RegisterNatives Obfuscation (HTB WonderSMS)
 
@@ -338,23 +339,23 @@ Binary validates flag via matrix multiplication with 64-bit coefficients; soluti
 
 ## Multi-Layer Self-Decrypting Binary
 
-N-layer binary where each layer decrypts the next using user-provided key bytes + SHA-NI. Use oracle (correct key → valid code with expected pattern). JIT execution with fork-per-candidate COW isolation for speed. See [patterns.md](patterns.md#multi-layer-self-decrypting-binary-dicectf-2026).
+N-layer binary where each layer decrypts the next using user-provided key bytes + SHA-NI. Use oracle (correct key → valid code with expected pattern). JIT execution with fork-per-candidate COW isolation for speed. See [patterns-ctf.md](patterns-ctf.md#multi-layer-self-decrypting-binary-dicectf-2026).
 
 ## GLSL Shader VM with Self-Modifying Code
 
-**Pattern:** WebGL2 fragment shader implements Turing-complete VM on a 256x256 RGBA texture (program memory + VRAM). Self-modifying code (STORE opcode) patches drawing instructions. GPU parallelism causes write conflicts — emulate sequentially in Python to recover full output. See [patterns.md](patterns.md#glsl-shader-vm-with-self-modifying-code-apoorvctf-2026).
+**Pattern:** WebGL2 fragment shader implements Turing-complete VM on a 256x256 RGBA texture (program memory + VRAM). Self-modifying code (STORE opcode) patches drawing instructions. GPU parallelism causes write conflicts — emulate sequentially in Python to recover full output. See [patterns-ctf.md](patterns-ctf.md#glsl-shader-vm-with-self-modifying-code-apoorvctf-2026).
 
 ## GF(2^8) Gaussian Elimination for Flag Recovery
 
-**Pattern:** Binary performs Gaussian elimination over GF(2^8) with the AES polynomial (0x11b). Matrix + augmentation vector in `.rodata`; solution vector is the flag. Look for constant `0x1b` in disassembly. Addition is XOR, multiplication uses polynomial reduction. See [patterns.md](patterns.md#gf28-gaussian-elimination-for-flag-recovery-apoorvctf-2026).
+**Pattern:** Binary performs Gaussian elimination over GF(2^8) with the AES polynomial (0x11b). Matrix + augmentation vector in `.rodata`; solution vector is the flag. Look for constant `0x1b` in disassembly. Addition is XOR, multiplication uses polynomial reduction. See [patterns-ctf.md](patterns-ctf.md#gf28-gaussian-elimination-for-flag-recovery-apoorvctf-2026).
 
 ## Z3 for Single-Line Python Boolean Circuit
 
-**Pattern:** Single-line Python (2000+ semicolons) with walrus operator chains validates flag as big-endian integer via boolean circuit. Obfuscated XOR `(a | b) & ~(a & b)`. Split on semicolons, translate to Z3 symbolically, solve in under a second. See [patterns.md](patterns.md#z3-for-single-line-python-boolean-circuit-bearcatctf-2026).
+**Pattern:** Single-line Python (2000+ semicolons) with walrus operator chains validates flag as big-endian integer via boolean circuit. Obfuscated XOR `(a | b) & ~(a & b)`. Split on semicolons, translate to Z3 symbolically, solve in under a second. See [patterns-ctf.md](patterns-ctf.md#z3-for-single-line-python-boolean-circuit-bearcatctf-2026).
 
 ## Sliding Window Popcount Differential Propagation
 
-**Pattern:** Binary validates input via expected popcount for each position of a 16-bit sliding window. Popcount differences create a recurrence: `bit[i+16] = bit[i] + (data[i+1] - data[i])`. Brute-force ~4000-8000 valid initial 16-bit windows; each determines the entire bit sequence. See [patterns.md](patterns.md#sliding-window-popcount-differential-propagation-bearcatctf-2026).
+**Pattern:** Binary validates input via expected popcount for each position of a 16-bit sliding window. Popcount differences create a recurrence: `bit[i+16] = bit[i] + (data[i+1] - data[i])`. Brute-force ~4000-8000 valid initial 16-bit windows; each determines the entire bit sequence. See [patterns-ctf.md](patterns-ctf.md#sliding-window-popcount-differential-propagation-bearcatctf-2026).
 
 ## Ruby/Perl Polyglot Constraint Satisfaction
 

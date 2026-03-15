@@ -320,7 +320,7 @@ for subkey in names_key.iter_subkeys():
 
 PSReadLine writes commands incrementally. **USN journal DATA_EXTEND events on this file correspond to individual command executions:**
 
-```
+```text
 08:05:19 - FILE_CREATE + DATA_EXTEND → First command entered
 08:05:50 - DATA_EXTEND → Second command entered
 08:09:57 - DATA_EXTEND → Third command entered

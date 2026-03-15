@@ -49,7 +49,7 @@ s.cookies.set('token', r.json()['token'])
 ## EIP-1967 Proxy Pattern Exploitation
 
 **Storage slots:**
-```
+```text
 Implementation: keccak256("eip1967.proxy.implementation") - 1
 Admin:          keccak256("eip1967.proxy.admin") - 1
 ```
@@ -93,7 +93,7 @@ codehash = keccak256(stripped)
 ## Non-Standard ABI Calldata Encoding
 
 **Overlapping calldata:** When contract enforces `msg.data.length == 100` but has `(address, bytes)` params:
-```
+```text
 Standard: 4 + 32(addr) + 32(offset=0x40) + 32(len) + 32(data) = 132 bytes
 Crafted:  4 + 32(dirty_addr) + 32(offset=0x20) + 32(sigil_data) = 100 bytes
 ```
@@ -104,7 +104,7 @@ Offset `0x20` serves dual purpose: offset pointer AND bytes length.
 ## Solidity bytes32 String Encoding
 
 `bytes32("0xAnan or Tensai?")` stores ASCII left-aligned with zero padding:
-```
+```text
 0x3078416e616e206f722054656e7361693f000000000000000000000000000000
 ```
 

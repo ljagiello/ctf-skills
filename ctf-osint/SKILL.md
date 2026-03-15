@@ -16,7 +16,7 @@ Quick reference for OSINT CTF challenges. Each technique has a one-liner here; s
 
 - [social-media.md](social-media.md) - Twitter/X (user IDs, Snowflake timestamps, Nitter, memory.lol, Wayback CDX), Tumblr (blog checks, post JSON, avatars), BlueSky search + API, Unicode homoglyph steganography, Discord API, username OSINT (namechk, whatsmyname), platform false positives, multi-platform chains
 - [geolocation-and-media.md](geolocation-and-media.md) - Image analysis, reverse image search, Google Lens cropped region search, reflected/mirrored text reading, geolocation techniques (railroad signs, infrastructure maps, MGRS), EXIF/metadata, hardware identification, newspaper archives, IP geolocation, Google Street View panorama matching, What3Words micro-landmark matching
-- [web-and-dns.md](web-and-dns.md) - Google dorking, Google Docs/Sheets enumeration, DNS recon (TXT, zone transfers), Wayback Machine, FEC research, Tor relay lookups, GitHub repository analysis, Telegram bot investigation
+- [web-and-dns.md](web-and-dns.md) - Google dorking, Google Docs/Sheets enumeration, DNS recon (TXT, zone transfers), Wayback Machine, FEC research, Tor relay lookups, GitHub repository analysis, Telegram bot investigation, WHOIS investigation (reverse WHOIS, historical WHOIS, IP/ASN lookup)
 
 ---
 
@@ -67,7 +67,7 @@ mediainfo video.mp4          # Video metadata
 
 ## Google Dorking
 
-```
+```text
 site:example.com filetype:pdf
 intitle:"index of" password
 ```

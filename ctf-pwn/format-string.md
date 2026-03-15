@@ -111,7 +111,7 @@ Use this when you cannot embed addresses (input filtering, newline issues) but c
 - You can afford large outputs (millions of chars)
 
 **Stack layout discovery (find your input offset):**
-```
+```text
 %1$p %2$p %3$p ... %50$p
 ```
 - Your input appears at some offset (commonly 6-8)
@@ -124,7 +124,7 @@ Use this when you cannot embed addresses (input filtering, newline issues) but c
 When no binary is given, use format strings to discover everything:
 
 **1. Confirm vulnerability:**
-```
+```text
 > %p-%p-%p-%p
 0x563b6749100b-0x71-0xffffffff-0x7ffff9c37b80
 ```

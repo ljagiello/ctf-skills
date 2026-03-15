@@ -480,7 +480,7 @@ mount -o loop,ro disk2.img /mnt/recovered
 **Pattern (Landfall, Sherlockk, Cold Workspace):** KAPE (Kroll Artifact Parser and Extractor) triage collection ZIP containing Windows forensic artifacts. Multiple challenges reference the same triage dataset.
 
 **KAPE triage structure:**
-```
+```text
 Modified_KAPE_Triage_Files/
 ├── C/
 │   ├── Users/<username>/
