@@ -15,10 +15,10 @@ Quick reference for binary exploitation (pwn) CTF challenges. Each technique has
 ## Additional Resources
 
 - [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, canary byte-by-byte brute force on forking servers, struct pointer overwrite, signed integer bypass, hidden gadgets, stride-based OOB read leak
-- [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), SROP with UTF-8 constraints, shellcode with input reversal, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template
+- [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), SROP with UTF-8 constraints, double stack pivot to BSS via leave;ret, RETF architecture switch (x64→x32) for seccomp bypass, shellcode with input reversal, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template
 - [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass, canary leak, __free_hook, .rela.plt patching)
-- [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, GC null-ref cascading corruption, io_uring UAF with SQE injection, integer truncation int32→int16 bypass
-- [advanced-exploits.md](advanced-exploits.md) - Advanced exploit techniques: VM signed comparison, BF JIT shellcode, type confusion, off-by-one index corruption, DNS overflow, ASAN shadow memory, format string with encoding constraints, MD5 preimage gadgets, VM GC UAF, FSOP + seccomp bypass, stack variable overlap, bytecode validator bypass, io_uring UAF SQE injection, integer truncation int32→int16, GC null-reference cascading corruption
+- [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, GC null-ref cascading corruption, io_uring UAF with SQE injection, integer truncation int32→int16 bypass, musl libc heap exploitation (meta pointer + atexit hijack)
+- [advanced-exploits.md](advanced-exploits.md) - Advanced exploit techniques: VM signed comparison, BF JIT shellcode, type confusion, off-by-one index corruption, DNS overflow, ASAN shadow memory, format string with encoding constraints, MD5 preimage gadgets, VM GC UAF, FSOP + seccomp bypass, stack variable overlap, bytecode validator bypass, io_uring UAF SQE injection, integer truncation int32→int16, GC null-reference cascading corruption, leakless libc via multi-fgets stdout FILE overwrite, signed/unsigned char underflow heap overflow, XOR keystream brute-force write primitive, tcache pointer decryption heap leak, unsorted bin promotion via forged chunk size, FSOP stdout TLS leak, TLS destructor hijack via `__call_tls_dtors`
 - [sandbox-escape.md](sandbox-escape.md) - Python sandbox escape, custom VM exploitation, FUSE/CUSE devices, busybox/restricted shell, shell tricks
 - [kernel.md](kernel.md) - Linux kernel exploitation: modprobe_path overwrite, core_pattern, tty_struct kROP, userfaultfd race stabilization, SLUB heap spray structures, ret2usr, kernel ROP, kernel config recon
 - [kernel-bypass.md](kernel-bypass.md) - Kernel protection bypass: KASLR/FGKASLR bypass (__ksymtab), KPTI bypass (swapgs trampoline, signal handler, modprobe_path/core_pattern via ROP), SMEP/SMAP bypass, GDB kernel module debugging, initramfs/virtio-9p workflow, exploit templates, exploit delivery
@@ -271,6 +271,26 @@ Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers
 ## Shell Tricks
 
 `exec<&3;sh>&3` for fd redirection, `$0` instead of `sh`, `ls -la /proc/self/fd` to find correct fd. See [sandbox-escape.md](sandbox-escape.md).
+
+## Double Stack Pivot to BSS via leave;ret (Midnightflag 2026)
+
+**Pattern:** Small overflow (only RBP + RIP). Overwrite RBP → BSS address, RIP → `leave; ret` gadget. `leave` sets RSP = RBP (BSS). Second stage at BSS calls `fgets(BSS+offset, large_size, stdin)` to load full ROP chain. See [rop-and-shellcode.md](rop-and-shellcode.md#double-stack-pivot-to-bss-via-leaveret-midnightflag-2026).
+
+## RETF Architecture Switch for Seccomp Bypass (Midnightflag 2026)
+
+**Pattern:** Seccomp blocks 64-bit syscalls (`open`, `execve`). Use `retf` gadget to load CS=0x23 (IA-32e compatibility mode). In 32-bit mode, `int 0x80` uses different syscall numbers (open=5, read=3, write=4) not covered by the filter. Requires `mprotect` to make BSS executable for 32-bit shellcode. See [rop-and-shellcode.md](rop-and-shellcode.md#retf-architecture-switch-for-seccomp-bypass-midnightflag-2026).
+
+## Leakless Libc via Multi-fgets stdout FILE Overwrite (Midnightflag 2026)
+
+**Pattern:** No libc leak available. Chain multiple `fgets(addr, 7, stdin)` calls via ROP to construct fake stdout FILE struct on BSS. Set `_IO_write_base` to GOT entry, call `fflush(stdout)` → leaks GOT content → libc base. The 7-byte writes avoid null byte corruption since libc pointer MSBs are already `\x00`. See [advanced-exploits.md](advanced-exploits.md#leakless-libc-via-multi-fgets-stdout-file-overwrite-midnightflag-2026).
+
+## Signed/Unsigned Char Underflow → Heap Overflow (Midnightflag 2026)
+
+**Pattern:** Size field stored as `signed char`, cast to `unsigned char` for use. `size = -112` → `(unsigned char)(-112) = 144`, overflowing a 127-byte buffer by 17 bytes. Combine with XOR keystream brute-force for byte-precise writes, forge chunk sizes for unsorted bin promotion (libc leak), FSOP stdout for TLS leak, and TLS destructor (`__call_tls_dtors`) overwrite for RCE. See [advanced-exploits.md](advanced-exploits.md#signedunsigned-char-underflow--heap-overflow--tls-destructor-hijack-midnightflag-2026).
+
+## TLS Destructor Hijack via `__call_tls_dtors`
+
+**Pattern:** Alternative to House of Apple 2 on glibc 2.34+. Forge `__tls_dtor_list` entries with pointer-guard-mangled function pointers: `encoded = rol(target ^ pointer_guard, 0x11)`. Requires leaking pointer guard from TLS segment (via FSOP stdout redirection). Each node calls `PTR_DEMANGLE(func)(obj)` on exit. See [advanced-exploits.md](advanced-exploits.md#tls-destructor-overwrite-for-rce-via-__call_tls_dtors).
 
 ## Useful Commands
 

@@ -14,6 +14,7 @@
 - [Groth16 Broken Trusted Setup — delta == gamma (DiceCTF 2026)](#groth16-broken-trusted-setup--delta--gamma-dicectf-2026)
 - [Groth16 Proof Replay — Unconstrained Nullifier (DiceCTF 2026)](#groth16-proof-replay--unconstrained-nullifier-dicectf-2026)
 - [DV-SNARG Forgery via Verifier Oracle (DiceCTF 2026)](#dv-snarg-forgery-via-verifier-oracle-dicectf-2026)
+- [KZG Pairing Oracle for Permutation Recovery (UNbreakable 2026)](#kzg-pairing-oracle-for-permutation-recovery-unbreakable-2026)
 
 ---
 
@@ -396,3 +397,40 @@ for guess in range(257):  # v[i] in [-256, 256], |v[i]| in [0, 256]
 **Performance:** ~364 oracle queries for Phase 1 (~97s), ~300s for 20 forged proofs ≈ 400s total.
 
 **Key insight:** When attacking DV-SNARGs with oracle access, the strategy is: (1) learn a small number of secret values from the verifier's randomness, (2) use algebraic cancellation between CRS entries to forge proofs. Unconstrained pair indices expose pure tensor products of the secret vector.
+
+---
+
+## KZG Pairing Oracle for Permutation Recovery (UNbreakable 2026)
+
+**Pattern (toxicwaste):** KZG commitment scheme publishes shuffled points `{alpha^i * G1}` for i=0..n. The shuffle hides which point corresponds to which exponent. Recover the exponent ordering using bilinear pairings as an oracle, then extract the toxic waste `alpha`.
+
+**Distortion map technique:** On supersingular pairing-friendly curves, a distortion map `psi((x,y)) = (zeta*x, y)` (where `zeta^3 = 1`) enables additive exponent comparisons:
+
+```python
+from sage.all import *
+
+# For points P_i = alpha^a_i * G1 and P_j = alpha^a_j * G1:
+# e(P_i, psi(P_j)) = e(G1, psi(G1))^(alpha^(a_i + a_j))
+# If e(P_i, psi(P_j)) == e(P_k, psi(G1)), then a_i + a_j == a_k
+
+# Step 1: Identify G1 (alpha^0) — the only point where e(P, psi(P)) == e(G1, psi(G1))
+g1 = None
+base_pairing = None
+for P in shuffled_points:
+    val = P.weil_pairing(psi(P), order)
+    if base_pairing is None:
+        base_pairing = val
+        g1 = P
+    elif val == base_pairing:
+        g1 = P
+        break
+
+# Step 2: Walk the chain — find alpha*G1 via e(P_?, psi(G1)) comparisons
+# Then alpha^2*G1 via e(alpha*G1, psi(alpha*G1)) == e(alpha^2*G1, psi(G1))
+# Continue until full ordering recovered
+
+# Step 3: With ordered points, solve A(x) = 0 over GF(q) to get alpha
+# Step 4: Forge KZG opening proofs using recovered alpha
+```
+
+**Key insight:** Bilinear pairings reveal additive relationships between exponents without solving discrete log. The pairing `e(P_i, psi(P_j))` depends on `alpha^(a_i + a_j)`, so comparing against known pairing values identifies which shuffled point has which exponent. This turns a cryptographic shuffle into a solvable ordering problem.

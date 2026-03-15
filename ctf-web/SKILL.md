@@ -16,10 +16,10 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 - [server-side.md](server-side.md) - Core server-side injection attacks: SQLi, SSTI, SSRF, XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass
 - [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain
-- [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF
+- [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: JWT, session, password inference, weak validation, client-side gates, NoSQL auth bypass, OAuth/OIDC exploitation (redirect_uri bypass, token manipulation, state CSRF), CORS misconfiguration
 - [node-and-prototype.md](node-and-prototype.md) - Node.js: prototype pollution, VM sandbox escape, Happy-DOM chain, flatnest CVE, Lodash+Pug AST injection
-- [web3.md](web3.md) - Blockchain/Web3: Solidity exploits, proxy patterns, ABI encoding tricks, Foundry tooling
+- [web3.md](web3.md) - Blockchain/Web3: Solidity exploits, proxy patterns, ABI encoding tricks, transient storage clearing collision (0.8.28-0.8.33), Foundry tooling
 - [cves.md](cves.md) - CVE-specific exploits: Next.js middleware bypass, curl credential leak, Uvicorn CRLF, urllib scheme bypass, ExifTool DjVu, broken auth, AAEncode/JJEncode, protocol multiplexing, React Server Components Flight RCE (CVE-2025-55182)
 
 ---
@@ -306,6 +306,22 @@ HTML injection → meta refresh redirect (CSP bypass) → admin bot loads attack
 ## React Server Components Flight Protocol RCE (Ehax 2026)
 
 Identify via `Next-Action` + `Accept: text/x-component` headers. CVE-2025-55182: fake Flight chunk exploits constructor chain for server-side JS execution. Exfiltrate via `NEXT_REDIRECT` error → `x-action-redirect` header. WAF bypass: `'chi'+'ld_pro'+'cess'` or hex `'\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73'`. See [server-side-advanced.md](server-side-advanced.md#react-server-components-flight-protocol-rce-ehax-2026) and [cves.md](cves.md#cve-2025-55182-react-server-components-flight-protocol-rce).
+
+## Unicode Case Folding XSS Bypass (UNbreakable 2026)
+
+**Pattern:** Sanitizer regex uses ASCII-only matching (`<\s*script`), but downstream processing applies Unicode case folding (`strings.EqualFold`). `<ſcript>` (U+017F Latin Long S) bypasses regex but folds to `<script>`. Other pairs: `ı`→`i`, `K` (U+212A)→`k`. See [client-side.md](client-side.md#unicode-case-folding-xss-bypass-unbreakable-2026).
+
+## CSS Font Glyph + Container Query Data Exfiltration (UNbreakable 2026)
+
+**Pattern:** Exfiltrate inline text via CSS injection (no JS). Custom font assigns unique glyph widths per character. Container queries match width ranges to fire background-image requests — one request per character. Works under strict CSP. See [client-side.md](client-side.md#css-font-glyph-width--container-query-exfiltration-unbreakable-2026).
+
+## Hyperscript / Alpine.js CDN CSP Bypass (UNbreakable 2026)
+
+**Pattern:** CSP allows `cdnjs.cloudflare.com`. Load Hyperscript (`_=` attributes) or Alpine.js (`x-data`, `x-init`) from CDN — they execute code from HTML attributes that sanitizers don't strip. See [client-side.md](client-side.md#hyperscript-cdn-csp-bypass-unbreakable-2026).
+
+## Solidity Transient Storage Clearing Collision (0.8.28-0.8.33)
+
+**Pattern:** Solidity IR pipeline (`--via-ir`) generates identically-named Yul helpers for `delete` on persistent and transient variables of the same type. One uses `sstore`, the other should use `tstore`, but deduplication picks only one. Exploits: overwrite `owner` (slot 0) via transient `delete`, or make persistent `delete` (revoke approvals) ineffective. Workaround: use `_lock = address(0)` instead of `delete _lock`. See [web3.md](web3.md#solidity-transient-storage-clearing-helper-collision-solidity-0828-0833).
 
 ## Common Flag Locations
 

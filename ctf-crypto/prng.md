@@ -13,6 +13,7 @@
 - [RSA Key Reuse / Replay (UTCTF 2024)](#rsa-key-reuse-replay-utctf-2024)
 - [Password Cracking Strategy](#password-cracking-strategy)
 - [Logistic Map / Chaotic PRNG Seed Recovery (BYPASS CTF 2025)](#logistic-map--chaotic-prng-seed-recovery-bypass-ctf-2025)
+- [V8 XorShift128+ State Recovery (Math.random Prediction)](#v8-xorshift128-state-recovery-mathrandom-prediction)
 
 ---
 
@@ -346,6 +347,104 @@ for precision in range(6, 12):
 - **Seed range:** Often a recognizable decimal like `0.123456789` or derived from challenge hints
 
 **Identification:** Challenge mentions "chaos", "logistic", "butterfly effect", or provides `r` parameter. Look for source code containing `x = r * x * (1 - x)` iteration.
+
+---
+
+## V8 XorShift128+ State Recovery (Math.random Prediction)
+
+**Pattern:** Web challenge uses `Math.floor(CONST * Math.random())` to generate tokens, codes, or game values. V8's `Math.random()` uses XorShift128+ (xs128p) PRNG. Given consecutive floored outputs, recover the internal state (state0, state1) with Z3, then predict future values.
+
+**V8 internals:**
+1. xs128p produces 64-bit state; V8 uses `state0 >> 12 | 0x3FF0000000000000` to create a double in [1.0, 2.0), then subtracts 1.0
+2. `Math.random()` reads from a **64-value LIFO cache**. When the cache is empty, `RefillCache()` generates 64 new values. Values are consumed in reverse order from the cache
+3. Only `state0` is used for the output (not `state1`)
+
+**xs128p algorithm:**
+```python
+def xs128p(state0, state1):
+    s1 = state0 & 0xFFFFFFFFFFFFFFFF
+    s0 = state1 & 0xFFFFFFFFFFFFFFFF
+    s1 ^= (s1 << 23) & 0xFFFFFFFFFFFFFFFF
+    s1 ^= (s1 >> 17) & 0xFFFFFFFFFFFFFFFF
+    s1 ^= s0 & 0xFFFFFFFFFFFFFFFF
+    s1 ^= (s0 >> 26) & 0xFFFFFFFFFFFFFFFF
+    state0 = state1 & 0xFFFFFFFFFFFFFFFF
+    state1 = s1 & 0xFFFFFFFFFFFFFFFF
+    return state0, state1, state0  # output is new state0
+```
+
+**Z3 solver for `Math.floor(CONST * Math.random())`:**
+```python
+from z3 import *
+from decimal import Decimal
+import struct
+
+def to_double(value):
+    double_bits = (value >> 12) | 0x3FF0000000000000
+    return struct.unpack('d', struct.pack('<Q', double_bits))[0] - 1
+
+def from_double(dbl):
+    return struct.unpack('<Q', struct.pack('d', dbl + 1))[0] & 0x7FFFFFFFFFFFFFFF
+
+def sym_xs128p(s0, s1):
+    s1_ = s0
+    s0_ = s1
+    s1_ ^= (s1_ << 23)
+    s1_ ^= LShR(s1_, 17)
+    s1_ ^= s0_
+    s1_ ^= LShR(s0_, 26)
+    return s1, s1_  # new state0, state1
+
+def solve_v8_random(observed_values, multiple):
+    """Recover xs128p state from consecutive Math.floor(multiple * Math.random()) outputs.
+    observed_values must be in REVERSE order (oldest first after tac)."""
+    ostate0, ostate1 = BitVecs('ostate0 ostate1', 64)
+    sym_s0, sym_s1 = ostate0, ostate1
+    slvr = SolverFor("QF_BV")
+
+    for val in observed_values:
+        sym_s0, sym_s1 = sym_xs128p(sym_s0, sym_s1)
+        calc = LShR(sym_s0, 12)  # V8's ToDouble mantissa bits
+        # Constrain: floor(multiple * to_double(state0)) == val
+        lower = from_double(Decimal(val) / Decimal(multiple))
+        upper = from_double(Decimal(val + 1) / Decimal(multiple))
+        lower_m = lower & 0x000FFFFFFFFFFFFF
+        upper_m = upper & 0x000FFFFFFFFFFFFF
+        upper_e = (upper >> 52) & 0x7FF
+        slvr.add(And(lower_m <= calc, Or(upper_m >= calc, upper_e == 1024)))
+
+    if slvr.check() == sat:
+        m = slvr.model()
+        return m[ostate0].as_long(), m[ostate1].as_long()
+    return None, None
+
+# Predict next values after state recovery
+def predict_next(state0, state1, multiple, count):
+    results = []
+    for _ in range(count):
+        state0, state1, output = xs128p(state0, state1)
+        import math
+        results.append(math.floor(multiple * to_double(output)))
+    return results
+```
+
+**Usage (tool: d0nutptr/v8_rand_buster):**
+```bash
+# Collect observed values, reverse them (LIFO cache order), pipe to solver
+cat observed_codes.txt | tac | python3 xs128p.py --multiple 100000
+
+# Generate predictions from recovered state
+python3 xs128p.py --multiple 100000 --gen <state0>,<state1>,<count>
+```
+
+**Key insight:** The LIFO cache means observed values are in reverse generation order — reverse them with `tac` before solving. The Z3 `QF_BV` (quantifier-free bitvector) theory efficiently handles the bitwise operations. Typically 5-10 consecutive outputs suffice for a unique solution.
+
+**Common pitfalls:**
+- Forgetting to reverse the observation order (cache is LIFO)
+- Multiple browser tabs or web workers may have separate PRNG states
+- Cache boundary (every 64 calls) can introduce discontinuities if observations span a refill
+
+**When to use:** Web challenge where JavaScript generates predictable-looking random values (tokens, verification codes, game rolls) using `Math.random()`. Look for patterns like `Math.floor(N * Math.random())` or `Math.random().toString(36).substr(2)` in client-side or server-side Node.js code.
 
 ---
 

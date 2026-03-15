@@ -17,6 +17,7 @@
 - [Heap Overlap via Base Conversion](#heap-overlap-via-base-conversion)
 - [Tree Data Structure Stack Underallocation](#tree-data-structure-stack-underallocation)
 - [Classic Heap Unlink Attack (Crypto-Cat)](#classic-heap-unlink-attack-crypto-cat)
+- [musl libc Heap Exploitation — Meta Pointer + atexit (UNbreakable 2026)](#musl-libc-heap-exploitation-meta-pointer--atexit-unbreakable-2026)
 - [Kernel Exploitation](#kernel-exploitation) (basic; see [kernel.md](kernel.md) for full coverage)
 
 ---
@@ -348,6 +349,39 @@ payload += p64(b_size & ~1)   # overwrite B's size, clear PREV_INUSE bit
 **Modern mitigations:** glibc 2.26+ added safe-unlinking checks (`FD->bk == P && BK->fd == P`). For modern heaps, use tcache poisoning, House of Apple 2, or House of Einherjar instead.
 
 **Key insight:** The unlink macro performs two pointer writes. By controlling `fd` and `bk` in a fake chunk, you get a constrained write-what-where: each location gets the other's value. Classic use: overwrite a GOT entry with the address of a win function or shellcode.
+
+---
+
+## musl libc Heap Exploitation — Meta Pointer + atexit (UNbreakable 2026)
+
+**Pattern (atypical-heap):** Binary linked against musl libc (not glibc). musl's allocator uses `meta` structures instead of chunk headers. OOB read leaks `meta->mem` pointer; arbitrary write redirects allocation to controlled address.
+
+**musl allocator layout:**
+- Each allocation belongs to a `group`, managed by a `meta` struct
+- `meta->mem` points to the group's data region
+- First `0x70`-class allocation places `meta0->mem` at a fixed offset from PIE base (e.g., `chall_base + 0x3f20`)
+
+**Exploitation chain:**
+1. **Leak meta pointer** — OOB read at offset `0x80` from a heap allocation reads the `meta` struct pointer
+2. **Recover PIE base** — `meta0->mem` is at a fixed offset from the binary base
+3. **Redirect allocation** — Overwrite `meta->mem` to point at a live group or target address. Next allocation from that group returns attacker-controlled memory
+4. **atexit hijack** — Overwrite musl's `atexit` handler list with `system("cat flag")`. Normal program exit triggers code execution
+
+```python
+# Leak meta pointer via OOB read
+meta_ptr = leak_at_offset(0x80)
+pie_base = meta_ptr - 0x3f20  # fixed offset for first 0x70 allocation
+
+# Rewrite meta->mem to redirect future allocations
+write_at(meta_ptr + META_MEM_OFFSET, target_addr)
+
+# Next alloc returns target_addr — use to overwrite atexit handlers
+alloc_and_write(atexit_list_addr, system_addr, "cat flag")
+```
+
+**Key insight:** musl's allocator metadata (`meta` structs) is stored separately from heap data, but predictable offsets link them to the binary base. Unlike glibc, musl has no safe-linking or tcache — corrupting `meta->mem` gives direct allocation control. The `atexit` handler list is a simpler code execution target than glibc's `__free_hook` (which is removed in 2.34+).
+
+**Detection:** Binary uses musl libc (check `ldd`, or `strings binary | grep musl`). Menu-style heap challenges with read/write primitives.
 
 ---
 

@@ -9,6 +9,7 @@
 - [Solidity bytes32 String Encoding](#solidity-bytes32-string-encoding)
 - [Complete Exploit Flow (House of Illusions)](#complete-exploit-flow-house-of-illusions)
 - [Delegatecall Storage Context Abuse (EHAX 2026)](#delegatecall-storage-context-abuse-ehax-2026)
+- [Solidity Transient Storage Clearing Helper Collision (Solidity 0.8.28-0.8.33)](#solidity-transient-storage-clearing-helper-collision-solidity-0828-0833)
 - [Web3 CTF Tips](#web3-ctf-tips)
 
 ---
@@ -234,6 +235,48 @@ contract ForceSend {
 - **EIP-6780 selfdestruct:** Must be in constructor (not runtime) for same-tx contract deletion, but ETH transfer works either way
 
 **When to check:** Prediction markets / betting contracts — always test: can you bet on non-existent market IDs? Does market creation reset resolution state without clearing bet totals?
+
+---
+
+## Solidity Transient Storage Clearing Helper Collision (Solidity 0.8.28-0.8.33)
+
+**Affected:** Solidity 0.8.28 through 0.8.33, IR pipeline only (`--via-ir` flag). Fixed in 0.8.34.
+
+**Root cause:** The IR pipeline generates Yul helper functions for `delete` operations. The helper name is derived from the value type but **omits the storage location** (persistent vs. transient). When a contract uses `delete` on both a persistent and transient variable of the same type, both generate identically-named helpers. Whichever compiles first determines the implementation — the other uses the **wrong opcode** (`sstore` instead of `tstore` or vice versa).
+
+**Vulnerable pattern:**
+```solidity
+contract Vulnerable {
+    address public owner;                    // persistent, slot 0
+    mapping(uint256 => address) public m;    // persistent
+    address transient _lock;                 // transient
+
+    function guarded() external {
+        require(_lock == address(0), "locked");
+        _lock = msg.sender;
+        // BUG: delete _lock uses sstore (persistent) instead of tstore
+        // This writes zero to slot 0, overwriting owner!
+        delete _lock;
+    }
+}
+```
+
+**Two exploit directions:**
+1. **Transient `delete` uses `sstore`:** Overwrites persistent storage (slot 0 = owner/access control variables). Transient variable remains set, breaking reentrancy locks
+2. **Persistent `delete` uses `tstore`:** Approvals/mappings cannot be revoked. The `tstore` write is discarded at transaction end
+
+**Cross-type collisions via array clearing:** Array `.pop()`, `delete []`, and shrinking operations clear at slot granularity using `uint256` helpers. A `bool[]` clearing collides with `delete uint256 transient _temp`.
+
+**Detection:**
+```bash
+# Compare Yul output — if storage_set_to_zero_ calls change to
+# transient_storage_set_to_zero_ in 0.8.34, the contract was affected
+solc --via-ir --ir Contract.sol > yul_output.txt
+```
+
+**Workaround:** Replace `delete _lock` with `_lock = address(0)` — direct zero assignment uses the correct opcode path.
+
+**Key insight:** The bug requires all three conditions: `--via-ir` compilation, `delete` on a transient variable, and a matching-type persistent `delete` in the same compilation unit. No compiler warning is produced, and incorrect storage operations do not revert — they silently corrupt state.
 
 ---
 
