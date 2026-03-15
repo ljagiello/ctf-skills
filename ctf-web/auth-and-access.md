@@ -22,6 +22,7 @@
 - [Broken Auth: Always-True Hash Check (0xFun 2026)](#broken-auth-always-true-hash-check-0xfun-2026)
 - [Affine Cipher OTP Brute-Force (UTCTF 2026)](#affine-cipher-otp-brute-force-utctf-2026)
 - [/proc/self/mem via HTTP Range Requests (UTCTF 2024)](#procselfmem-via-http-range-requests-utctf-2024)
+- [Custom Linear MAC/Signature Forgery (Nullcon 2026)](#custom-linear-macsignature-forgery-nullcon-2026)
 - [Hidden API Endpoints](#hidden-api-endpoints)
 - [HAProxy ACL Regex Bypass via URL Encoding (EHAX 2026)](#haproxy-acl-regex-bypass-via-url-encoding-ehax-2026)
 - [Express.js Middleware Route Bypass via %2F (srdnlenCTF 2026)](#expressjs-middleware-route-bypass-via-2f-srdnlenctf-2026)

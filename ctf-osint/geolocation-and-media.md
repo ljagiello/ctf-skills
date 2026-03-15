@@ -249,7 +249,7 @@ curl "https://ipinfo.io/103.150.68.150/json"
 4. Use the identified text to locate the place on Google Maps
 
 **Partial text search strategies:**
-```
+```text
 # Search with wildcards/partial terms
 "Aguas de Lind"           # Quoted partial match
 "Aguas de Lind" city      # Add context keyword
@@ -290,7 +290,7 @@ img.transpose(Image.FLIP_LEFT_RIGHT).save('flipped.jpg')
 4. **Fine-tune:** The exact 3m square matters — shift coordinates by small amounts to check adjacent squares
 
 **Coordinate-to-W3W conversion:**
-```
+```text
 # Navigate to what3words.com and enter coordinates:
 # Format: latitude, longitude (e.g., 30.2870, -97.7415)
 # Or click on the map at the exact location
