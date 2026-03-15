@@ -18,6 +18,7 @@
 - [Minidump ISO 9660 Recovery + XOR Key (srdnlenCTF 2026)](#minidump-iso-9660-recovery--xor-key-srdnlenctf-2026)
 - [APFS Snapshot Historical File Recovery (srdnlenCTF 2026)](#apfs-snapshot-historical-file-recovery-srdnlenctf-2026)
 - [RAID 5 Disk Recovery via XOR (Crypto-Cat)](#raid-5-disk-recovery-via-xor-crypto-cat)
+- [Windows KAPE Triage Analysis (UTCTF 2026)](#windows-kape-triage-analysis-utctf-2026)
 - [PowerShell Ransomware Analysis](#powershell-ransomware-analysis)
 
 ---
@@ -471,6 +472,82 @@ mount -o loop,ro disk2.img /mnt/recovered
 **Key insight:** RAID 5 uses XOR parity across all disks in each stripe. XOR is self-inverse: if `A XOR B XOR C = 0`, then `B = A XOR C`. For N-disk RAID 5, XOR all N-1 working disks together to recover the missing one.
 
 **Detection:** Challenge provides multiple disk images of identical size, mentions "array", "redundancy", or "parity". `file` command may identify them as filesystem images or raw data.
+
+---
+
+## Windows KAPE Triage Analysis (UTCTF 2026)
+
+**Pattern (Landfall, Sherlockk, Cold Workspace):** KAPE (Kroll Artifact Parser and Extractor) triage collection ZIP containing Windows forensic artifacts. Multiple challenges reference the same triage dataset.
+
+**KAPE triage structure:**
+```
+Modified_KAPE_Triage_Files/
+├── C/
+│   ├── Users/<username>/
+│   │   ├── AppData/Local/Microsoft/Windows/PowerShell/PSReadLine/
+│   │   │   └── ConsoleHost_history.txt    # PowerShell command history
+│   │   ├── NTUSER.DAT                     # User registry hive
+│   │   └── AppData/Roaming/Microsoft/Windows/Recent/  # Recent files
+│   ├── Windows/
+│   │   ├── System32/config/
+│   │   │   ├── SAM          # Password hashes
+│   │   │   ├── SYSTEM       # System config + boot key
+│   │   │   └── SOFTWARE     # Installed software
+│   │   └── appcompat/Programs/
+│   │       └── Amcache.hve  # Execution history with SHA-1 hashes
+│   └── $MFT                 # Master File Table
+└── ...
+```
+
+**High-value artifacts:**
+
+1. **PowerShell history** — reveals attacker commands:
+```bash
+cat "C/Users/*/AppData/Local/Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt"
+# Look for: credential access, lateral movement, data staging
+```
+
+2. **Amcache** — executed programs with timestamps and hashes:
+```bash
+# Parse with Eric Zimmerman's AmcacheParser or regipy
+python3 -c "
+from regipy.registry import RegistryHive
+reg = RegistryHive('C/Windows/appcompat/Programs/Amcache.hve')
+for entry in reg.recurse_subkeys(as_json=True):
+    print(entry)
+" | grep -i "flag\|suspicious\|malware"
+```
+
+3. **MFT resident data** — small files stored directly in MFT records:
+```python
+# Parse MFT for resident file data (files < ~700 bytes stored inline)
+# Use analyzeMFT or python-ntfs
+import struct
+
+with open('$MFT', 'rb') as f:
+    mft_data = f.read()
+
+# Search for flag patterns in raw MFT data
+import re
+flags = re.findall(rb'utflag\{[^}]+\}', mft_data)
+for flag in flags:
+    print(f"Found: {flag.decode()}")
+```
+
+4. **Environment variables from memory dumps** (Cold Workspace pattern):
+```bash
+# Small .dmp files may be minidumps with environment variable blocks
+strings -a cold-workspace.dmp | grep -i "flag\|password\|key\|secret"
+# Environment variables survive in process memory snapshots
+```
+
+**Challenge patterns from UTCTF 2026:**
+- **Landfall:** Flag hidden in PowerShell history or Amcache execution records
+- **Sherlockk:** Correlate Amcache entries with MFT timestamps to identify malicious activity
+- **Cold Workspace:** Flag in environment variables extracted from memory dump
+- **Checkpoint A/B:** Multi-part investigation using combined artifacts
+
+**Key insight:** KAPE triage ZIPs contain pre-collected forensic artifacts — no need for full disk imaging. Start with PowerShell history (fastest wins) → Amcache (execution timeline) → MFT (resident data for small files) → registry hives (persistence, credentials).
 
 ---
 

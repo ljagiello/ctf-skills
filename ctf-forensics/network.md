@@ -19,6 +19,8 @@
 - [USB HID Mouse/Pen Drawing Recovery (EHAX 2026)](#usb-hid-mousepen-drawing-recovery-ehax-2026)
 - [NTLMv2 Hash Cracking from PCAP (Pragyan 2026)](#ntlmv2-hash-cracking-from-pcap-pragyan-2026)
 - [TCP Flag Covert Channel (BearCatCTF 2026)](#tcp-flag-covert-channel-bearcatctf-2026)
+- [DNS Query Name Last-Byte Steganography (UTCTF 2026)](#dns-query-name-last-byte-steganography-utctf-2026)
+- [Multi-Layer PCAP with XOR + ZIP (UTCTF 2026)](#multi-layer-pcap-with-xor--zip-utctf-2026)
 - [Brotli Decompression Bomb Seam Analysis (BearCatCTF 2026)](#brotli-decompression-bomb-seam-analysis-bearcatctf-2026)
 
 ---
@@ -569,6 +571,83 @@ flag = base64.b64decode(encoded).decode()
 **Key insight:** TCP has 6 standard flag bits (FIN, SYN, RST, PSH, ACK, URG) = values 0-63, matching the base64 alphabet exactly. Unusual flag combinations on otherwise normal-looking packets indicate covert channel usage. Filter by destination port or source IP to isolate the channel.
 
 **Detection:** Packets with nonsensical flag combinations (e.g., FIN+SYN simultaneously). Consistent destination port. Packet count is a multiple of 4 (base64 alignment).
+
+---
+
+## DNS Query Name Last-Byte Steganography (UTCTF 2026)
+
+**Pattern (Last Byte Standing):** PCAP with DNS queries where data is encoded in the last byte of each query name.
+
+**Identification:** Many DNS queries to unusual or sequential subdomains. The meaningful data is NOT in the query name itself but in the final byte/character of each name.
+
+**Decoding workflow:**
+```python
+from scapy.all import rdpcap, DNS, DNSQR
+
+packets = rdpcap('last-byte-standing.pcap')
+
+data = []
+for pkt in packets:
+    if pkt.haslayer(DNSQR):
+        qname = pkt[DNSQR].qname.decode(errors='replace').rstrip('.')
+        if qname:
+            data.append(qname[-1])  # Last character of query name
+
+# Reconstruct message from last bytes
+message = ''.join(data)
+print(message)
+# May need additional decoding (hex, base64, etc.)
+```
+
+**Variants:**
+- Last byte of each subdomain label (split on `.`)
+- Specific character position (first, Nth, last)
+- Hex-encoded bytes across multiple queries
+- Subdomain labels as base32/base64 chunks (DNS tunneling)
+
+**Key insight:** DNS exfiltration often hides data in query names. When queries look random but follow a pattern, extract specific character positions. The "last byte" pattern is simple but effective — each query contributes one byte to the message.
+
+**Detection:** Large number of DNS queries to a single domain, queries with no legitimate purpose, sequential or patterned subdomain names.
+
+---
+
+## Multi-Layer PCAP with XOR + ZIP (UTCTF 2026)
+
+**Pattern (Half Awake):** Small PCAP containing data that requires multiple decoding layers: extract raw data from packets, XOR-decrypt, then decompress (ZIP/gzip).
+
+**Workflow:**
+```python
+from scapy.all import rdpcap, Raw
+
+packets = rdpcap('half-awake.pcap')
+
+# 1. Extract raw payload data from TCP/UDP streams
+raw_data = b''
+for pkt in packets:
+    if pkt.haslayer(Raw):
+        raw_data += pkt[Raw].load
+
+# 2. Try XOR with common single-byte keys
+for key in range(256):
+    decrypted = bytes(b ^ key for b in raw_data)
+    # Check for known magic bytes
+    if decrypted[:2] == b'PK':  # ZIP
+        with open(f'decrypted_{key}.zip', 'wb') as f:
+            f.write(decrypted)
+        print(f"ZIP found with XOR key {key:#04x}")
+    elif decrypted[:3] == b'\x1f\x8b\x08':  # gzip
+        print(f"gzip found with XOR key {key:#04x}")
+
+# 3. Extract and search for flag
+import zipfile, io
+zf = zipfile.ZipFile(io.BytesIO(decrypted))
+for name in zf.namelist():
+    content = zf.read(name)
+    if b'flag' in content.lower():
+        print(f"{name}: {content}")
+```
+
+**Key insight:** Small PCAPs with seemingly random data often require multi-layer decoding. Try XOR brute-force first (only 256 keys for single-byte), then check for archive magic bytes in the decrypted output.
 
 ---
 

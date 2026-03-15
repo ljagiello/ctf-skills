@@ -184,6 +184,9 @@ See [node-and-prototype.md](node-and-prototype.md) for detailed exploitation.
 - Client-side gates: `window.overrideAccess = true` or call API directly
 - Password inference: profile data + structured ID format → brute-force
 - Weak signature: check if only first N chars of hash are validated
+- Affine cipher OTP: only 312 possible values (`12 mults × 26 adds`), brute-force all in seconds
+- Express.js `%2F` middleware bypass: `/api/export%2Fchat` skips `app.all("/api/export/chat")` middleware; nginx decodes `%2F` before proxying
+- IDOR on WIP endpoints: grep for `WIP`/`TODO`/`debug` comments, compare auth decorators against production endpoints
 
 See [auth-and-access.md](auth-and-access.md) for full patterns.
 

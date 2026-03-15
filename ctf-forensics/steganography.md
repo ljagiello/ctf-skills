@@ -23,6 +23,8 @@
 - [PNG Unused Palette Entry Steganography (ApoorvCTF 2026)](#png-unused-palette-entry-steganography-apoorvctf-2026)
 - [Audio FFT Musical Note Identification (BYPASS CTF 2025)](#audio-fft-musical-note-identification-bypass-ctf-2025)
 - [Audio Metadata Octal Encoding (BYPASS CTF 2025)](#audio-metadata-octal-encoding-bypass-ctf-2025)
+- [QR Code Tile Reconstruction (UTCTF 2026)](#qr-code-tile-reconstruction-utctf-2026)
+- [Nested Tar Archive with Whitespace Encoding (UTCTF 2026)](#nested-tar-archive-with-whitespace-encoding-utctf-2026)
 
 ---
 
@@ -583,6 +585,111 @@ print(result)
 ```
 
 **Key insight:** When metadata contains underscore-separated numbers, try octal (digits 0-7 only), decimal, or hex interpretation. Multi-layer encoding (octal → base64 → plaintext) is common.
+
+---
+
+## QR Code Tile Reconstruction (UTCTF 2026)
+
+**Pattern (QRecreate):** QR code split into tiles/pieces that must be reassembled. Tiles may be scrambled, rotated, or have missing alignment patterns.
+
+**Reconstruction workflow:**
+```python
+from PIL import Image
+import numpy as np
+
+# Load scrambled tiles
+tiles = []
+for i in range(N_TILES):
+    tile = Image.open(f'tile_{i}.png')
+    tiles.append(np.array(tile))
+
+# Strategy 1: Edge matching (like jigsaw puzzle)
+# Each tile edge has a unique bit pattern — match adjacent edges
+def edge_signature(tile, side):
+    if side == 'top': return tuple(tile[0, :].flatten())
+    if side == 'bottom': return tuple(tile[-1, :].flatten())
+    if side == 'left': return tuple(tile[:, 0].flatten())
+    if side == 'right': return tuple(tile[:, -1].flatten())
+
+# Strategy 2: QR structure constraints
+# - Finder patterns (large squares) MUST be at 3 corners
+# - Timing patterns (alternating B/W) run between finders
+# - Use these as anchors to orient remaining tiles
+
+# Strategy 3: Brute force small grids
+# For 3x3 or 4x4 grids, try all permutations and scan with zbarimg
+from itertools import permutations
+import subprocess
+
+grid_size = 3
+tile_size = tiles[0].shape[0]
+for perm in permutations(range(len(tiles))):
+    img = Image.new('L', (grid_size * tile_size, grid_size * tile_size))
+    for idx, tile_idx in enumerate(perm):
+        row, col = divmod(idx, grid_size)
+        img.paste(Image.fromarray(tiles[tile_idx]),
+                  (col * tile_size, row * tile_size))
+    img.save('/tmp/qr_attempt.png')
+    result = subprocess.run(['zbarimg', '/tmp/qr_attempt.png'],
+                          capture_output=True, text=True)
+    if result.stdout.strip():
+        print(f"DECODED: {result.stdout}")
+        break
+```
+
+**Key insight:** QR codes have structural constraints (finder patterns, timing patterns, format info) that drastically reduce the search space. Use QR structure as anchors before brute-forcing tile positions.
+
+---
+
+## Nested Tar Archive with Whitespace Encoding (UTCTF 2026)
+
+**Pattern (Silent Archive):** Deeply nested tar archives where data is encoded in whitespace characters (spaces, tabs, newlines) within file names or content.
+
+**Detection:** Archive extracts to another archive (tar-in-tar chain). File content appears empty but contains invisible whitespace characters.
+
+**Decoding workflow:**
+```python
+import tarfile
+import os
+
+# 1. Recursively extract nested tar archives
+def extract_all(path, depth=0):
+    if depth > 100:  # Guard against infinite nesting
+        return
+    if tarfile.is_tarfile(path):
+        with tarfile.open(path) as tf:
+            tf.extractall(f'layer_{depth}')
+            for member in tf.getmembers():
+                extract_all(f'layer_{depth}/{member.name}', depth + 1)
+
+# 2. Collect whitespace from file names or content
+whitespace_data = []
+for root, dirs, files in os.walk('layer_0'):
+    for f in files:
+        path = os.path.join(root, f)
+        with open(path, 'rb') as fh:
+            content = fh.read()
+            # Check for whitespace-only content
+            if content.strip() == b'':
+                for byte in content:
+                    if byte == 0x20:  # space
+                        whitespace_data.append('0')
+                    elif byte == 0x09:  # tab
+                        whitespace_data.append('1')
+
+# 3. Convert binary from whitespace
+bits = ''.join(whitespace_data)
+message = bytes(int(bits[i:i+8], 2) for i in range(0, len(bits)-7, 8))
+print(message.decode(errors='replace'))
+```
+
+**Whitespace encoding variants:**
+- Space = 0, Tab = 1 (binary encoding)
+- Whitespace Steganography: trailing spaces/tabs at end of lines
+- Zero-width characters (U+200B, U+200C, U+FEFF) in Unicode text
+- Number of spaces between words encodes data
+
+**Key insight:** "Silent" or "invisible" hints point to whitespace encoding. Use `xxd` or `cat -A` to reveal hidden whitespace characters. Deeply nested archives are misdirection — the data is in the whitespace, not the nesting depth.
 
 ---
 

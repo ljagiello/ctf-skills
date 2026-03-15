@@ -13,6 +13,10 @@
 - [Road Sign Language and Driving Side Analysis (EHAX 2026)](#road-sign-language-and-driving-side-analysis-ehax-2026)
 - [Post-Soviet Architecture and Brand Identification (EHAX 2026)](#post-soviet-architecture-and-brand-identification-ehax-2026)
 - [IP Geolocation and Attribution](#ip-geolocation-and-attribution)
+- [Google Lens Cropped Region Search (UTCTF 2026)](#google-lens-cropped-region-search-utctf-2026)
+- [Reflected and Mirrored Text Reading (UTCTF 2026)](#reflected-and-mirrored-text-reading-utctf-2026)
+- [What3Words (W3W) Geolocation (UTCTF 2026)](#what3words-w3w-geolocation-utctf-2026)
+- [Monumental Letters / Letreiro Identification (UTCTF 2026)](#monumental-letters--letreiro-identification-utctf-2026)
 
 ---
 
@@ -30,6 +34,7 @@
 
 ## Reverse Image Search
 
+- Google Lens (crop to specific region, best for identifying landmarks/shops/signs)
 - Google Images (most comprehensive)
 - TinEye (exact match)
 - Yandex (good for faces, Eastern Europe)
@@ -202,3 +207,128 @@ curl "https://ipinfo.io/103.150.68.150/json"
 - Windows telemetry (imprbeacons.dat) contains `CIP` field
 - Login history APIs may show IP + OS correlation
 - VPN/proxy detection via ASN lookup
+
+---
+
+## Google Lens Cropped Region Search (UTCTF 2026)
+
+**Pattern (W3W1/W3W2):** Challenge image contains multiple elements but only one is useful for identification. Crop to just the relevant portion before searching.
+
+**Technique:**
+1. Identify the most distinctive element in the image (shop sign, building facade, landmark)
+2. Crop the image to isolate that element — remove surrounding context that adds noise
+3. Search the cropped region using Google Lens (`lens.google.com` or right-click → "Search image with Google Lens" in Chrome)
+4. Review visually similar results to identify the specific location or business
+
+**When to crop:**
+- Shop fronts: crop to just the storefront and signage
+- Landmarks: crop to the distinctive architectural feature
+- Signs: crop to just the sign text
+- Churches/buildings: crop to the unique facade
+
+**Key insight:** Google Lens performs significantly better on cropped regions than full scene images. A full scene may return generic landscape results, while a cropped shop sign returns the exact business with its address.
+
+**Example workflow (W3W2):**
+1. Challenge image shows a street scene with a shop
+2. Crop to just the shop portion
+3. Google Lens identifies the shop and its location
+4. Verify on Google Maps Street View
+5. Convert coordinates to What3Words
+
+---
+
+## Reflected and Mirrored Text Reading (UTCTF 2026)
+
+**Pattern (W3W3):** Text visible in the image is reflected/mirrored (e.g., sign reflected in water or glass). Must read the text in reverse to identify the location.
+
+**Technique:**
+1. Identify reflected text in the image (common in water reflections, glass surfaces, mirrors)
+2. Flip the image horizontally to read the text normally
+3. If text is partially obscured, search for the readable portion as a prefix/suffix:
+   - "Aguas de Lind..." → search `"Aguas de Lind"` → find "Aguas de Lindoia"
+4. Use the identified text to locate the place on Google Maps
+
+**Partial text search strategies:**
+```
+# Search with wildcards/partial terms
+"Aguas de Lind"           # Quoted partial match
+"Aguas de Lind" city      # Add context keyword
+"Aguas de Lind*" brazil   # Add country if identifiable from image
+```
+
+**Image flipping for reflected text:**
+```bash
+# Flip image horizontally with ImageMagick
+convert input.jpg -flop flipped.jpg
+
+# Or with Python/PIL
+python3 -c "
+from PIL import Image
+img = Image.open('input.jpg')
+img.transpose(Image.FLIP_LEFT_RIGHT).save('flipped.jpg')
+"
+```
+
+**Key insight:** When a letter in reflected text is ambiguous (e.g., "T" vs "I"), try both variants as separate searches. Partial text searches with quoted strings are effective for identifying place names even with only 60-70% of the text readable.
+
+---
+
+## What3Words (W3W) Geolocation (UTCTF 2026)
+
+**Pattern (W3W1/W3W2/W3W3):** Photo of a location. Find the exact What3Words address (3-meter precision grid). Flag format: `utflag{word1.word2.word3}`.
+
+**What3Words basics:**
+- Divides entire world into 3m x 3m squares, each with a unique 3-word address
+- Words are in a SPECIFIC language (English by default)
+- Adjacent squares have COMPLETELY different addresses (no spatial correlation)
+- Website: https://what3words.com/
+
+**Workflow:**
+1. **Identify the location** using standard geolocation techniques (reverse image search, landmarks, signs, architecture)
+2. **Get precise GPS coordinates** from Google Maps satellite view
+3. **Convert coordinates to W3W** using the website (enter coordinates in search bar)
+4. **Fine-tune:** The exact 3m square matters — shift coordinates by small amounts to check adjacent squares
+
+**Coordinate-to-W3W conversion:**
+```
+# Navigate to what3words.com and enter coordinates:
+# Format: latitude, longitude (e.g., 30.2870, -97.7415)
+# Or click on the map at the exact location
+
+# The W3W API requires an API key (not always available in CTF):
+# GET https://api.what3words.com/v3/convert-to-3wa?coordinates=30.2870,-97.7415&key=API_KEY
+```
+
+**Common pitfalls:**
+- **3m precision matters:** A building entrance vs. its parking lot may have different W3W addresses. Match the EXACT viewpoint of the photo.
+- **Camera position vs. subject:** The W3W address may refer to where the camera IS, not what it's pointed at.
+- **Satellite vs. street-level:** Google Maps pin may not perfectly align with the actual W3W grid.
+- **Multiple buildings nearby:** Churches, shops, and landmarks may have several candidate squares.
+
+**Tips for accurate pinpointing:**
+- Use Google Street View to match the exact camera angle
+- Cross-reference with OpenStreetMap (OSM) for precise building footprints
+- Try 5-10 adjacent W3W addresses around your best guess
+- The challenge image often shows a specific feature (entrance, sign, landmark) — find THAT exact spot
+- **Micro-landmark matching:** Identify small distinctive features in the challenge image (utility poles, pathway rocks, bollards, planters) and locate the same features in Street View to pinpoint the exact 3m square
+- **Background building triangulation:** Match buildings visible in the background from the challenge image angle. Find those same buildings in Street View, then determine where the camera must be positioned to produce the same perspective
+- **Geographic feature narrowing:** When you know the city but not the exact spot, use distinctive geographic features (lakes, rivers, coastline) visible in the image to narrow the search area before switching to Street View
+
+---
+
+## Monumental Letters / Letreiro Identification (UTCTF 2026)
+
+**Pattern (W3W3):** Photo of large 3D letters spelling a city/location name, often reflected in a pool of water. Common in Latin American cities as tourist landmarks.
+
+**Identification clues:**
+- Large colorful 3D block letters
+- Often located in main plaza (praça) or tourist area
+- May include city name in local language
+- Reflection in decorative water pool is a common design
+
+**Search strategy:**
+- Google: `"letras monumentales" [city name]` or `"letreiro turístico" [city]`
+- OpenStreetMap: search for nodes tagged as `tourism=attraction` near the city center
+- Google Maps: search `[city name] sign` or `[city name] letters` and check photos
+
+**Key insight:** These monumental letter installations ("letras monumentales" in Spanish, "letreiro turístico" in Portuguese) are extremely common in Latin American cities. The exact GPS coordinates of the installation can be found on OpenStreetMap or Google Maps photo pins.
