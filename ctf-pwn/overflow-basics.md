@@ -11,6 +11,7 @@
 - [Struct Pointer Overwrite (Heap Menu Challenges)](#struct-pointer-overwrite-heap-menu-challenges)
 - [Signed Integer Bypass (Negative Quantity)](#signed-integer-bypass-negative-quantity)
 - [Canary-Aware Partial Overflow](#canary-aware-partial-overflow)
+- [OOB Read via Stride/Rate Leak (DiceCTF 2026)](#oob-read-via-striderate-leak-dicectf-2026)
 - [Stack Canary Byte-by-Byte Brute Force on Forking Servers](#stack-canary-byte-by-byte-brute-force-on-forking-servers)
 - [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
 

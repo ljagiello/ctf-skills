@@ -3,6 +3,7 @@
 ## Table of Contents
 - [Mersenne Twister (MT19937) State Recovery](#mersenne-twister-mt19937-state-recovery)
 - [Time-Based Seed Attacks](#time-based-seed-attacks)
+- [C srand/rand Synchronization via Python ctypes](#c-srandrand-synchronization-via-python-ctypes)
 - [Layered Encryption Recovery](#layered-encryption-recovery)
 - [LCG Parameter Recovery Attack](#lcg-parameter-recovery-attack)
 - [ChaCha20 Key Recovery](#chacha20-key-recovery)
@@ -113,6 +114,71 @@ for ms in range(1000):
         print(f"Found seed: {seed}")
         break
 ```
+
+## C srand/rand Synchronization via Python ctypes
+
+**Pattern:** Binary seeds C's PRNG with `srand(time(NULL))` at startup and uses `rand()` for encryption keys, random challenges, or XOR masks. Python's `random` module uses Mersenne Twister (different algorithm), so calling `random.seed(t)` produces wrong outputs. Use `ctypes` to load the same libc and call C's `srand()`/`rand()` directly.
+
+**Basic synchronization (L3akCTF 2024, MireaCTF):**
+```python
+from ctypes import CDLL
+from time import time
+
+# Load the SAME libc used by the target binary
+libc = CDLL('./libc.so.6')  # or CDLL('libc.so.6') for system libc
+
+# Seed at the same second as the binary starts
+libc.srand(int(time()))
+
+# Generate the same sequence as the binary's rand() calls
+for i in range(16):
+    value = libc.rand() & 0xff  # match binary's truncation (e.g., & 0xff for byte)
+    print(value)
+```
+
+**Decrypting XOR-encrypted data (L3akCTF 2024 chonccfile):**
+```python
+from ctypes import CDLL
+from time import time
+from pwn import u32, p32
+
+libc_imp = CDLL('./libc.so.6')
+libc_imp.srand(int(time()))
+
+# Binary XORs each 4-byte block with rand() output
+encrypted_data = b'...'  # read from heap/memory
+result = b''
+for i in range(0, len(encrypted_data), 4):
+    block = u32(encrypted_data[i:i+4])
+    libc_imp.rand()       # skip delay-related rand() call if binary does extra calls
+    key = libc_imp.rand()
+    block ^= key
+    result += p32(block)
+```
+
+**Timing considerations:**
+- `time(NULL)` has 1-second granularity — start the exploit within the same second as the binary
+- Remote targets may have startup delay — try offsets of `+1` or `+2` seconds
+- Account for any `rand()` calls between `srand()` and the target usage (e.g., random delays)
+- Not 100% reliable on first try — retry with adjacent seeds if needed
+
+**Key insight:** Python's `random` and C's `rand()` are completely different PRNGs. When a C binary uses `srand(time(NULL))`, the only way to reproduce the sequence from Python is `ctypes.CDLL` calling the same libc's `srand`/`rand`. Load the challenge's provided `libc.so.6` for exact compatibility. This works for any C PRNG output prediction — XOR keys, random challenges, token generation, or encrypted heap data.
+
+**Alternative — custom shared library (MireaCTF):**
+```c
+// random_lib.c — compile with: gcc -shared -o random_lib.so random_lib.c
+#include <stdlib.h>
+void setseed(int seed) { srand(seed); }
+int generate() { return rand() & 0xff; }
+```
+```python
+from ctypes import CDLL
+lib = CDLL('./random_lib.so')
+lib.setseed(int(time()) + 1)  # +1 for remote delay
+numbers = [lib.generate() for _ in range(16)]
+```
+
+---
 
 ## Layered Encryption Recovery
 
