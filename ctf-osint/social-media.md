@@ -10,6 +10,7 @@
 - [Multi-Platform OSINT Chain](#multi-platform-osint-chain)
 - [MetaCTF OSINT Challenge Patterns](#metactf-osint-challenge-patterns)
 - [Unicode Homoglyph Steganography on BlueSky (MetaCTF 2026)](#unicode-homoglyph-steganography-on-bluesky-metactf-2026)
+- [Strava Fitness Route OSINT (MidnightCTF 2026)](#strava-fitness-route-osint-midnightctf-2026)
 - [Discord API Enumeration](#discord-api-enumeration)
 
 ---
@@ -83,7 +84,20 @@ has:images           # Posts with images
 
 - [namechk.com](https://namechk.com) - Check username across platforms
 - [whatsmyname.app](https://whatsmyname.app) - Username enumeration (741+ sites)
+- [Osint Industries](https://osint.industries) - Cross-platform people search (paid, covers fitness/niche platforms)
 - Search `"username"` in quotes on major platforms
+
+**Username metadata mining:**
+Usernames often embed geographic or temporal signals in their structure. Extract and research numeric suffixes, prefixes, or embedded patterns:
+
+| Pattern | Example | Signal |
+|---------|---------|--------|
+| Trailing digits = postal/ZIP code | `LinXiayu35170` | 35170 = Bruz, France |
+| Birth year suffix | `jsmith1998` | Born 1998 |
+| Area code | `user212nyc` | 212 = Manhattan |
+| Country code | `player44uk` | +44 = United Kingdom |
+
+Cross-reference extracted codes with postal code databases, phone number registries, or geographic gazetteers to narrow the subject's location. (MidnightCTF 2026)
 
 **Username chain tracing (account renames):**
 1. Start with known username -> find Wayback archives
@@ -94,6 +108,7 @@ has:images           # Posts with images
 **Priority platforms for CTF username enumeration:**
 - Twitter/X, Tumblr, GitHub, Reddit, Bluesky, Mastodon
 - Spotify, SoundCloud, Steam, Keybase
+- Strava, Garmin Connect, MapMyRun (fitness/GPS — leak physical locations)
 - Pastebin, LinkedIn, YouTube, TikTok
 - bio-link services (linktr.ee, bio.link, about.me)
 
@@ -211,6 +226,29 @@ def decode_homoglyph_stego(text):
 - Platform auto-formatting (smart quotes `'` → `'`) must be excluded from bit encoding
 - Hints like "hype comes with its own secrets" suggest steganography in the social media posts themselves
 - Bluesky public API requires no authentication — use `public.api.bsky.app`
+
+---
+
+## Strava Fitness Route OSINT (MidnightCTF 2026)
+
+**Pattern (Where was Chine):** Target's physical location identified through fitness tracking data. Username discovered on Twitter → alias found in GitHub code → alias searched on Strava → running route endpoint reveals location.
+
+**Strava public data exposure:**
+- Public athlete profiles: `https://www.strava.com/athletes/<id>`
+- Activity maps show GPS routes with start/end points
+- Even "privacy zones" can be circumvented by analyzing route shapes outside the zone
+- Segment leaderboards reveal athlete locations without following them
+
+**Location extraction workflow:**
+1. Find target's Strava profile via username enumeration (Whatsmyname, Osint Industries)
+2. Check public activities for GPS route maps
+3. Identify route start/end points or frequent locations
+4. Search the endpoint location on Google Maps
+5. Verify with Google Maps user-submitted photos (see [geolocation-and-media.md](geolocation-and-media.md#google-maps-crowd-sourced-photo-verification-midnightctf-2026))
+
+**Key insight:** Fitness apps are high-value OSINT targets because users rarely restrict activity visibility. A single public run reveals home/work neighborhoods. Cross-reference GPS endpoints with Google Maps to identify specific parks, buildings, or landmarks.
+
+**Detection:** Challenge mentions exercise, running, cycling, fitness, GPS, or health tracking. Target persona has an active/athletic profile.
 
 ---
 

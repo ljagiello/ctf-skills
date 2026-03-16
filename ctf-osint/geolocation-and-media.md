@@ -6,6 +6,7 @@
 - [Reverse Image Search](#reverse-image-search)
 - [Geolocation Techniques](#geolocation-techniques)
 - [MGRS (Military Grid Reference System)](#mgrs-military-grid-reference-system)
+- [Google Plus Codes / Open Location Codes (MidnightCTF 2026)](#google-plus-codes--open-location-codes-midnightctf-2026)
 - [Metadata Extraction](#metadata-extraction)
 - [Hardware/Product Identification](#hardwareproduct-identification)
 - [Newspaper Archives and Historical Research](#newspaper-archives-and-historical-research)
@@ -17,6 +18,8 @@
 - [Reflected and Mirrored Text Reading (UTCTF 2026)](#reflected-and-mirrored-text-reading-utctf-2026)
 - [What3Words (W3W) Geolocation (UTCTF 2026)](#what3words-w3w-geolocation-utctf-2026)
 - [Monumental Letters / Letreiro Identification (UTCTF 2026)](#monumental-letters--letreiro-identification-utctf-2026)
+- [Google Maps Crowd-Sourced Photo Verification (MidnightCTF 2026)](#google-maps-crowd-sourced-photo-verification-midnightctf-2026)
+- [Overpass Turbo Spatial Queries (LAB'OSINT 2025)](#overpass-turbo-spatial-queries-labosint-2025)
 
 ---
 
@@ -38,6 +41,7 @@
 - Google Images (most comprehensive)
 - TinEye (exact match)
 - Yandex (good for faces, Eastern Europe)
+- Baidu Images / `graph.baidu.com` (best for Chinese locations — use when visual cues suggest China: blue license plates, simplified Chinese text, menlou gate architecture)
 - Bing Visual Search
 
 ## Geolocation Techniques
@@ -58,6 +62,26 @@
 **Identification:** Challenge title mentions "grid", code format matches MGRS pattern.
 
 **Conversion:** Use online MGRS converter -> lat/long -> Google Maps for location name.
+
+## Google Plus Codes / Open Location Codes (MidnightCTF 2026)
+
+**Pattern (Chine Zhao):** Flag format requires a Google Plus Code (e.g., `H9G2+47X`) instead of coordinates or W3W. Plus Codes are Google's open-source alternative to street addresses.
+
+**Format:** `XXXX+XX` (short/local) or `8FVC9G8F+6W` (full/global). Characters from the set `23456789CFGHJMPQRVWX`. The `+` separator is always present.
+
+**Generating a Plus Code:**
+1. Find the exact location on Google Maps
+2. Click the map to drop a pin at the precise spot
+3. The Plus Code appears in the location details panel (e.g., `H9G2+47X Handan, Hebei, China`)
+4. Or enter coordinates in the Google Maps search bar — the Plus Code shows in results
+
+**Precision:** Standard Plus Codes resolve to ~14m x 14m areas (vs. W3W's 3m x 3m). Adding extra characters increases precision. Meter-level position changes can alter the code.
+
+**Key insight:** Unlike W3W (proprietary, requires API key), Plus Codes are free and built into Google Maps. When a flag format shows `{XXXX+XXX}`, recognize it as a Plus Code. Position the Street View camera at the exact photo capture location, then read the Plus Code from the map pin.
+
+**Reference:** https://maps.google.com/pluscodes/
+
+---
 
 ## Metadata Extraction
 
@@ -332,3 +356,72 @@ img.transpose(Image.FLIP_LEFT_RIGHT).save('flipped.jpg')
 - Google Maps: search `[city name] sign` or `[city name] letters` and check photos
 
 **Key insight:** These monumental letter installations ("letras monumentales" in Spanish, "letreiro turístico" in Portuguese) are extremely common in Latin American cities. The exact GPS coordinates of the installation can be found on OpenStreetMap or Google Maps photo pins.
+
+---
+
+## Google Maps Crowd-Sourced Photo Verification (MidnightCTF 2026)
+
+**Pattern (Where was Chine):** Verify a candidate location by matching a challenge image against user-submitted Google Maps photos for that place.
+
+**Workflow:**
+1. Identify a candidate location name from other OSINT clues (Strava GPS routes, address research, social media posts)
+2. Search the location name on Google Maps
+3. Click the location pin and browse the **Photos** tab (user-submitted images)
+4. Compare scene elements (buildings, trees, paths, water features, signage) against the challenge image
+5. Match confirms the location — the place name is typically the flag
+
+**When to use:** After narrowing to a candidate location through non-visual OSINT (fitness routes, addresses, social connections), use Google Maps photos as final visual confirmation. Especially useful for parks, plazas, and landmarks where many tourists upload photos.
+
+**Key insight:** Google Maps aggregates crowd-sourced photos tagged to specific locations. Even when reverse image search fails (because the challenge image is original, not scraped), the same physical scene appears in tourist photos. Search by place name, not by image.
+
+---
+
+## Overpass Turbo Spatial Queries (LAB'OSINT 2025)
+
+**Pattern (Portrait robot):** Find a specific business (newsagent) near a metro entrance in a known city. Overpass Turbo queries OpenStreetMap data to locate POIs by type within a radius of other POIs.
+
+**Tool:** https://overpass-turbo.eu/
+
+**Example — find newsagents within 10m of metro entrances in Barcelona:**
+```
+[out:json][timeout:25];
+{{geocodeArea:Barcelona}}->.searchArea;
+
+(
+  node["railway"="subway_entrance"](area.searchArea);
+)->.metros;
+
+(
+  node(around.metros:10)["shop"~"newsagent|kiosk"];
+  way(around.metros:10)["shop"~"newsagent|kiosk"];
+);
+
+out body;
+>;
+out skel qt;
+```
+
+**Common query patterns for OSINT:**
+```
+# All cafes near train stations in a city
+{{geocodeArea:CityName}}->.a;
+node["railway"="station"](area.a)->.stations;
+node(around.stations:50)["amenity"="cafe"];
+
+# All ATMs in a neighborhood
+node["amenity"="atm"]({{bbox}});
+
+# Hotels near a specific coordinate (lat,lon)
+node(around:200,48.8566,2.3522)["tourism"="hotel"];
+```
+
+**Key OSM tags for OSINT challenges:**
+
+| Tag | Values |
+|-----|--------|
+| `shop` | `newsagent`, `kiosk`, `bakery`, `supermarket` |
+| `amenity` | `cafe`, `restaurant`, `bank`, `atm`, `pharmacy` |
+| `tourism` | `hotel`, `attraction`, `museum`, `viewpoint` |
+| `railway` | `station`, `subway_entrance`, `halt` |
+
+**Key insight:** When a challenge image shows a business near a transit stop in a known city, Overpass Turbo can narrow candidates to a handful of locations by querying for the business type within a small radius of transit nodes. Verify each result with Google Street View. The `around` operator (proximity filter) is the most useful feature — it replaces hours of manual map browsing.

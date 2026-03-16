@@ -333,6 +333,28 @@ flag = ''.join(chr((ord(c) - 0xE0100) + 16) for c in hidden)
 
 **Detection:** Characters appear invisible but have non-zero length. Check with `[hex(ord(c)) for c in text]` -- look for codepoints in `0xE0100-0xE01EF` or `0xFE00-0xFE0F` range.
 
+### Unicode Tags Block (U+E0000-U+E007F) (UTCTF 2026)
+
+**Pattern (Hidden in Plain Sight):** Invisible Unicode Tag characters embedded in URLs, filenames, or text. Each tag codepoint maps directly to an ASCII character by subtracting `0xE0000`. URL-encoded as 4-byte UTF-8 sequences (`%F3%A0%81%...`).
+
+```python
+import urllib.parse
+
+url = "https://example.com/page#Title%20%F3%A0%81%B5%F3%A0%81%B4...Visible%20Text"
+decoded = urllib.parse.unquote(urllib.parse.urlparse(url).fragment)
+
+flag = ''.join(
+    chr(ord(ch) - 0xE0000)
+    for ch in decoded
+    if 0xE0000 <= ord(ch) <= 0xE007F
+)
+print(flag)
+```
+
+**Key insight:** Unicode Tags (U+E0001-U+E007F) mirror ASCII 1:1 — subtract `0xE0000` to recover the original character. They render as zero-width invisible glyphs in most fonts. Unlike Variation Selectors (U+E0100+), these have a simpler offset calculation and appear in URL fragments, challenge titles, or filenames where the text looks normal but has suspiciously long byte length.
+
+**Detection:** Text or URL is longer than expected in bytes. Percent-encoded sequences starting with `%F3%A0%80` or `%F3%A0%81`. Python: `any(0xE0000 <= ord(c) <= 0xE007F for c in text)`.
+
 ## UTF-16 Endianness Reversal
 
 **Pattern (endians):** Text "turned to Japanese" -- mojibake from UTF-16 endianness mismatch.

@@ -24,6 +24,27 @@ inurl:admin
 "confidential" filetype:doc
 ```
 
+**Google Image TBS (To Be Searched) parameters:**
+
+Append `&tbs=` filters to Google Image search URLs for precision filtering:
+
+| Filter | Parameter | Example |
+|--------|-----------|---------|
+| Faces only | `itp:face` | Find profile photos |
+| Clipart | `itp:clipart` | Logos, icons |
+| Animated GIF | `itp:animated` | Animated images |
+| Specific color | `ic:specific,isc:green` | Dominant color filter |
+| Transparent BG | `ic:trans` | PNGs with transparency |
+| Large images | `isz:l` | High resolution only |
+| Min resolution | `isz:lt,islt:2mp` | Greater than 2 megapixels |
+
+**Combined example:** Search LinkedIn for face photos of interns at a company:
+```text
+https://www.google.com/search?q="orange"+"alternant"+site:linkedin.com&tbm=isch&tbs=itp:face
+```
+
+**Key insight:** The `itp:face` filter is especially useful for OSINT — it strips out logos, banners, and UI screenshots from results, leaving only profile photos. Combine with `site:` and date range (`after:YYYY-MM-DD`) for targeted reconnaissance.
+
 ## Google Docs/Sheets in OSINT
 
 - Suspects may link to Google Sheets/Docs in tweets or posts
