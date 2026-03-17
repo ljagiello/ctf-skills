@@ -10,6 +10,7 @@
 - [Pyarmor 8/9 Static Unpack (1shot)](#pyarmor-89-static-unpack-1shot)
 - [DOS Stub Analysis](#dos-stub-analysis)
 - [Unity IL2CPP Games](#unity-il2cpp-games)
+- [HarmonyOS HAP/ABC Reverse (abc-decompiler)](#harmonyos-hapabc-reverse-abc-decompiler)
 - [Brainfuck/Esolangs](#brainfuckesolangs)
 - [UEFI Binary Analysis](#uefi-binary-analysis)
 - [Transpilation to C](#transpilation-to-c)
@@ -120,6 +121,58 @@ PE files can hide code in DOS stub:
 - Decrypt server responses with derived key
 
 Please note most of that the executable file for the PC platform is GameAssembly.dll or *Assembly.dll, for the Android is libil2cpp.so.
+
+---
+
+## HarmonyOS HAP/ABC Reverse (abc-decompiler)
+
+- Target files: `.hap` package and embedded `.abc` bytecode
+- Tool: `https://github.com/ohos-decompiler/abc-decompiler`
+- Download `jadx-dev-all.jar` from releases
+
+Critical startup note:
+- `java -jar` may enter GUI mode
+- For CLI mode, always use:
+
+```bash
+java -cp "./jadx-dev-all.jar" jadx.cli.JadxCLI [options] <input>
+```
+
+Most common commands:
+```bash
+# Basic decompile to directory
+java -cp "./jadx-dev-all.jar" jadx.cli.JadxCLI -d "out" ".abc"
+
+# Decompile .abc (recommended for this scenario)
+java -cp "./jadx-dev-all.jar" jadx.cli.JadxCLI -m simple -d "out_hap" "modules.abc"
+```
+
+Recommended parameters for this challenge:
+- `-m simple`: reduce high-level reconstruction to avoid SSA/PHI-heavy failures
+- `--log-level ERROR`: keep only critical errors
+- Full recommended command:
+
+```bash
+java -cp "./jadx-dev-all.jar" jadx.cli.JadxCLI -m simple --log-level ERROR -d "out_abc_simple" "modules.abc"
+```
+
+Parameter quick reference:
+- `-d` output directory
+- `--help` help
+
+Notes:
+- `.hap` is a package: extract it first (zip), then locate and analyze `.abc`
+- Quote paths containing spaces or non-ASCII characters
+- Use a new output directory name per run to avoid stale results
+- Errors do not always mean full failure; prioritize `out_xxx/sources/`
+- If `auto` fails, switch to `-m simple` first
+
+Standard workflow:
+1. Run with `-m simple --log-level ERROR`
+2. Inspect key business files in output (for example `pages/Index.java`)
+3. If cleaner output is needed, retry with `-m auto` or `-m restructure`
+4. If some methods still fail, keep the `simple` output and continue logic analysis via alternate paths
+
 ---
 
 ## Brainfuck/Esolangs

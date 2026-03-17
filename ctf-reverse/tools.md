@@ -30,6 +30,7 @@
   - [Key Locations](#key-locations)
   - [Search](#search)
   - [Flutter APK (Blutter)](#flutter-apk-blutter)
+  - [HarmonyOS HAP/ABC (abc-decompiler)](#harmonyos-hapabc-abc-decompiler)
 - [.NET Analysis](#net-analysis)
   - [Tools](#tools)
   - [NativeAOT](#nativeaot)
@@ -314,6 +315,36 @@ strings decoded/classes*.dex | grep -i flag
 # Run Blutter on arm64 build
 python3 blutter.py path/to/app/lib/arm64-v8a out_dir
 ```
+
+### HarmonyOS HAP/ABC (abc-decompiler)
+
+Repository: `https://github.com/ohos-decompiler/abc-decompiler`
+Releases: `https://github.com/ohos-decompiler/abc-decompiler/releases/download/h1/jadx-dev-all.jar`
+
+```bash
+# Extract .hap first to obtain .abc files
+unzip app.hap -d hap_extracted/
+```
+
+Critical startup mode:
+```bash
+# Use CLI entrypoint (avoid java -jar GUI mode)
+java -cp "./jadx-dev-all.jar" jadx.cli.JadxCLI [options] <input>
+```
+
+```bash
+# Basic decompile
+java -cp "./jadx-dev-all.jar" jadx.cli.JadxCLI -d "out" ".abc"
+
+# Recommended for .abc
+java -cp "./jadx-dev-all.jar" jadx.cli.JadxCLI -m simple --log-level ERROR -d "out_abc_simple" ".abc"
+```
+
+Notes:
+- Start with `-m simple --log-level ERROR`.
+- If `auto` fails, retry with `-m simple` first.
+- Errors do not always mean total failure; check `out_xxx/sources/`.
+- Use a fresh output directory per run.
 
 ---
 
