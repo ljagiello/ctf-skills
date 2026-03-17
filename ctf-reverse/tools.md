@@ -319,7 +319,6 @@ python3 blutter.py path/to/app/lib/arm64-v8a out_dir
 ### HarmonyOS HAP/ABC (abc-decompiler)
 
 Repository: `https://github.com/ohos-decompiler/abc-decompiler`
-Releases: `https://github.com/ohos-decompiler/abc-decompiler/releases/download/h1/jadx-dev-all.jar`
 
 ```bash
 # Extract .hap first to obtain .abc files
