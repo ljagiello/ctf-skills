@@ -83,10 +83,12 @@ PE files can hide code in DOS stub:
 ## Unity IL2CPP Games
 
 - Use Il2CppDumper to dump symbols
+- If Il2CppDumper fails, consider that `global-metadata.dat` may be encrypted; search strings/xrefs in the main binary and inspect the metadata loading path for custom decryption before dump.
 - Look for `Start()` functions
 - Key derivation: `key = SHA256(companyName + "\n" + productName)`
 - Decrypt server responses with derived key
 
+Please note most of that the executable file for the PC platform is GameAssembly.dll or *Assembly.dll, for the Android is libil2cpp.so.
 ---
 
 ## Brainfuck/Esolangs
