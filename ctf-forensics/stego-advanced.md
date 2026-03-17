@@ -2,7 +2,7 @@
 
 ## Table of Contents
 - [FFT Frequency Domain Steganography (Pragyan 2026)](#fft-frequency-domain-steganography-pragyan-2026)
-- [SSTV Red Herring + LSB Audio Stego (0xFun 2026)](#sstv-red-herring-lsb-audio-stego-0xfun-2026)
+- [SSTV Red Herring + LSB Audio Stego (0xFun 2026)](#sstv-red-herring--lsb-audio-stego-0xfun-2026)
 - [DotCode Barcode via SSTV (0xFun 2026)](#dotcode-barcode-via-sstv-0xfun-2026)
 - [DTMF Audio Decoding](#dtmf-audio-decoding)
 - [Custom Frequency DTMF / Dual-Tone Keypad Encoding (EHAX 2026)](#custom-frequency-dtmf--dual-tone-keypad-encoding-ehax-2026)

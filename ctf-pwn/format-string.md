@@ -5,9 +5,9 @@
 - [Argument Retargeting (Non-Positional %n Trick)](#argument-retargeting-non-positional-n-trick)
 - [Blind Pwn (No Binary Provided)](#blind-pwn-no-binary-provided)
 - [Format String with Filter Bypass](#format-string-with-filter-bypass)
-- [Format String Canary + PIE Leak](#format-string-canary-pie-leak)
-- [__free_hook Overwrite via Format String (glibc < 2.34)](#__free_hook-overwrite-via-format-string-glibc-234)
-- [.rela.plt / .dynsym Patching](#relaplt-dynsym-patching)
+- [Format String Canary + PIE Leak](#format-string-canary--pie-leak)
+- [__free_hook Overwrite via Format String (glibc < 2.34)](#__free_hook-overwrite-via-format-string-glibc--234)
+- [.rela.plt / .dynsym Patching](#relaplt--dynsym-patching)
 - [Format String for Game State Manipulation (UTCTF 2026)](#format-string-for-game-state-manipulation-utctf-2026)
 
 ---

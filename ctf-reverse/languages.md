@@ -351,7 +351,7 @@ TIMING = {
 
 ## Prefix-by-Prefix Hash Reversal (Nullcon 2026)
 
-See [patterns.md](patterns.md#prefix-hash-brute-force-nullcon-2026) for the full technique. This section covers language-specific considerations.
+See [patterns-ctf-2.md](patterns-ctf-2.md#prefix-hash-brute-force-nullcon-2026) for the full technique. This section covers language-specific considerations.
 
 **Language-specific notes:**
 - Hash algorithm may be uncommon (MD2, custom) — don't need to identify it, just match outputs by running the binary

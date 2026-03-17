@@ -10,7 +10,7 @@
   - [BCD (Binary-Coded Decimal) Encoding (VuwCTF 2025)](#bcd-binary-coded-decimal-encoding-vuwctf-2025)
   - [Multi-Layer Encoding Detection (0xFun 2026)](#multi-layer-encoding-detection-0xfun-2026)
   - [URL Encoding](#url-encoding)
-  - [ROT13 / Caesar](#rot13-caesar)
+  - [ROT13 / Caesar](#rot13--caesar)
   - [Caesar Brute Force](#caesar-brute-force)
 - [QR Codes](#qr-codes)
   - [Basic Commands](#basic-commands)

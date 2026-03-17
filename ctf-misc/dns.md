@@ -5,7 +5,7 @@
 - [DNSSEC NSEC Walking](#dnssec-nsec-walking)
 - [Incremental Zone Transfer (IXFR)](#incremental-zone-transfer-ixfr)
 - [DNS Rebinding](#dns-rebinding)
-- [DNS Tunneling / Exfiltration](#dns-tunneling-exfiltration)
+- [DNS Tunneling / Exfiltration](#dns-tunneling--exfiltration)
 - [DNS Enumeration Quick Reference](#dns-enumeration-quick-reference)
 
 ---

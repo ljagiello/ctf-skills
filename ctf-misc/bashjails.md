@@ -6,7 +6,7 @@
 - [Character-Restricted Bash: Only `#`, `$`, `\`](#character-restricted-bash-only)
 - [Internal Service Discovery (Post-Shell)](#internal-service-discovery-post-shell)
 - [Other Restricted Character Set Tricks](#other-restricted-character-set-tricks)
-  - [Building numbers from `$#` and `${##}`](#building-numbers-from-and)
+  - [Building numbers from `$#` and `${##}`](#building-numbers-from--and)
   - [Using PID digits](#using-pid-digits)
   - [Octal in ANSI-C quoting](#octal-in-ansi-c-quoting)
   - [Dollar-zero variants](#dollar-zero-variants)

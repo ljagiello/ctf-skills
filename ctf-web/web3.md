@@ -2,8 +2,9 @@
 
 ## Table of Contents
 - [Challenge Infrastructure Pattern](#challenge-infrastructure-pattern)
+  - [Auth Implementation (Python)](#auth-implementation-python)
 - [EIP-1967 Proxy Pattern Exploitation](#eip-1967-proxy-pattern-exploitation)
-- [ABI Coder v1 vs v2 - Dirty Address Bypass](#abi-coder-v1-vs-v2-dirty-address-bypass)
+- [ABI Coder v1 vs v2 - Dirty Address Bypass](#abi-coder-v1-vs-v2---dirty-address-bypass)
 - [Solidity CBOR Metadata Stripping for Codehash Bypass](#solidity-cbor-metadata-stripping-for-codehash-bypass)
 - [Non-Standard ABI Calldata Encoding](#non-standard-abi-calldata-encoding)
 - [Solidity bytes32 String Encoding](#solidity-bytes32-string-encoding)

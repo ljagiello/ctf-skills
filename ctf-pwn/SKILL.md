@@ -15,13 +15,15 @@ Quick reference for binary exploitation (pwn) CTF challenges. Each technique has
 ## Additional Resources
 
 - [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, canary byte-by-byte brute force on forking servers, struct pointer overwrite, signed integer bypass, hidden gadgets, stride-based OOB read leak
-- [rop-and-shellcode.md](rop-and-shellcode.md) - ROP chains (ret2libc, syscall ROP), SROP with UTF-8 constraints, double stack pivot to BSS via leave;ret, RETF architecture switch (x64→x32) for seccomp bypass, shellcode with input reversal, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template
+- [rop-and-shellcode.md](rop-and-shellcode.md) - Core ROP chains (ret2libc, syscall ROP, rdx control, shell interaction), ret2csu, bad character XOR bypass, exotic x86 gadgets (BEXTR/XLAT/STOSB/PEXT), stack pivot via xchg rax,esp
+- [rop-advanced.md](rop-advanced.md) - Advanced ROP techniques: double stack pivot to BSS via leave;ret, SROP with UTF-8 constraints, seccomp bypass, RETF architecture switch (x64→x32) for seccomp bypass, shellcode with input reversal, .fini_array hijack, ret2vdso, pwntools template
 - [format-string.md](format-string.md) - Format string exploitation (leaks, GOT overwrite, blind pwn, filter bypass, canary leak, __free_hook, .rela.plt patching)
 - [advanced.md](advanced.md) - Heap, UAF, JIT, esoteric GOT, custom allocators, DNS overflow, MD5 preimage, ASAN, rdx control, canary-aware overflow, CSV injection, path traversal, GC null-ref cascading corruption, io_uring UAF with SQE injection, integer truncation int32→int16 bypass, musl libc heap exploitation (meta pointer + atexit hijack), House of Orange/Spirit/Lore, ret2dlresolve, tcache stashing unlink attack
 - [advanced-exploits.md](advanced-exploits.md) - Advanced exploit techniques (part 1): VM signed comparison, BF JIT shellcode, type confusion, off-by-one index corruption, DNS overflow, ASAN shadow memory, format string with encoding constraints, custom canary preservation, signed integer bypass, canary-aware partial overflow, CSV injection, MD5 preimage gadgets, VM GC UAF slab reuse, path traversal sanitizer bypass, FSOP + seccomp bypass, stack variable overlap, 1-byte overflow via 8-bit loop counter
 - [advanced-exploits-2.md](advanced-exploits-2.md) - Advanced exploit techniques (part 2): bytecode validator bypass via self-modification, io_uring UAF with SQE injection, integer truncation int32→int16, GC null-reference cascading corruption, leakless libc via multi-fgets stdout FILE overwrite, signed/unsigned char underflow heap overflow, XOR keystream brute-force write primitive, tcache pointer decryption heap leak, unsorted bin promotion via forged chunk size, FSOP stdout TLS leak, TLS destructor hijack via `__call_tls_dtors`, custom shadow stack pointer overflow bypass, signed int overflow negative OOB heap write, XSS-to-binary pwn bridge, Windows SEH overwrite + pushad VirtualAlloc ROP, SeDebugPrivilege → SYSTEM
-- [sandbox-escape.md](sandbox-escape.md) - Python sandbox escape, custom VM exploitation, FUSE/CUSE devices, busybox/restricted shell, shell tricks
-- [kernel.md](kernel.md) - Linux kernel exploitation: modprobe_path overwrite, core_pattern, tty_struct kROP, userfaultfd race stabilization, SLUB heap spray structures, ret2usr, kernel ROP, kernel config recon
+- [sandbox-escape.md](sandbox-escape.md) - Custom VM exploitation, FUSE/CUSE devices, busybox/restricted shell, shell tricks (cross-references ctf-misc/pyjails.md for Python jail techniques)
+- [kernel.md](kernel.md) - Linux kernel exploitation fundamentals: environment setup, QEMU debug, heap spray structures (tty_struct, poll_list, user_key_payload, seq_operations), kernel stack overflow, canary leak, privilege escalation (ret2usr, kernel ROP), modprobe_path overwrite, core_pattern overwrite
+- [kernel-techniques.md](kernel-techniques.md) - Kernel exploitation techniques: tty_struct kROP (fake vtable + stack pivot), AAW via ioctl register control, userfaultfd race stabilization, SLUB allocator internals (freelist hardening/obfuscation), leak via kernel panic, MADV_DONTNEED race window extension (DiceCTF 2026), cross-cache CPU-split attack (DiceCTF 2026), PTE overlap file write (DiceCTF 2026)
 - [kernel-bypass.md](kernel-bypass.md) - Kernel protection bypass: KASLR/FGKASLR bypass (__ksymtab), KPTI bypass (swapgs trampoline, signal handler, modprobe_path/core_pattern via ROP), SMEP/SMAP bypass, GDB kernel module debugging, initramfs/virtio-9p workflow, exploit templates, exploit delivery
 
 ---
@@ -103,7 +105,7 @@ Leak libc via `puts@PLT(puts@GOT)`, return to vuln, stage 2 with `system("/bin/s
 
 **Bad char XOR bypass:** XOR payload data with key before writing to `.data`, then XOR back in place with ROP gadgets. Avoids null bytes, newlines, and other filtered characters. See [rop-and-shellcode.md](rop-and-shellcode.md#bad-character-bypass-via-xor-encoding-in-rop-crypto-cat).
 
-**Exotic gadgets (BEXTR/XLAT/STOSB/PEXT):** When standard `mov` write gadgets are unavailable, chain obscure x86 instructions for byte-by-byte memory writes. See [rop-and-shellcode.md](rop-and-shellcode.md#exotic-x86-gadgets--bextrxlatstosb-pext-crypto-cat).
+**Exotic gadgets (BEXTR/XLAT/STOSB/PEXT):** When standard `mov` write gadgets are unavailable, chain obscure x86 instructions for byte-by-byte memory writes. See [rop-and-shellcode.md](rop-and-shellcode.md#exotic-x86-gadgets--bextrxlatstosbpext-crypto-cat).
 
 **Stack pivot (xchg rax,esp):** Swap stack pointer to attacker-controlled heap/buffer when overflow is too small for full ROP chain. Requires `pop rax; ret` to load pivot address first. See [rop-and-shellcode.md](rop-and-shellcode.md#stack-pivot-via-xchg-raxesp-crypto-cat).
 
@@ -113,7 +115,7 @@ Leak libc via `puts@PLT(puts@GOT)`, return to vuln, stage 2 with `system("/bin/s
 
 ## ret2vdso — No-Gadget Binary Exploitation
 
-**Pattern:** Statically-linked binary with minimal functions and no useful ROP gadgets. The Linux kernel maps a vDSO into every process, containing usable gadgets. Leak vDSO base from `AT_SYSINFO_EHDR` (auxv type `0x21`) on the stack, dump the vDSO, extract gadgets for `execve`. vDSO is kernel-specific — always dump the remote copy. See [rop-and-shellcode.md](rop-and-shellcode.md#ret2vdso--using-kernel-vdso-gadgets-htb-nowhere-to-go).
+**Pattern:** Statically-linked binary with minimal functions and no useful ROP gadgets. The Linux kernel maps a vDSO into every process, containing usable gadgets. Leak vDSO base from `AT_SYSINFO_EHDR` (auxv type `0x21`) on the stack, dump the vDSO, extract gadgets for `execve`. vDSO is kernel-specific — always dump the remote copy. See [rop-advanced.md](rop-advanced.md#ret2vdso--using-kernel-vdso-gadgets-htb-nowhere-to-go).
 
 ## Use-After-Free (UAF) Exploitation
 
@@ -125,15 +127,15 @@ Alternative syscalls when seccomp blocks `open()`/`read()`: `openat()` (257), `o
 
 **Check rules:** `seccomp-tools dump ./binary`
 
-See [rop-and-shellcode.md](rop-and-shellcode.md) for quick reference and [advanced.md](advanced.md) for conditional buffer address restrictions, shellcode without relocations, `scmp_arg_cmp` struct layout.
+See [rop-advanced.md](rop-advanced.md) for quick reference and [advanced.md](advanced.md) for conditional buffer address restrictions, shellcode without relocations, `scmp_arg_cmp` struct layout.
 
 ## Stack Shellcode with Input Reversal
 
-**Pattern:** Binary reverses input buffer. Pre-reverse shellcode, use partial 6-byte RIP overwrite, trampoline `jmp short` to NOP sled. See [rop-and-shellcode.md](rop-and-shellcode.md).
+**Pattern:** Binary reverses input buffer. Pre-reverse shellcode, use partial 6-byte RIP overwrite, trampoline `jmp short` to NOP sled. See [rop-advanced.md](rop-advanced.md).
 
 ## .fini_array Hijack
 
-Writable `.fini_array` + arbitrary write -> overwrite with win/shellcode address. Works even with Full RELRO. See [rop-and-shellcode.md](rop-and-shellcode.md) for implementation.
+Writable `.fini_array` + arbitrary write -> overwrite with win/shellcode address. Works even with Full RELRO. See [rop-advanced.md](rop-advanced.md) for implementation.
 
 ## Path Traversal Sanitizer Bypass
 
@@ -169,11 +171,11 @@ OOB via vulnerable `lseek`, heap grooming with `fork()`, SUID exploits. Check `C
 
 ## io_uring UAF with SQE Injection
 
-**Pattern:** Custom slab allocator + io_uring worker thread. FLUSH frees objects (UAF), type confusion via slab fallback, craft `IORING_OP_OPENAT` SQE in reused memory. io_uring trusts SQE contents from userland shared memory. See [advanced.md](advanced.md#io_uring-uaf-with-sqe-injection-apoorvctf-2026).
+**Pattern:** Custom slab allocator + io_uring worker thread. FLUSH frees objects (UAF), type confusion via slab fallback, craft `IORING_OP_OPENAT` SQE in reused memory. io_uring trusts SQE contents from userland shared memory. See [advanced-exploits-2.md](advanced-exploits-2.md#io_uring-uaf-with-sqe-injection-apoorvctf-2026).
 
 ## Integer Truncation Bypass (int32→int16)
 
-**Pattern:** Input validated as int32 (>= 0), cast to int16_t for bounds check. Value 65534 passes int32 check, becomes -2 as int16_t → OOB array access. Use `xchg rdi, rax; cld; ret` gadget for dynamic fd capture in containerized ORW chains. See [advanced.md](advanced.md#integer-truncation-bypass-int32int16-apoorvctf-2026).
+**Pattern:** Input validated as int32 (>= 0), cast to int16_t for bounds check. Value 65534 passes int32 check, becomes -2 as int16_t → OOB array access. Use `xchg rdi, rax; cld; ret` gadget for dynamic fd capture in containerized ORW chains. See [advanced-exploits-2.md](advanced-exploits-2.md#integer-truncation-bypass-int32int16-apoorvctf-2026).
 
 ## Format String Quick Reference
 
@@ -271,7 +273,7 @@ AST bypass via f-strings, audit hook bypass with `b'flag.txt'` (bytes vs str), M
 
 ## SROP with UTF-8 Constraints
 
-**Pattern:** When payload must be valid UTF-8 (Rust binaries, JSON parsers), use SROP — only 3 gadgets needed. Multi-byte UTF-8 sequences spanning register field boundaries "fix" high bytes. See [rop-and-shellcode.md](rop-and-shellcode.md).
+**Pattern:** When payload must be valid UTF-8 (Rust binaries, JSON parsers), use SROP — only 3 gadgets needed. Multi-byte UTF-8 sequences spanning register field boundaries "fix" high bytes. See [rop-advanced.md](rop-advanced.md).
 
 ## VM Exploitation (Custom Bytecode)
 
@@ -291,11 +293,11 @@ Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers
 
 ## Double Stack Pivot to BSS via leave;ret (Midnightflag 2026)
 
-**Pattern:** Small overflow (only RBP + RIP). Overwrite RBP → BSS address, RIP → `leave; ret` gadget. `leave` sets RSP = RBP (BSS). Second stage at BSS calls `fgets(BSS+offset, large_size, stdin)` to load full ROP chain. See [rop-and-shellcode.md](rop-and-shellcode.md#double-stack-pivot-to-bss-via-leaveret-midnightflag-2026).
+**Pattern:** Small overflow (only RBP + RIP). Overwrite RBP → BSS address, RIP → `leave; ret` gadget. `leave` sets RSP = RBP (BSS). Second stage at BSS calls `fgets(BSS+offset, large_size, stdin)` to load full ROP chain. See [rop-advanced.md](rop-advanced.md#double-stack-pivot-to-bss-via-leaveret-midnightflag-2026).
 
 ## RETF Architecture Switch for Seccomp Bypass (Midnightflag 2026)
 
-**Pattern:** Seccomp blocks 64-bit syscalls (`open`, `execve`). Use `retf` gadget to load CS=0x23 (IA-32e compatibility mode). In 32-bit mode, `int 0x80` uses different syscall numbers (open=5, read=3, write=4) not covered by the filter. Requires `mprotect` to make BSS executable for 32-bit shellcode. See [rop-and-shellcode.md](rop-and-shellcode.md#retf-architecture-switch-for-seccomp-bypass-midnightflag-2026).
+**Pattern:** Seccomp blocks 64-bit syscalls (`open`, `execve`). Use `retf` gadget to load CS=0x23 (IA-32e compatibility mode). In 32-bit mode, `int 0x80` uses different syscall numbers (open=5, read=3, write=4) not covered by the filter. Requires `mprotect` to make BSS executable for 32-bit shellcode. See [rop-advanced.md](rop-advanced.md#retf-architecture-switch-for-seccomp-bypass-midnightflag-2026).
 
 ## Leakless Libc via Multi-fgets stdout FILE Overwrite (Midnightflag 2026)
 
@@ -338,4 +340,4 @@ Format string leak defeats ASLR. SEH (Structured Exception Handler) overwrite wi
 
 ## Useful Commands
 
-`checksec`, `one_gadget`, `ropper`, `ROPgadget`, `seccomp-tools dump`, `strings libc | grep GLIBC`. See [rop-and-shellcode.md](rop-and-shellcode.md) for full command list and pwntools template.
+`checksec`, `one_gadget`, `ropper`, `ROPgadget`, `seccomp-tools dump`, `strings libc | grep GLIBC`. See [rop-advanced.md](rop-advanced.md) for full command list and pwntools template.

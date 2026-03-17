@@ -1,7 +1,7 @@
 # CTF Crypto - Exotic Algebraic Structures
 
 ## Table of Contents
-- [Braid Group DH — Alexander Polynomial Multiplicativity (DiceCTF 2026)](#braid-group-dh-alexander-polynomial-multiplicativity-dicectf-2026)
+- [Braid Group DH — Alexander Polynomial Multiplicativity (DiceCTF 2026)](#braid-group-dh--alexander-polynomial-multiplicativity-dicectf-2026)
 - [Monotone Function Inversion with Partial Output](#monotone-function-inversion-with-partial-output)
 - [Tropical Semiring Residuation Attack (BearCatCTF 2026)](#tropical-semiring-residuation-attack-bearcatctf-2026)
 

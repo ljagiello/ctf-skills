@@ -3,7 +3,7 @@
 ## Table of Contents
 - [VGA Signal Decoding](#vga-signal-decoding)
 - [HDMI TMDS Decoding](#hdmi-tmds-decoding)
-- [DisplayPort 8b/10b + LFSR Decoding](#displayport-8b10b-lfsr-decoding)
+- [DisplayPort 8b/10b + LFSR Decoding](#displayport-8b10b--lfsr-decoding)
 - [Voyager Golden Record Audio (0xFun 2026)](#voyager-golden-record-audio-0xfun-2026)
 - [Side-Channel Power Analysis (EHAX 2026)](#side-channel-power-analysis-ehax-2026)
 - [Saleae Logic 2 UART Decode (EHAX 2026)](#saleae-logic-2-uart-decode-ehax-2026)

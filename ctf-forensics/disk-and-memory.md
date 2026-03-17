@@ -12,7 +12,7 @@
 - [Windows Minidump String Carving (0xFun 2026)](#windows-minidump-string-carving-0xfun-2026)
 - [VMDK Sparse Parsing (0xFun 2026)](#vmdk-sparse-parsing-0xfun-2026)
 - [Memory Dump String Carving (Pragyan 2026)](#memory-dump-string-carving-pragyan-2026)
-- [Memory Dump Malware Extraction + XOR (VuwCTF 2025)](#memory-dump-malware-extraction-xor-vuwctf-2025)
+- [Memory Dump Malware Extraction + XOR (VuwCTF 2025)](#memory-dump-malware-extraction--xor-vuwctf-2025)
 - [Linux Ransomware Memory-Key Recovery (MetaCTF 2026)](#linux-ransomware-memory-key-recovery-metactf-2026)
 - [WordPerfect Macro XOR Extraction (srdnlenCTF 2026)](#wordperfect-macro-xor-extraction-srdnlenctf-2026)
 - [Minidump ISO 9660 Recovery + XOR Key (srdnlenCTF 2026)](#minidump-iso-9660-recovery--xor-key-srdnlenctf-2026)

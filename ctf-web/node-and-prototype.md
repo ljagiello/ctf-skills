@@ -10,8 +10,8 @@
   - [ESM-Compatible Escape (CVE-2025-61927)](#esm-compatible-escape-cve-2025-61927)
   - [CommonJS Escape](#commonjs-escape)
   - [Why `document.write` Matters for Happy-DOM](#why-documentwrite-matters-for-happy-dom)
-- [Full Chain: Prototype Pollution → VM Escape RCE (4llD4y)](#full-chain-prototype-pollution-vm-escape-rce-4lld4y)
-- [Lodash Prototype Pollution → Pug AST Injection (VuwCTF 2025)](#lodash-prototype-pollution-pug-ast-injection-vuwctf-2025)
+- [Full Chain: Prototype Pollution → VM Escape RCE (4llD4y)](#full-chain-prototype-pollution--vm-escape-rce-4lld4y)
+- [Lodash Prototype Pollution → Pug AST Injection (VuwCTF 2025)](#lodash-prototype-pollution--pug-ast-injection-vuwctf-2025)
 - [Affected Libraries](#affected-libraries)
 - [Detection](#detection)
 

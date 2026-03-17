@@ -1,8 +1,8 @@
 # CTF Reverse - Competition-Specific Patterns (Part 1)
 
 ## Table of Contents
-- [Hidden Emulator Opcodes + LD_PRELOAD Key Extraction (0xFun 2026)](#hidden-emulator-opcodes-ld_preload-key-extraction-0xfun-2026)
-- [Spectre-RSB SPN Cipher — Static Parameter Extraction (0xFun 2026)](#spectre-rsb-spn-cipher-static-parameter-extraction-0xfun-2026)
+- [Hidden Emulator Opcodes + LD_PRELOAD Key Extraction (0xFun 2026)](#hidden-emulator-opcodes--ld_preload-key-extraction-0xfun-2026)
+- [Spectre-RSB SPN Cipher — Static Parameter Extraction (0xFun 2026)](#spectre-rsb-spn-cipher--static-parameter-extraction-0xfun-2026)
 - [Image XOR Mask Recovery via Smoothness (VuwCTF 2025)](#image-xor-mask-recovery-via-smoothness-vuwctf-2025)
 - [Shellcode in Data Section via mmap RWX (VuwCTF 2025)](#shellcode-in-data-section-via-mmap-rwx-vuwctf-2025)
 - [Recursive execve Subtraction (VuwCTF 2025)](#recursive-execve-subtraction-vuwctf-2025)
@@ -14,6 +14,7 @@
 - [Sprague-Grundy Game Theory Binary (DiceCTF 2026)](#sprague-grundy-game-theory-binary-dicectf-2026)
 - [Kernel Module Maze Solving (DiceCTF 2026)](#kernel-module-maze-solving-dicectf-2026)
 - [Multi-Threaded VM with Channel Synchronization (DiceCTF 2026)](#multi-threaded-vm-with-channel-synchronization-dicectf-2026)
+- [Backdoored Shared Library Detection via String Diffing (Hack.lu CTF 2012)](#backdoored-shared-library-detection-via-string-diffing-hacklu-ctf-2012)
 
 ---
 
@@ -435,6 +436,38 @@ def solve_flag(scramble_vals, lookup_table, initial_state, target_state):
 ```
 
 **Key insight:** Multi-threaded VMs require tracing data flow across thread boundaries. Channel-based communication creates a pipeline — identify each thread's role (input, transform, validate, output) by watching which channels it reads/writes. Constants that affect computation may come from unexpected sources (futex return values, thread IDs).
+
+---
+
+## Backdoored Shared Library Detection via String Diffing (Hack.lu CTF 2012)
+
+**Pattern (Zombie Lockbox):** A setuid binary uses `strcmp` for password validation. The expected password is visible via `strings` and works under GDB (which drops suid), but fails when run normally. The binary links against a non-standard libc that patches function behavior based on suid status.
+
+**Detection steps:**
+1. Check for non-standard library paths with `ldd`:
+```bash
+ldd ./binary
+# Suspicious: libc.so.6 => /lib/libc/libc.so.6  (non-standard path)
+# Normal:    libc.so.6 => /lib32/libc.so.6
+```
+
+2. Diff strings between the suspicious and system libc:
+```bash
+strings /lib/libc/libc.so.6 > suspicious_strings
+strings /lib32/libc-2.15.so > normal_strings
+diff suspicious_strings normal_strings
+```
+
+3. Disassemble the patched function (e.g., `puts`) to find injected code:
+```bash
+gdb /lib/libc/libc.so.6
+(gdb) disas puts
+# Look for unexpected calls or branches
+# Injected code may check suid status (getuid/geteuid syscalls)
+# and swap the expected password at runtime
+```
+
+**Key insight:** When a binary behaves differently under GDB vs. normal execution, check `ldd` for non-standard library paths. Suid binaries drop privileges under debuggers, so a backdoored libc can detect this via `getuid`/`geteuid` syscalls and change program behavior accordingly. The `strings | diff` approach quickly reveals injected data without full disassembly.
 
 ---
 
