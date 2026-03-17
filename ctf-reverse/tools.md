@@ -21,6 +21,7 @@
 - [Python Bytecode](#python-bytecode)
   - [Disassembly](#disassembly)
   - [Extract Constants](#extract-constants)
+  - [Pyarmor Static Unpack (1shot)](#pyarmor-static-unpack-1shot)
 - [WASM Analysis](#wasm-analysis)
   - [Decompile to C](#decompile-to-c)
   - [Common Patterns](#common-patterns)
@@ -247,6 +248,27 @@ for ins in dis.get_instructions(code):
     if ins.opname == 'LOAD_CONST':
         print(ins.argval)
 ```
+
+### Pyarmor Static Unpack (1shot)
+
+Repository: `https://github.com/Lil-House/Pyarmor-Static-Unpack-1shot`
+
+```bash
+# Basic usage (recursive processing)
+python /path/to/oneshot/shot.py /path/to/scripts
+
+# Specify pyarmor runtime library explicitly
+python /path/to/oneshot/shot.py /path/to/scripts -r /path/to/pyarmor_runtime.so
+
+# Save outputs to another directory
+python /path/to/oneshot/shot.py /path/to/scripts -o /path/to/output
+```
+
+Notes:
+- `oneshot/pyarmor-1shot` must exist before running `shot.py`.
+- Supported focus: Pyarmor 8.x-9.x (`PY` + six digits header style).
+- Pyarmor 7 and earlier (`PYARMOR` header) are out of scope.
+- Disassembly output is generally reliable; decompiled source is experimental.
 
 ---
 

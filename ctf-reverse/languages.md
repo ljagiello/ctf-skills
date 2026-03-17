@@ -7,6 +7,7 @@
 - [Python Opcode Remapping](#python-opcode-remapping)
   - [Identification](#identification)
   - [Recovery](#recovery)
+- [Pyarmor 8/9 Static Unpack (1shot)](#pyarmor-89-static-unpack-1shot)
 - [DOS Stub Analysis](#dos-stub-analysis)
 - [Unity IL2CPP Games](#unity-il2cpp-games)
 - [Brainfuck/Esolangs](#brainfuckesolangs)
@@ -67,6 +68,36 @@ Decompiler fails with opcode errors.
 3. Build mapping: `{new_opcode: original_opcode}`
 4. Patch target .pyc
 5. Decompile normally
+
+---
+
+## Pyarmor 8/9 Static Unpack (1shot)
+
+- Tool: `Lil-House/Pyarmor-Static-Unpack-1shot`
+- Use for Pyarmor 8.x/9.x armored scripts without executing sample code
+- Quick signature check: payload typically starts with `PY` + six digits (Pyarmor 7 and earlier `PYARMOR` format is not supported)
+
+Workflow:
+1. Ensure target directory contains armored scripts and matching `pyarmor_runtime` library.
+2. Run one-shot unpack to emit `.1shot.` outputs (disassembly + experimental decompile).
+3. Treat disassembly as ground truth; verify decompiled source with bytecode when inconsistent.
+
+```bash
+python /path/to/oneshot/shot.py /path/to/scripts
+```
+
+Optional flags:
+```bash
+# Specify runtime explicitly
+python /path/to/oneshot/shot.py /path/to/scripts -r /path/to/pyarmor_runtime.so
+
+# Write outputs to another directory
+python /path/to/oneshot/shot.py /path/to/scripts -o /path/to/output
+```
+
+Notes:
+- `oneshot/pyarmor-1shot` executable must exist before running `shot.py`.
+- PyInstaller bundles or archives should be unpacked first, then processed with 1shot.
 
 ---
 
