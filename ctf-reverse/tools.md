@@ -28,6 +28,7 @@
   - [Extraction](#extraction)
   - [Key Locations](#key-locations)
   - [Search](#search)
+  - [Flutter APK (Blutter)](#flutter-apk-blutter)
 - [.NET Analysis](#net-analysis)
   - [Tools](#tools)
   - [NativeAOT](#nativeaot)
@@ -283,6 +284,13 @@ unzip app.apk -d extracted/      # Simple extraction
 ```bash
 grep -r "flag\|CTF" decoded/
 strings decoded/classes*.dex | grep -i flag
+```
+
+### Flutter APK (Blutter)
+
+```bash
+# Run Blutter on arm64 build
+python3 blutter.py path/to/app/lib/arm64-v8a out_dir
 ```
 
 ---

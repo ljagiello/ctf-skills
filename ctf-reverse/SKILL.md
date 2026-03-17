@@ -1,6 +1,6 @@
 ---
 name: ctf-reverse
-description: Provides reverse engineering techniques for CTF challenges. Use when analyzing binaries, game clients, obfuscated code, esoteric languages, custom VMs, anti-debugging, WASM, .NET, APK, Python bytecode, Ghidra, GDB, radare2, or extracting flags from compiled executables.
+description: Provides reverse engineering techniques for CTF challenges. Use when analyzing binaries, game clients, obfuscated code, esoteric languages, custom VMs, anti-debugging, WASM, .NET, APK (including Flutter/Dart AOT with Blutter), Python bytecode, Ghidra, GDB, radare2, or extracting flags from compiled executables.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
@@ -158,6 +158,24 @@ jadx app.apk                     # Decompile to Java
 grep -r "flag" decoded/res/values/strings.xml
 ```
 
+### Flutter APK (Dart AOT)
+
+When APK analysis points to Flutter (`lib/arm64-v8a/libapp.so`, `libflutter.so`), use Blutter first.
+
+- Blutter repository and docs: https://github.com/worawit/blutter
+
+```bash
+# Example workflow (APK -> libs -> Blutter output)
+python3 blutter.py path/to/app/lib/arm64-v8a out_dir
+```
+Output files
+- asm/* libapp assemblies with symbols
+- blutter_frida.js the frida script template for the target application
+- objs.txt complete (nested) dump of Object from Object Pool
+- pp.txt all Dart objects in Object Pool
+
+Blutter reconstructs Dart metadata and generates script output that is easier to navigate than raw ARM64 disassembly.
+
 ### .NET
 - dnSpy - debugging + decompilation
 - ILSpy - decompiler
@@ -166,6 +184,21 @@ grep -r "flag" decoded/res/values/strings.xml
 ```bash
 upx -d packed -o unpacked
 ```
+If unpacking fails, inspect UPX metadata first: verify UPX section names, header fields, and version markers are intact. If metadata looks tampered or uncertain, review UPX source on GitHub to identify likely modification points. 
+
+### Tauri Packed Desktop Apps (Static Assets)
+
+Tauri often embeds frontend assets directly into the executable, commonly Brotli-compressed by default.
+
+Workflow:
+1. Identify Tauri app traits (`tauri`, `wry`, `index.html`, webview-related strings).
+2. In disassembler, pivot from `index.html` string xrefs to locate the asset index table.
+3. Recover each asset record (filename + blob offset + blob length; exact layout varies by build/version).
+4. Dump blob bytes from the binary and attempt Brotli decompression first.
+5. If decompression fails, re-check exact boundaries; Brotli is highly sensitive to off-by-one errors.
+
+Reference points:
+- Tauri embedded assets implementation: `tauri-codegen/src/embedded_assets.rs`
 
 ## Anti-Debugging Bypass
 
