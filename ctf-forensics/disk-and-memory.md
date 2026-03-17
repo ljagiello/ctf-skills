@@ -20,6 +20,9 @@
 - [RAID 5 Disk Recovery via XOR (Crypto-Cat)](#raid-5-disk-recovery-via-xor-crypto-cat)
 - [Windows KAPE Triage Analysis (UTCTF 2026)](#windows-kape-triage-analysis-utctf-2026)
 - [PowerShell Ransomware Analysis](#powershell-ransomware-analysis)
+- [Android Forensics](#android-forensics)
+- [Container Forensics (Docker)](#container-forensics-docker)
+- [Cloud Storage Forensics (AWS S3 / GCP / Azure)](#cloud-storage-forensics-aws-s3--gcp--azure)
 
 ---
 
@@ -577,3 +580,91 @@ strings powershell.DMP | grep -E '^[A-Za-z0-9]{24}$' | sort | head
 ```
 
 5. Find archive password similarly, decrypt layers
+
+---
+
+### Android Forensics
+
+```bash
+# Extract APK from device
+adb pull /data/app/com.target.app/base.apk
+
+# Analyze APK contents
+apktool d base.apk -o decompiled/
+# Check: AndroidManifest.xml, res/values/strings.xml, shared_prefs/
+
+# Extract data from Android backup
+adb backup -apk -shared -all -f backup.ab
+java -jar abe.jar unpack backup.ab backup.tar
+tar xf backup.tar
+
+# SQLite databases (contacts, messages, browser history)
+sqlite3 /data/data/com.android.providers.contacts/databases/contacts2.db ".tables"
+sqlite3 /data/data/com.android.providers.telephony/databases/mmssms.db "SELECT * FROM sms"
+
+# Parse Android filesystem image
+mkdir android_mount && mount -o ro android_image.img android_mount/
+# Key locations:
+# /data/data/<app>/databases/     — app SQLite databases
+# /data/data/<app>/shared_prefs/  — app preferences (XML)
+# /data/system/packages.xml       — installed packages
+# /data/misc/wifi/wpa_supplicant.conf — saved WiFi passwords
+```
+
+**Key insight:** Android stores app data in `/data/data/<package>/` with SQLite databases and XML shared preferences. `adb backup` captures the full app state. For CTFs, check `shared_prefs/` for hardcoded secrets and `databases/` for flags.
+
+---
+
+### Container Forensics (Docker)
+
+```bash
+# Export Docker image layers
+docker save IMAGE:TAG -o image.tar
+tar xf image.tar
+# Each layer is a directory with layer.tar containing filesystem changes
+# Check: layer.tar files for added/modified files, deleted files (.wh.* whiteout)
+
+# Inspect image history for build commands (may contain secrets)
+docker history IMAGE:TAG --no-trunc
+# Shows every Dockerfile instruction including ARGs and ENV values
+
+# Extract filesystem without running the container
+docker create --name extract IMAGE:TAG
+docker export extract -o container_fs.tar
+docker rm extract
+
+# Analyze with dive (layer-by-layer diff viewer)
+dive IMAGE:TAG
+
+# Common forensic targets in container images:
+# /app/.env, /app/config/* — application secrets
+# /root/.bash_history     — build-time commands
+# /etc/shadow             — leaked credentials
+# Deleted files visible in earlier layers even if removed in later ones
+```
+
+**Key insight:** Docker images are layered — a file deleted in a later layer still exists in the earlier layer's tar. Use `docker history --no-trunc` to see full Dockerfile commands including secrets passed via `ARG` or `ENV`. The `dive` tool visualizes layer diffs interactively.
+
+---
+
+### Cloud Storage Forensics (AWS S3 / GCP / Azure)
+
+```bash
+# Enumerate public S3 buckets
+aws s3 ls s3://target-bucket/ --no-sign-request
+aws s3 cp s3://target-bucket/flag.txt . --no-sign-request
+
+# Check bucket versioning (previous versions may contain deleted flags)
+aws s3api list-object-versions --bucket target-bucket --no-sign-request
+aws s3api get-object --bucket target-bucket --key secret.txt --version-id VERSION_ID out.txt
+
+# GCP Cloud Storage
+gsutil ls gs://target-bucket/
+gsutil cp gs://target-bucket/flag.txt .
+
+# Azure Blob Storage
+az storage blob list --container-name target --account-name storageaccount
+az storage blob download --container-name target --name flag.txt --account-name storageaccount
+```
+
+**Key insight:** Cloud storage versioning preserves deleted objects. Even if a flag file is deleted from the bucket, previous versions may still be accessible via `list-object-versions`. Always check for versioning-enabled buckets.

@@ -20,6 +20,9 @@ Specific CVEs and vulnerability patterns. For Node.js CVEs (flatnest, Happy-DOM)
 - [AAEncode/JJEncode JS Deobfuscation (0xFun 2026)](#aaencodejjencode-js-deobfuscation-0xfun-2026)
 - [Protocol Multiplexing — SSH+HTTP on Same Port (0xFun 2026)](#protocol-multiplexing-sshhttp-on-same-port-0xfun-2026)
 - [CVE-2025-55182: React Server Components Flight Protocol RCE](#cve-2025-55182-react-server-components-flight-protocol-rce)
+- [CVE-2024-45409: Ruby-SAML XPath Digest Smuggling (Barrier HTB)](#cve-2024-45409-ruby-saml-xpath-digest-smuggling-barrier-htb)
+- [CVE-2023-27350: PaperCut NG Authentication Bypass + RCE (Bamboo HTB)](#cve-2023-27350-papercut-ng-authentication-bypass--rce-bamboo-htb)
+- [CVE-2024-22120: Zabbix Time-Based Blind SQLi (Watcher HTB)](#cve-2024-22120-zabbix-time-based-blind-sqli-watcher-htb)
 - [Detection Checklist](#detection-checklist)
 
 ---
@@ -229,6 +232,63 @@ See [server-side-advanced.md](server-side-advanced.md#react-server-components-fl
 
 ---
 
+## CVE-2024-45409: Ruby-SAML XPath Digest Smuggling (Barrier HTB)
+
+**Affected:** GitLab 17.3.2 (ruby-saml library)
+
+Exploits XPath ambiguity in ruby-saml's signature verification to forge SAML (Security Assertion Markup Language) assertions claiming arbitrary user identity.
+
+**Attack chain:**
+1. Extract IdP (Identity Provider) metadata signature from the legitimate SAML response
+2. Craft assertion claiming target user (e.g., `akadmin`)
+3. Set assertion ID to match metadata reference URI
+4. Compute correct digest and place in `StatusDetail` element — XPath finds this smuggled digest instead of the original
+5. Submit forged response to `/users/auth/saml/callback`
+
+**Detection:** GitLab < 17.3.3 with SAML SSO enabled.
+
+---
+
+## CVE-2023-27350: PaperCut NG Authentication Bypass + RCE (Bamboo HTB)
+
+**Affected:** PaperCut NG < 22.0.9 (CVSS 9.8)
+
+**Attack chain:**
+1. Hit `/app?service=page/SetupCompleted` for unauthenticated admin session
+2. Enable `print-and-device.script.enabled`, disable `print.script.sandboxed` via Config Editor
+3. Inject RhinoJS script in printer settings for RCE:
+```javascript
+java.lang.Runtime.getRuntime().exec(["/bin/bash", "-c", "CMD"])
+```
+4. Exfiltrate output via HTTP callback with base64 encoding
+5. Access internal services via Squid proxy:
+```bash
+curl -x http://TARGET:3128 http://127.0.0.1:9191/app
+```
+
+**Key insight:** The SetupCompleted endpoint grants full admin access without credentials. Chain with Squid proxy to reach internal services.
+
+---
+
+## CVE-2024-22120: Zabbix Time-Based Blind SQLi (Watcher HTB)
+
+**Affected:** Zabbix (audit log functionality via trapper port 10051)
+
+Exploits unsanitized `clientip` field in Zabbix trapper protocol to achieve time-based blind SQL injection, then escalates to RCE via Zabbix API.
+
+**Attack chain:**
+1. Log in to Zabbix frontend as guest, decode base64 cookie to extract `sessionid`
+2. Send crafted `clientip` field via trapper port 10051 for time-based blind SQLi
+3. Extract admin session ID character-by-character via sleep timing
+4. Authenticate to Zabbix API with stolen admin session
+5. Achieve RCE via `script.create` + `script.execute` API calls
+
+**Key insight:** `\r` (carriage return) in exploit script output can leave visual artifacts. Verify extracted session ID is exactly 32 hex characters before using it.
+
+**Detection:** Zabbix with trapper port 10051 exposed. Audit log functionality enabled.
+
+---
+
 ## Detection Checklist
 
 1. **Framework versions** in `package.json`, `requirements.txt`, `Dockerfile`
@@ -238,3 +298,6 @@ See [server-side-advanced.md](server-side-advanced.md#react-server-components-fl
 5. **dotenv** or environment variable handling
 6. **urllib** scheme validation (check for `<URL:...>` bypass)
 7. **Node.js libraries** — see [node-and-prototype.md](node-and-prototype.md) for full list
+8. **GitLab with SAML SSO** — check version for ruby-saml CVE-2024-45409
+9. **PaperCut NG** — check for `/app?service=page/SetupCompleted` unauthenticated access
+10. **Zabbix trapper port** (10051) — audit log SQLi via `clientip` field

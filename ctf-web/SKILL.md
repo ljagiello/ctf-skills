@@ -1,6 +1,6 @@
 ---
 name: ctf-web
-description: Provides web exploitation techniques for CTF challenges. Use when solving web security challenges involving XSS, SQLi, SSTI, SSRF, CSRF, XXE, file upload bypasses, JWT attacks, prototype pollution, path traversal, command injection, request smuggling, DOM clobbering, Web3/blockchain, or authentication bypass.
+description: Provides web exploitation techniques for CTF challenges. Use when solving web security challenges involving XSS, SQLi, SSTI, SSRF, CSRF, XXE, file upload bypasses, JWT attacks, prototype pollution, path traversal, command injection, request smuggling, DOM clobbering, Web3/blockchain, authentication bypass, SAML exploitation, OAuth/OIDC, open redirect chains, subdomain takeover, or CI/CD credential theft.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
@@ -15,12 +15,14 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 ## Additional Resources
 
 - [server-side.md](server-side.md) - Core server-side injection attacks: SQLi, SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass
-- [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain
+- [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB)
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle
-- [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: JWT, session, password inference, weak validation, client-side gates, NoSQL auth bypass, OAuth/OIDC exploitation (redirect_uri bypass, token manipulation, state CSRF), CORS misconfiguration
+- [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: password inference, weak validation, client-side gates, NoSQL auth bypass, HAProxy/Express.js bypass, IDOR on WIP endpoints, HTTP TRACE method bypass, LLM/AI chatbot jailbreak, open redirect chains (OAuth token theft), subdomain takeover
+- [auth-jwt.md](auth-jwt.md) - JWT/JWE token attacks: algorithm none, RS256→HS256 confusion, weak secret, unverified signature, JWK/JKU header injection, KID path traversal, balance replay, JWE forgery with exposed public key
+- [auth-infra.md](auth-infra.md) - Infrastructure auth: OAuth/OIDC exploitation (redirect_uri bypass, token manipulation, state CSRF), CORS misconfiguration, git history credential leakage, CI/CD variable theft, identity provider API takeover (authentik/Keycloak), SAML SSO flow automation, Guacamole parameter extraction, login page poisoning, TeamCity REST API RCE
 - [node-and-prototype.md](node-and-prototype.md) - Node.js: prototype pollution, VM sandbox escape, Happy-DOM chain, flatnest CVE, Lodash+Pug AST injection
 - [web3.md](web3.md) - Blockchain/Web3: Solidity exploits, proxy patterns, ABI encoding tricks, transient storage clearing collision (0.8.28-0.8.33), Foundry tooling
-- [cves.md](cves.md) - CVE-specific exploits: Next.js middleware bypass, curl credential leak, Uvicorn CRLF, urllib scheme bypass, ExifTool DjVu, broken auth, AAEncode/JJEncode, protocol multiplexing, React Server Components Flight RCE (CVE-2025-55182)
+- [cves.md](cves.md) - CVE-specific exploits: Next.js middleware bypass, curl credential leak, Uvicorn CRLF, urllib scheme bypass, ExifTool DjVu, broken auth, AAEncode/JJEncode, protocol multiplexing, React Server Components Flight RCE (CVE-2025-55182), Ruby-SAML XPath digest smuggling (CVE-2024-45409, Barrier HTB), PaperCut NG auth bypass + RCE (CVE-2023-27350, Bamboo HTB), Zabbix blind SQLi (CVE-2024-22120, Watcher HTB)
 
 ---
 
@@ -88,7 +90,7 @@ See [client-side.md](client-side.md) for DOMPurify bypass, cache poisoning, CSPT
 8. JKU header injection — point to attacker-controlled JWKS URL
 9. KID path traversal — `../../../dev/null` for empty key, or SQL injection in KID
 
-See [auth-and-access.md](auth-and-access.md) for full JWT attacks and session manipulation.
+See [auth-jwt.md](auth-jwt.md) for full JWT/JWE attacks and session manipulation.
 
 ## SSTI Quick Reference
 
@@ -192,8 +194,21 @@ See [node-and-prototype.md](node-and-prototype.md) for detailed exploitation.
 - Affine cipher OTP: only 312 possible values (`12 mults × 26 adds`), brute-force all in seconds
 - Express.js `%2F` middleware bypass: `/api/export%2Fchat` skips `app.all("/api/export/chat")` middleware; nginx decodes `%2F` before proxying
 - IDOR on WIP endpoints: grep for `WIP`/`TODO`/`debug` comments, compare auth decorators against production endpoints
+- Git history credential leakage: `git log -p --all -S "password"` finds deleted secrets
+- CI/CD variable theft: GitLab/Jenkins/GitHub CI/CD variables store service account tokens
+- Identity provider API takeover: admin token → set any user's password, bypass MFA with `not_configured_action: skip`
+- SAML SSO automation: preserve `RelayState` through entire flow, submit signed `SAMLResponse` to callback
+- Guacamole parameter extraction: API token or MySQL access exposes SSH keys and passphrases
+- Login page poisoning: inject credential logger into login page, harvest automated logins from `/dev/shm/creds.txt`
+- TeamCity REST API RCE: admin creds → create project → add build step → trigger build (runs as build agent user, often root)
 
-See [auth-and-access.md](auth-and-access.md) for full patterns.
+## Open Redirect Chains
+Chain open redirects (`?redirect=`, `?next=`, `?url=`) with OAuth flows for token theft. Bypass validation with `@`, `%00`, `//`, `\`, CRLF. See [auth-and-access.md](auth-and-access.md#open-redirect-chains).
+
+## Subdomain Takeover
+Dangling CNAME → claim resource on external service (GitHub Pages, S3, Heroku). Use `subfinder` + `httpx` to enumerate, check fingerprints. See [auth-and-access.md](auth-and-access.md#subdomain-takeover).
+
+See [auth-and-access.md](auth-and-access.md) for access control bypasses, [auth-jwt.md](auth-jwt.md) for JWT/JWE attacks, and [auth-infra.md](auth-infra.md) for OAuth/SAML/CI-CD/infrastructure auth.
 
 ## File Upload → RCE
 
@@ -288,6 +303,14 @@ Content behind CSS overlay (`position: fixed; z-index: 99999`) is still in the r
 ## SSRF → Docker API RCE Chain
 
 SSRF to unauthenticated Docker daemon on port 2375. Use `/archive` for file extraction, `/exec` + `/exec/{id}/start` for command execution. Chain through internal POST relay when SSRF is GET-only. See [server-side-advanced.md](server-side-advanced.md#ssrf--docker-api-rce-chain-h7ctf-2025).
+
+## Castor XML Deserialization via xsi:type (Atlas HTB)
+
+Castor XML `Unmarshaller` without mapping file trusts `xsi:type` attributes for arbitrary Java class instantiation. Chain through JNDI (Java Naming and Directory Interface) / RMI (Remote Method Invocation) via ysoserial `CommonsBeanutils1` for RCE. Requires Java 11 (not 17+). Check `pom.xml` for `castor-xml`. See [server-side-advanced.md](server-side-advanced.md#castor-xml-deserialization-via-xsitype-polymorphism-atlas-htb).
+
+## Apache ErrorDocument Expression File Read (Zero HTB)
+
+`.htaccess` with `ErrorDocument 404 "%{file:/etc/passwd}"` reads files at Apache level, bypassing `php_admin_flag engine off`. Requires `AllowOverride FileInfo`. Upload via SFTP, trigger with 404 request. See [server-side-advanced.md](server-side-advanced.md#apache-errordocument-expression-file-read-zero-htb).
 
 ## HTTP TRACE Method Bypass
 

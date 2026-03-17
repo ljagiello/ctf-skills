@@ -12,6 +12,9 @@
 - [AES-GCM with Derived Keys (EHAX 2026)](#aes-gcm-with-derived-keys-ehax-2026)
 - [Ascon-like Reduced-Round Differential Cryptanalysis (srdnlenCTF 2026)](#ascon-like-reduced-round-differential-cryptanalysis-srdnlenctf-2026)
 - [Custom Linear MAC Forgery (Nullcon 2026)](#custom-linear-mac-forgery-nullcon-2026)
+- [CBC Padding Oracle Attack](#cbc-padding-oracle-attack)
+- [Bleichenbacher / PKCS#1 v1.5 RSA Padding Oracle](#bleichenbacher--pkcs1-v15-rsa-padding-oracle)
+- [Birthday Attack / Meet-in-the-Middle](#birthday-attack--meet-in-the-middle)
 
 ---
 
@@ -223,3 +226,147 @@ for i in range(64):
 **Recovery:** Create ~10 pastes to collect `(id, sig)` pairs. Each pair reveals `secret[selector]` for 4 selectors. With ~4-5 pairs, all 3 secret blocks are recovered. Then forge for target ID.
 
 **Key insight:** Linearity in custom crypto constructions (XOR-based signing) makes them trivially forgeable. Always check if the MAC has the property: knowing the secret components lets you compute valid signatures for arbitrary inputs.
+
+---
+
+## CBC Padding Oracle Attack
+
+**Pattern:** Server reveals whether CBC-mode ciphertext has valid PKCS#7 padding (via error messages, timing, or status codes). Decrypt any ciphertext block-by-block without the key.
+
+```python
+from pwn import *
+
+def padding_oracle(iv, ct):
+    """Returns True if server accepts padding."""
+    resp = requests.post(URL, data={'iv': iv.hex(), 'ct': ct.hex()})
+    return 'padding' not in resp.text.lower()  # or check status code
+
+def decrypt_block(prev_block, target_block):
+    """Decrypt one 16-byte block using padding oracle."""
+    intermediate = bytearray(16)
+    plaintext = bytearray(16)
+
+    for byte_pos in range(15, -1, -1):
+        pad_val = 16 - byte_pos
+        # Set already-known bytes to produce correct padding
+        crafted = bytearray(16)
+        for k in range(byte_pos + 1, 16):
+            crafted[k] = intermediate[k] ^ pad_val
+
+        for guess in range(256):
+            crafted[byte_pos] = guess
+            if padding_oracle(bytes(crafted), target_block):
+                intermediate[byte_pos] = guess ^ pad_val
+                plaintext[byte_pos] = intermediate[byte_pos] ^ prev_block[byte_pos]
+                break
+
+    return bytes(plaintext)
+```
+
+**Tools:**
+```bash
+# PadBuster — automated padding oracle exploitation
+padbuster http://target/decrypt.php ENCRYPTED_B64 16 \
+  -encoding 0 -error "Invalid padding"
+
+# Python: pip install padding-oracle
+from padding_oracle import PaddingOracle
+oracle = PaddingOracle(block_size=16, oracle_fn=check_padding)
+plaintext = oracle.decrypt(ciphertext, iv=iv)
+```
+
+**Key insight:** The oracle only needs to distinguish "valid padding" from "invalid padding." This can be a different HTTP status code, error message, response time, or even whether the application processes the request further. A single bit of information per query is sufficient. Decryption requires at most 256 x 16 = 4096 queries per block.
+
+**Detection:** CBC mode encryption + any distinguishable behavior difference on padding errors. Common in cookie encryption, token systems, and encrypted API parameters.
+
+---
+
+## Bleichenbacher / PKCS#1 v1.5 RSA Padding Oracle
+
+**Pattern:** RSA encryption with PKCS#1 v1.5 padding where the server reveals whether decrypted plaintext has valid `0x00 0x02` prefix. Adaptive chosen-ciphertext attack recovers the plaintext.
+
+```python
+import gmpy2
+
+def bleichenbacher_oracle(c, n, e):
+    """Returns True if RSA decryption has valid PKCS#1 v1.5 padding (0x00 0x02 prefix)."""
+    resp = send_to_server(c)
+    return resp.status_code != 400  # Server returns 400 on bad padding
+
+def bleichenbacher_attack(c0, n, e, oracle, k):
+    """
+    c0: target ciphertext (integer)
+    k: byte length of modulus (e.g., 256 for RSA-2048)
+    """
+    B = pow(2, 8 * (k - 2))
+
+    # Step 1: Start with s1 = ceil(n / 3B)
+    s = (n + 3 * B - 1) // (3 * B)
+
+    # Step 2: Search for s where oracle(c0 * s^e mod n) is True
+    while True:
+        c_prime = (c0 * pow(s, e, n)) % n
+        if oracle(c_prime, n, e):
+            break
+        s += 1
+
+    # Step 3: Narrow interval [a, b] using s values
+    # Repeat: find new s, narrow interval, until a == b
+    # When interval collapses, plaintext = a * modinv(s, n) % n
+    # (Full implementation requires interval tracking — use existing tools)
+```
+
+**Tools:**
+```bash
+# ROBOT attack scanner (modern Bleichenbacher variant)
+python3 robot-detect.py -H target.com
+
+# TLS-Attacker framework
+java -jar TLS-Attacker.jar -connect target:443 -workflow_type BLEICHENBACHER
+```
+
+**Key insight:** The attack is adaptive — each oracle response narrows the range of possible plaintexts. Typically requires ~10,000 oracle queries for RSA-2048. The ROBOT attack (Return Of Bleichenbacher's Oracle Threat) showed this affects modern TLS implementations through subtle timing differences. Any server that distinguishes "bad padding" from "bad content" is vulnerable.
+
+---
+
+## Birthday Attack / Meet-in-the-Middle
+
+**Pattern:** Find collisions in hash functions or MACs using the birthday paradox. With an n-bit hash, expect a collision after ~2^(n/2) random inputs.
+
+```python
+import hashlib, os
+
+def birthday_collision(hash_fn, output_bits, prefix=b''):
+    """Find two inputs with the same truncated hash."""
+    target_bytes = output_bits // 8
+    seen = {}
+
+    while True:
+        msg = prefix + os.urandom(16)
+        h = hash_fn(msg).digest()[:target_bytes]
+        if h in seen:
+            return seen[h], msg  # Collision found!
+        seen[h] = msg
+
+# Example: find collision on first 4 bytes of SHA-256 (~65536 attempts)
+msg1, msg2 = birthday_collision(hashlib.sha256, 32)
+```
+
+**Meet-in-the-Middle (2DES, double encryption):**
+```python
+def meet_in_the_middle(encrypt_fn, decrypt_fn, plaintext, ciphertext, keyspace):
+    """Break double encryption E(k2, E(k1, pt)) = ct."""
+    # Forward: encrypt plaintext with all possible k1
+    forward = {}
+    for k1 in keyspace:
+        intermediate = encrypt_fn(k1, plaintext)
+        forward[intermediate] = k1
+
+    # Backward: decrypt ciphertext with all possible k2
+    for k2 in keyspace:
+        intermediate = decrypt_fn(k2, ciphertext)
+        if intermediate in forward:
+            return forward[intermediate], k2  # Found k1, k2!
+```
+
+**Key insight:** Birthday attack: n-bit hash needs ~2^(n/2) queries for 50% collision probability. 32-bit hash -> ~65K, 64-bit -> ~4 billion. Meet-in-the-middle reduces double encryption from O(2^(2k)) to O(2^k) time + O(2^k) space — this is why 2DES provides only 1 extra bit of security over DES.
