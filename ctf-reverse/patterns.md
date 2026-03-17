@@ -10,6 +10,7 @@
   - [Common Checks](#common-checks)
   - [Bypass Technique](#bypass-technique)
   - [LD_PRELOAD Hook](#ld_preload-hook)
+  - [pwntools Binary Patching (Crypto-Cat)](#pwntools-binary-patching-crypto-cat)
 - [Nanomites](#nanomites)
   - [Linux (Signal-Based)](#linux-signal-based)
   - [Windows (Debug Events)](#windows-debug-events)

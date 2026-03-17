@@ -254,7 +254,7 @@ plaintext = bytes((b - 0x32) ^ key[i % len(key)] for i, b in enumerate(cipher))
 
 ## Linux Ransomware Memory-Key Recovery (MetaCTF 2026)
 
-**Pattern:** Linux memory dump + encrypted `.veg` files + `enc_key.bin`; ransomware uses hybrid crypto (AES for files, RSA-wrapped key). Volatility may fail process enumeration due symbol/KASLR mismatch.
+**Pattern:** Linux memory dump + encrypted `.veg` files + `enc_key.bin`; ransomware uses hybrid crypto (AES for files, RSA-wrapped key). Volatility may fail process enumeration due symbol/KASLR (Kernel Address Space Layout Randomization) mismatch.
 
 **Fast workflow:**
 1. **Confirm archive integrity before analysis.**

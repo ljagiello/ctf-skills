@@ -25,7 +25,7 @@
 
 ### KASLR Bypass via Stack Leak (hxp CTF 2020)
 
-Leak a kernel text pointer from the stack to compute the KASLR slide:
+Leak a kernel text pointer from the stack to compute the KASLR (Kernel Address Space Layout Randomization) slide:
 
 ```c
 // Kernel base without KASLR
@@ -51,7 +51,7 @@ unsigned long pop_rdi_ret_kaslr = pop_rdi_ret + kaslr_offset;
 
 ### FGKASLR Bypass (hxp CTF 2020)
 
-FG-KASLR randomizes individual functions, but the early `.text` section (up to approximately offset `0x400dc6`) remains at a fixed offset from the kernel base. Gadgets from this range are safe to use.
+FGKASLR (Function Granular KASLR) randomizes individual functions, but the early `.text` section (up to approximately offset `0x400dc6`) remains at a fixed offset from the kernel base. Gadgets from this range are safe to use.
 
 **Method 1: Use only unaffected `.text` gadgets**
 

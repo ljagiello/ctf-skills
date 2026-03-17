@@ -14,10 +14,10 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi, SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, Java deserialization (ysoserial), Python pickle RCE, race conditions (TOCTOU)
+- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (including EXIF metadata injection), SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, Java deserialization (ysoserial), Python pickle RCE, race conditions (TOCTOU)
 - [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB)
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle
-- [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: password inference, weak validation, client-side gates, NoSQL auth bypass, HAProxy/Express.js bypass, IDOR on WIP endpoints, HTTP TRACE method bypass, LLM/AI chatbot jailbreak, open redirect chains (OAuth token theft), subdomain takeover
+- [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: password inference, weak validation, client-side gates, NoSQL auth bypass, HAProxy/Express.js bypass, IDOR on WIP endpoints, HTTP TRACE method bypass, LLM/AI chatbot jailbreak, open redirect chains (OAuth token theft), subdomain takeover, Apache mod_status info disclosure + session forging
 - [auth-jwt.md](auth-jwt.md) - JWT/JWE token attacks: algorithm none, RS256→HS256 confusion, weak secret, unverified signature, JWK/JKU header injection, KID path traversal, balance replay, JWE forgery with exposed public key
 - [auth-infra.md](auth-infra.md) - Infrastructure auth: OAuth/OIDC exploitation (redirect_uri bypass, token manipulation, state CSRF), CORS misconfiguration, git history credential leakage, CI/CD variable theft, identity provider API takeover (authentik/Keycloak), SAML SSO flow automation, Guacamole parameter extraction, login page poisoning, TeamCity REST API RCE
 - [node-and-prototype.md](node-and-prototype.md) - Node.js: prototype pollution, VM sandbox escape, Happy-DOM chain, flatnest CVE, Lodash+Pug AST injection
@@ -52,7 +52,9 @@ username=\&password= OR 1=1--  # Backslash escape quote bypass
 
 XML entity encoding: `&#x55;&#x4e;&#x49;&#x4f;&#x4e;` → `UNION` after XML parser decodes, bypasses WAF keyword filters.
 
-See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, SQLi→SSTI chains, XML entity WAF bypass.
+EXIF metadata injection: embed SQL in image EXIF fields (`exiftool -Comment="' UNION SELECT flag FROM flags--" image.jpg`) to bypass WAFs that only inspect HTTP parameters.
+
+See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, SQLi→SSTI chains, XML entity WAF bypass, EXIF metadata injection.
 
 ## XSS Quick Reference
 
@@ -216,6 +218,10 @@ See [node-and-prototype.md](node-and-prototype.md) for detailed exploitation.
 - Guacamole parameter extraction: API token or MySQL access exposes SSH keys and passphrases
 - Login page poisoning: inject credential logger into login page, harvest automated logins from `/dev/shm/creds.txt`
 - TeamCity REST API RCE: admin creds → create project → add build step → trigger build (runs as build agent user, often root)
+
+## Apache mod_status Information Disclosure
+
+`/server-status` endpoint reveals active URLs, client IPs, and session data. Use for admin endpoint discovery and session forging. See [auth-and-access.md](auth-and-access.md#apache-mod_status-information-disclosure--session-forging-29c3-ctf-2012).
 
 ## Open Redirect Chains
 Chain open redirects (`?redirect=`, `?next=`, `?url=`) with OAuth flows for token theft. Bypass validation with `@`, `%00`, `//`, `\`, CRLF. See [auth-and-access.md](auth-and-access.md#open-redirect-chains).

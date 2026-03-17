@@ -1,5 +1,7 @@
 # CTF Misc - RF / SDR / IQ Signal Processing
 
+Techniques for Software-Defined Radio (SDR) signal processing using In-phase/Quadrature (IQ) data.
+
 ## IQ File Formats
 - **cf32** (complex float 32): GNU Radio standard, `np.fromfile(path, dtype=np.complex64)`
 - **cs16** (complex signed 16-bit): `np.fromfile(path, dtype=np.int16).reshape(-1,2)`, then `I + jQ`
@@ -34,7 +36,7 @@ filtered = signal.lfilter(lpf, 1.0, baseband)
 ```
 
 ## QAM-16 Demodulation with Carrier + Timing Recovery
-The key challenge is carrier frequency offset causing constellation rotation (circles instead of points).
+QAM-16 (Quadrature Amplitude Modulation) — the key challenge is carrier frequency offset causing constellation rotation (circles instead of points).
 
 **Decision-directed carrier recovery + Mueller-Muller timing:**
 ```python

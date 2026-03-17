@@ -11,6 +11,7 @@
   - [SQLi → SSTI Chain](#sqli--ssti-chain)
   - [MySQL information_schema.processList Trick](#mysql-information_schemaprocesslist-trick)
   - [WAF Bypass via XML Entity Encoding (Crypto-Cat)](#waf-bypass-via-xml-entity-encoding-crypto-cat)
+  - [SQLi via EXIF Metadata Injection (29c3 CTF 2012)](#sqli-via-exif-metadata-injection-29c3-ctf-2012)
 - [SSTI (Server-Side Template Injection)](#ssti-server-side-template-injection)
   - [Jinja2 RCE](#jinja2-rce)
   - [Go Template Injection](#go-template-injection)
@@ -232,6 +233,28 @@ This decodes to `1 UNION SELECT username FROM users` after XML processing.
 **Key insight:** WAF inspects raw XML bytes and blocks keyword patterns, but the XML parser decodes `&#xNN;` entities before passing values to the SQL layer. Any endpoint accepting XML input (SOAP, REST with XML body, stock check APIs) is a candidate.
 
 **With sqlmap:** Use the `hexentities` tamper script. To prevent `&amp;` double-encoding of entities, modify `sqlmap/lib/request/connect.py`.
+
+### SQLi via EXIF Metadata Injection (29c3 CTF 2012)
+
+**Pattern:** Application extracts EXIF metadata from uploaded images (e.g., Comment, Artist, Description, Copyright) and inserts the values into SQL queries without sanitization. SQL payloads embedded in EXIF fields bypass WAFs that only inspect HTTP request bodies and URL parameters.
+
+**Injecting SQL into EXIF fields:**
+```bash
+# Set EXIF Comment field to SQL payload
+exiftool -Comment="' UNION SELECT password FROM users--" image.jpg
+
+# Other injectable EXIF fields
+exiftool -Artist="' OR 1=1--" image.jpg
+exiftool -ImageDescription="'; DROP TABLE uploads;--" image.jpg
+exiftool -Copyright="' UNION SELECT flag FROM flags--" image.jpg
+
+# XMP metadata (often parsed by web applications)
+exiftool -XMP-dc:Description="' UNION SELECT 1,2,3--" image.jpg
+```
+
+**Key insight:** Image galleries, photo management apps, and any upload endpoint that stores or displays EXIF data may feed metadata directly into SQL queries. WAFs and input filters typically inspect form fields and URL parameters but not binary file content. The EXIF fields survive re-encoding unless the application explicitly strips metadata (e.g., with `exiftool -all=`).
+
+**Detection:** Upload endpoint that displays metadata (camera model, description, location) after upload. Check if special characters in EXIF fields cause SQL errors in the response.
 
 ---
 

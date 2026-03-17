@@ -42,7 +42,7 @@ Image.fromarray(img_arr).save('vga_output.png')
 
 ## HDMI TMDS Decoding
 
-**Structure:** 3 channels (R, G, B), each encoded as 10-bit TMDS symbols. Bit 9 = inversion flag, bit 8 = XOR/XNOR mode. Decode is deterministic from MSBs down.
+**Structure:** 3 channels (R, G, B), each encoded as 10-bit TMDS (Transition-Minimized Differential Signaling) symbols. Bit 9 = inversion flag, bit 8 = XOR/XNOR mode. Decode is deterministic from MSBs down.
 
 ```python
 def tmds_decode(symbol_10bit):

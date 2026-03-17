@@ -16,6 +16,11 @@
 - [Bleichenbacher / PKCS#1 v1.5 RSA Padding Oracle](#bleichenbacher--pkcs1-v15-rsa-padding-oracle)
 - [Birthday Attack / Meet-in-the-Middle](#birthday-attack--meet-in-the-middle)
 - [LFSR Stream Cipher Attacks](#lfsr-stream-cipher-attacks)
+  - [Berlekamp-Massey Algorithm](#berlekamp-massey-algorithm)
+  - [Correlation Attack](#correlation-attack)
+  - [Known-Plaintext on LFSR Keystream](#known-plaintext-on-lfsr-keystream)
+  - [Galois vs Fibonacci LFSR](#galois-vs-fibonacci-lfsr)
+  - [Common LFSR Lengths and Polynomials](#common-lfsr-lengths-and-polynomials)
 
 ---
 
@@ -83,7 +88,7 @@ See [advanced-math.md](advanced-math.md) for full S-box collision analysis code.
 
 ## LCG Partial Output Recovery (0xFun 2026)
 
-**Known parameters:** If LCG constants (M, A, C) are known and output is `state mod N`, iterate by N through modulus to find state:
+**Known parameters:** If LCG (Linear Congruential Generator) constants (M, A, C) are known and output is `state mod N`, iterate by N through modulus to find state:
 ```python
 # output = state % N, state = (A * prev + C) % M
 for candidate in range(output, M, N):

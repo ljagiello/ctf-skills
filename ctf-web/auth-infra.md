@@ -74,7 +74,7 @@ forged = f"{new_header.decode()}.{new_payload.decode()}."
 # 3. Bound to user session (not just random)
 ```
 
-**Key insight:** OAuth/OIDC attacks typically target redirect_uri validation (open redirect → token theft), token manipulation (alg:none, JWKS injection), or state parameter CSRF. Always test redirect_uri with path traversal, fragment injection, and subdomain tricks.
+**Key insight:** OAuth/OIDC (OpenID Connect) attacks typically target redirect_uri validation (open redirect → token theft), token manipulation (alg:none, JWKS injection), or state parameter CSRF. Always test redirect_uri with path traversal, fragment injection, and subdomain tricks.
 
 ---
 
@@ -110,7 +110,7 @@ fetch('https://target.com/api/user/profile', {
 });
 ```
 
-**Key insight:** CORS is exploitable when `Access-Control-Allow-Origin` reflects the `Origin` header AND `Access-Control-Allow-Credentials: true`. Check for subdomain matching (`*.target.com` accepts `evil-target.com`), null origin acceptance (`sandbox` iframe), and prefix/suffix matching bugs.
+**Key insight:** CORS (Cross-Origin Resource Sharing) is exploitable when `Access-Control-Allow-Origin` reflects the `Origin` header AND `Access-Control-Allow-Credentials: true`. Check for subdomain matching (`*.target.com` accepts `evil-target.com`), null origin acceptance (`sandbox` iframe), and prefix/suffix matching bugs.
 
 ---
 
