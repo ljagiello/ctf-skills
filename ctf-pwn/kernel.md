@@ -476,3 +476,24 @@ Alternative to `modprobe_path`. Overwrite `/proc/sys/kernel/core_pattern` (or th
 0xffffffff81eb0b20: "core"
 ```
 
+---
+
+## Kernel Heap Overflow via kmalloc Size Mismatch (PlaidCTF 2013)
+
+**Pattern:** Kernel module allocates `kmalloc(content_length)` but copies `0x40 + content_length` bytes (header + body), causing a 0x40-byte heap overflow into adjacent slab objects.
+
+```c
+// Vulnerable pattern in kernel HTTP handler:
+buf = kmalloc(content_length, GFP_KERNEL);
+memcpy(buf, http_header, 0x40);           // 0x40 bytes of header
+memcpy(buf + 0x40, body, content_length); // Overflow!
+```
+
+**Exploitation:**
+1. **Slab spray:** Open 1021 file descriptors (`open("/dev/kmalloc_target")`) to fill the kmalloc-256 slab cache
+2. **Create holes:** Close 3 files to create gaps in the slab for the overflowing allocation
+3. **Trigger overflow:** Send HTTP request with body that overflows into adjacent `struct file`
+4. **Corrupt `f_op`:** Overwrite the `f_op` (file operations) pointer in the adjacent `struct file` to redirect function pointers
+5. **Hijack write handler:** `f_op->write` now points to attacker-controlled address → `commit_creds(prepare_kernel_cred(0))`
+
+**Key insight:** `struct file` is in kmalloc-256 and contains `f_op` (function pointer table). Corrupting `f_op` to a fake vtable gives control over any file operation (`read`, `write`, `ioctl`). The attacker triggers the hijacked operation via the corrupted file descriptor.

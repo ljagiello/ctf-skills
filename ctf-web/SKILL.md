@@ -14,7 +14,7 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (including EXIF metadata injection), SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, Java deserialization (ysoserial), Python pickle RCE, race conditions (TOCTOU)
+- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (including EXIF metadata injection, keyword fragmentation bypass), SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, PHP extract() variable overwrite, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, Java deserialization (ysoserial), Python pickle RCE (+ STOP opcode chaining), XPath blind injection, race conditions (TOCTOU)
 - [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB), SQLite file path traversal to bypass string equality
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle, client-side HMAC bypass via leaked JS secret
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: password inference, weak validation, client-side gates, NoSQL auth bypass, HAProxy/Express.js bypass, IDOR on WIP endpoints, HTTP TRACE method bypass, LLM/AI chatbot jailbreak, open redirect chains (OAuth token theft), subdomain takeover, Apache mod_status info disclosure + session forging
@@ -372,6 +372,18 @@ Identify via `Next-Action` + `Accept: text/x-component` headers. CVE-2025-55182:
 ## Client-Side HMAC Bypass via Leaked JS Secret (Codegate 2013)
 
 Deobfuscate client-side JS to extract hardcoded HMAC secret, then forge signatures for arbitrary requests via browser console. See [client-side.md](client-side.md#client-side-hmac-bypass-via-leaked-js-secret-codegate-2013).
+
+## SQLi Keyword Fragmentation Bypass (SecuInside 2013)
+
+Single-pass `preg_replace()` keyword filters bypassed by nesting the stripped keyword inside the payload: `unload_fileon` → `union` after `load_file` removal. See [server-side.md](server-side.md#sqli-keyword-fragmentation-bypass-secuinside-2013).
+
+## Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)
+
+Strip pickle STOP opcode (`\x2e`) from first payload, concatenate second — both `__reduce__` calls execute in single `pickle.loads()`. Chain `os.dup2()` for socket output. See [server-side.md](server-side.md#pickle-chaining-via-stop-opcode-stripping-volgactf-2013).
+
+## XPath Blind Injection (BaltCTF 2013)
+
+`substring(normalize-space(../../../node()),1,1)='a'` — boolean-based blind extraction from XML data stores via response length oracle. See [server-side.md](server-side.md#xpath-blind-injection-baltctf-2013).
 
 ## SQLite File Path Traversal to Bypass String Equality (Codegate 2013)
 

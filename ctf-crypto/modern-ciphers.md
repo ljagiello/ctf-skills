@@ -21,6 +21,8 @@
   - [Known-Plaintext on LFSR Keystream](#known-plaintext-on-lfsr-keystream)
   - [Galois vs Fibonacci LFSR](#galois-vs-fibonacci-lfsr)
   - [Common LFSR Lengths and Polynomials](#common-lfsr-lengths-and-polynomials)
+- [CRC32 Collision-Based Signature Forgery (iCTF 2013)](#crc32-collision-based-signature-forgery-ictf-2013)
+- [Blum-Goldwasser Bit-Extension Oracle (PlaidCTF 2013)](#blum-goldwasser-bit-extension-oracle-plaidctf-2013)
 
 ---
 
@@ -484,3 +486,51 @@ Conversion: Galois polynomial is the reciprocal of Fibonacci polynomial. Most CT
 | 64 | x^64 + x^4 + x^3 + x + 1 | 2^64 - 1 |
 
 **Maximal-length LFSR:** Primitive polynomial -> period = 2^L - 1 (visits all nonzero states).
+
+---
+
+## CRC32 Collision-Based Signature Forgery (iCTF 2013)
+
+**Pattern:** CRC32 is linear — appending 4 carefully chosen bytes to any message produces a target CRC32 value, enabling signature forgery without knowing the secret key.
+
+**Key insight:** `CRC32(msg || secret)` is not a secure MAC. Given any signed response `(msg, sig)`, compute 4 suffix bytes that force `CRC32(forged_msg || suffix || secret) == target_sig`. The linearity of CRC32 means the suffix computation is deterministic and instant.
+
+```python
+import struct, binascii
+
+def crc32_forge(data, target_crc):
+    """Append 4 bytes to data so CRC32(data + suffix) == target_crc"""
+    current = binascii.crc32(data) & 0xFFFFFFFF
+    # CRC32 polynomial table lookup to find suffix bytes
+    # that transform current CRC into target_crc
+    suffix = b''
+    crc = target_crc ^ 0xFFFFFFFF
+    for _ in range(4):
+        byte = (crc & 0xFF)
+        crc = (crc >> 8)
+        suffix = bytes([byte]) + suffix
+    return data + suffix  # Simplified — full implementation requires polynomial division
+```
+
+**When to use:** Any protocol using CRC32 as a message authentication code (MAC). CRC32 is a checksum, not a cryptographic hash — it provides no integrity guarantees against adversarial modification.
+
+---
+
+## Blum-Goldwasser Bit-Extension Oracle (PlaidCTF 2013)
+
+**Pattern:** Exploit a decryption oracle for Blum-Goldwasser-style encryption by extending ciphertext length by one bit per query to leak plaintext via parity.
+
+**Key insight:** Extend ciphertext by one bit (L+1), shift ciphertext left (`c << 1`), and submit a modified `y` value. The oracle reveals the LSB (parity) of each decrypted chunk. The squaring sequence `y = pow(y, 2, N)` can be manipulated to produce valid extended ciphertexts the server hasn't seen.
+
+```python
+# Iterative plaintext recovery via bit-extension
+for i in range(msg_length):
+    extended_c = original_c << 1        # Shift ciphertext left by 1
+    new_y = pow(original_y, 2, N)       # Advance squaring sequence
+    response = oracle(extended_c, new_y, msg_length + 1)
+    leaked_bit = response & 1           # LSB reveals one plaintext bit
+    plaintext_bits.append(leaked_bit)
+    original_y = new_y
+```
+
+**When to use:** Blum-Goldwasser or BBS-based (Blum Blum Shub) encryption with a decryption oracle that accepts variable-length ciphertexts. The parity leak accumulates one bit per query.

