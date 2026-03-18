@@ -33,6 +33,7 @@
   - [HarmonyOS HAP/ABC (abc-decompiler)](#harmonyos-hapabc-abc-decompiler)
 - [.NET Analysis](#net-analysis)
   - [Tools](#tools)
+  - [Two-Stage XOR + AES-CBC Decode Pattern (Codegate 2013)](#two-stage-xor--aes-cbc-decode-pattern-codegate-2013)
   - [NativeAOT](#nativeaot)
 - [Packed Binaries](#packed-binaries)
   - [UPX](#upx)
@@ -358,6 +359,36 @@ Notes:
 - Look for `System.Private.CoreLib` strings
 - Type metadata present but restructured
 - Search for length-prefixed UTF-16 patterns
+
+### Two-Stage XOR + AES-CBC Decode Pattern (Codegate 2013)
+
+**Pattern:** .NET binary stores an encrypted byte array that undergoes XOR decoding followed by AES-256-CBC decryption. The same key value serves as both the AES key and IV.
+
+**Steps:**
+1. Extract hardcoded byte array and key string from binary (dnSpy/ILSpy)
+2. XOR each byte (may be multi-pass, e.g., `0x25` then `0x58`, equivalent to single `0x7D`)
+3. Base64-decode the XOR result
+4. AES-256-CBC decrypt with `RijndaelManaged` using the extracted key as both Key and IV
+
+```python
+from Crypto.Cipher import AES
+from base64 import b64decode
+
+# Step 1: XOR decode
+data = bytearray(encrypted_bytes)
+for i in range(len(data)):
+    data[i] ^= 0x7D  # Combined XOR key (0x25 ^ 0x58)
+
+# Step 2: Base64 decode
+ct = b64decode(bytes(data))
+
+# Step 3: AES-256-CBC decrypt (same value for key and IV)
+key = b"9e2ea73295c7201c5ccd044477228527"  # Padded to 32 bytes
+cipher = AES.new(key, AES.MODE_CBC, iv=key)
+plaintext = cipher.decrypt(ct)
+```
+
+**Key insight:** When `RijndaelManaged` appears in .NET decompilation, check if Key and IV are set to the same value — this is a common CTF pattern. The XOR stage often serves as a simple obfuscation layer before the real crypto.
 
 ---
 

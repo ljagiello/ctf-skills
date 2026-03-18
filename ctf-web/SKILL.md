@@ -15,8 +15,8 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 ## Additional Resources
 
 - [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (including EXIF metadata injection), SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, Java deserialization (ysoserial), Python pickle RCE, race conditions (TOCTOU)
-- [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB)
-- [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle
+- [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB), SQLite file path traversal to bypass string equality
+- [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle, client-side HMAC bypass via leaked JS secret
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: password inference, weak validation, client-side gates, NoSQL auth bypass, HAProxy/Express.js bypass, IDOR on WIP endpoints, HTTP TRACE method bypass, LLM/AI chatbot jailbreak, open redirect chains (OAuth token theft), subdomain takeover, Apache mod_status info disclosure + session forging
 - [auth-jwt.md](auth-jwt.md) - JWT/JWE token attacks: algorithm none, RS256→HS256 confusion, weak secret, unverified signature, JWK/JKU header injection, KID path traversal, balance replay, JWE forgery with exposed public key
 - [auth-infra.md](auth-infra.md) - Infrastructure auth: OAuth/OIDC exploitation (redirect_uri bypass, token manipulation, state CSRF), CORS misconfiguration, git history credential leakage, CI/CD variable theft, identity provider API takeover (authentik/Keycloak), SAML SSO flow automation, Guacamole parameter extraction, login page poisoning, TeamCity REST API RCE
@@ -283,7 +283,7 @@ Proxy `attachShadow` to capture closed roots; `(0,eval)` for scope escape; `</sc
 
 ## DOM Clobbering + MIME Mismatch
 
-`.jpg` served as `text/html`; `<form id="config">` clobbers JS globals. See [client-side.md](client-side.md#dom-clobbering-mime-mismatch-pragyan-2026).
+`.jpg` served as `text/html`; `<form id="config">` clobbers JS globals. See [client-side.md](client-side.md#dom-clobbering--mime-mismatch).
 
 ## HTTP Request Smuggling via Cache Proxy
 
@@ -368,6 +368,14 @@ Identify via `Next-Action` + `Accept: text/x-component` headers. CVE-2025-55182:
 ## Solidity Transient Storage Clearing Collision (0.8.28-0.8.33)
 
 **Pattern:** Solidity IR pipeline (`--via-ir`) generates identically-named Yul helpers for `delete` on persistent and transient variables of the same type. One uses `sstore`, the other should use `tstore`, but deduplication picks only one. Exploits: overwrite `owner` (slot 0) via transient `delete`, or make persistent `delete` (revoke approvals) ineffective. Workaround: use `_lock = address(0)` instead of `delete _lock`. See [web3.md](web3.md#solidity-transient-storage-clearing-helper-collision-solidity-0828-0833).
+
+## Client-Side HMAC Bypass via Leaked JS Secret (Codegate 2013)
+
+Deobfuscate client-side JS to extract hardcoded HMAC secret, then forge signatures for arbitrary requests via browser console. See [client-side.md](client-side.md#client-side-hmac-bypass-via-leaked-js-secret-codegate-2013).
+
+## SQLite File Path Traversal to Bypass String Equality (Codegate 2013)
+
+Input `/../gamesim_GM` fails `== "GM"` string check but filesystem normalizes `/var/game_db/gamesim_/../gamesim_GM.db` to the blocked path. See [server-side-advanced.md](server-side-advanced.md#sqlite-file-path-traversal-to-bypass-string-equality-codegate-2013).
 
 ## Common Flag Locations
 

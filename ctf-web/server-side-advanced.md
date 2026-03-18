@@ -28,6 +28,7 @@
 - [SSRF → Docker API RCE Chain (H7CTF 2025)](#ssrf--docker-api-rce-chain-h7ctf-2025)
 - [Castor XML Deserialization via xsi:type Polymorphism (Atlas HTB)](#castor-xml-deserialization-via-xsitype-polymorphism-atlas-htb)
 - [Apache ErrorDocument Expression File Read (Zero HTB)](#apache-errordocument-expression-file-read-zero-htb)
+- [SQLite File Path Traversal to Bypass String Equality (Codegate 2013)](#sqlite-file-path-traversal-to-bypass-string-equality-codegate-2013)
 
 ---
 
@@ -587,3 +588,25 @@ ErrorDocument 404 "%{file:/var/www/html/stats.php}"
 **Key insight:** Works even when `php_admin_flag engine off` disables PHP execution in user directories. The `%{file:...}` expression is evaluated by Apache itself, not PHP — so PHP disable flags are irrelevant.
 
 **Detection:** Apache with `mod_userdir`, `AllowOverride FileInfo`, writable `.htaccess` in subdirectories.
+
+---
+
+## SQLite File Path Traversal to Bypass String Equality (Codegate 2013)
+
+**Pattern:** PHP code blocks a specific input value via string equality check, then interpolates the input into a filesystem path. Path normalization bypasses the string check while resolving to the blocked resource.
+
+**Vulnerable code:**
+```php
+if ($_POST['name'] == "GM") die("you can not view&save with 'GM'");
+$db = sqlite_open("/var/game_db/gamesim_" . $_SESSION['scrap'] . ".db");
+```
+
+**Exploit:** Set `name` to `/../gamesim_GM` — this fails the `== "GM"` check, but the constructed path `/var/game_db/gamesim_/../gamesim_GM.db` normalizes to `/var/game_db/gamesim_GM.db`.
+
+```bash
+curl -X POST -b 'session=...' \
+  -d 'name=/../gamesim_GM' \
+  'http://target/view.php'
+```
+
+**Key insight:** String equality checks on user input are bypassed whenever the input is later used in a filesystem path that undergoes normalization. The `../` sequence is invisible to string comparison but resolved by the OS. Look for this pattern wherever user input is both validated by string comparison and interpolated into file paths, database paths, or URLs.

