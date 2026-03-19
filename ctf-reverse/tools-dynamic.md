@@ -2,6 +2,7 @@
 
 ## Table of Contents
 - [Frida (Dynamic Instrumentation)](#frida-dynamic-instrumentation)
+  - [Installation](#installation)
   - [Basic Function Hooking](#basic-function-hooking)
   - [Anti-Debug Bypass](#anti-debug-bypass)
   - [Memory Scanning and Patching](#memory-scanning-and-patching)
@@ -10,6 +11,7 @@
   - [r2frida (Radare2 + Frida Integration)](#r2frida-radare2--frida-integration)
   - [Frida for Android/iOS](#frida-for-androidios)
 - [angr (Symbolic Execution)](#angr-symbolic-execution)
+  - [Installation](#installation-1)
   - [Basic Path Exploration](#basic-path-exploration)
   - [Symbolic Input with Constraints](#symbolic-input-with-constraints)
   - [Hook Functions to Simplify Analysis](#hook-functions-to-simplify-analysis)
@@ -18,7 +20,18 @@
   - [Dealing with Path Explosion](#dealing-with-path-explosion)
   - [angr CFG Recovery](#angr-cfg-recovery)
 - [lldb (LLVM Debugger)](#lldb-llvm-debugger)
+  - [Basic Commands](#basic-commands)
+  - [Scripting (Python)](#scripting-python)
 - [x64dbg (Windows Debugger)](#x64dbg-windows-debugger)
+  - [Key Features](#key-features)
+  - [Scripting](#scripting)
+  - [Common CTF Workflow](#common-ctf-workflow)
+- [Qiling Framework (Cross-Platform Emulation)](#qiling-framework-cross-platform-emulation)
+  - [Installation](#installation-2)
+  - [Basic Usage](#basic-usage)
+  - [Anti-Debug Bypass via Emulation](#anti-debug-bypass-via-emulation)
+  - [Input Fuzzing with Qiling](#input-fuzzing-with-qiling)
+- [Triton (Dynamic Symbolic Execution)](#triton-dynamic-symbolic-execution)
 
 ---
 

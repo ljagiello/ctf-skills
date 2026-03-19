@@ -68,17 +68,7 @@ chmod +x binary       # Make executable
 
 ## Memory Dumping Strategy
 
-**Key insight:** Let the program compute the answer, then dump it.
-
-```bash
-gdb ./binary
-start
-b *main+0x198           # Break at final comparison
-run
-# Enter any input of correct length
-x/s $rsi                # Dump computed flag
-x/38c $rsi              # As characters
-```
+**Key insight:** Let the program compute the answer, then dump it. Break at final comparison (`b *main+OFFSET`), enter any input of correct length, then `x/s $rsi` to dump computed flag.
 
 ## Decoy Flag Detection
 
@@ -136,15 +126,7 @@ ida64 binary       # Open in IDA64
 ## Binary Types
 
 ### Python .pyc
-```python
-import marshal, dis
-with open('file.pyc', 'rb') as f:
-    # Header size varies by Python version:
-    # 8 bytes (2.x), 12 (3.0-3.6), 16 (3.7+)
-    f.read(16)  # 16 for Python 3.7+; adjust for older versions
-    code = marshal.load(f)
-    dis.dis(code)
-```
+Disassemble with `marshal.load()` + `dis.dis()`. Header: 8 bytes (2.x), 12 (3.0-3.6), 16 (3.7+). See [languages.md](languages.md#python-bytecode-reversing-disdis-output).
 
 ### WASM
 ```bash
@@ -160,29 +142,10 @@ wat2wasm main.wat -o patched.wasm # Text → binary
 **WASM game patching (Tac Tic Toe, Pragyan 2026):** If proof generation is independent of move quality, patch minimax (flip `i64.lt_s` → `i64.gt_s`, change bestScore sign) to make AI play badly while proofs remain valid. Invoke `/ctf-misc` for full game patching patterns (games-and-vms).
 
 ### Android APK
-```bash
-apktool d app.apk -o decoded/   # Best - decodes resources
-jadx app.apk                     # Decompile to Java
-grep -r "flag" decoded/res/values/strings.xml
-```
+`apktool d app.apk -o decoded/` for resources; `jadx app.apk` for Java decompilation. Check `decoded/res/values/strings.xml` for flags. See [languages.md](languages.md#android-apk).
 
 ### Flutter APK (Dart AOT)
-
-When APK analysis points to Flutter (`lib/arm64-v8a/libapp.so`, `libflutter.so`), use Blutter first.
-
-- Blutter repository and docs: https://github.com/worawit/blutter
-
-```bash
-# Example workflow (APK -> libs -> Blutter output)
-python3 blutter.py path/to/app/lib/arm64-v8a out_dir
-```
-Output files
-- asm/* libapp assemblies with symbols
-- blutter_frida.js the frida script template for the target application
-- objs.txt complete (nested) dump of Object from Object Pool
-- pp.txt all Dart objects in Object Pool
-
-Blutter reconstructs Dart metadata and generates script output that is easier to navigate than raw ARM64 disassembly.
+If `lib/arm64-v8a/libapp.so` + `libflutter.so` present, use [Blutter](https://github.com/worawit/blutter): `python3 blutter.py path/to/app/lib/arm64-v8a out_dir`. Outputs reconstructed Dart symbols + Frida script. See [languages.md](languages.md#flutter-apk-dart-aot).
 
 ### .NET
 - dnSpy - debugging + decompilation
@@ -194,19 +157,8 @@ upx -d packed -o unpacked
 ```
 If unpacking fails, inspect UPX metadata first: verify UPX section names, header fields, and version markers are intact. If metadata looks tampered or uncertain, review UPX source on GitHub to identify likely modification points. 
 
-### Tauri Packed Desktop Apps (Static Assets)
-
-Tauri often embeds frontend assets directly into the executable, commonly Brotli-compressed by default.
-
-Workflow:
-1. Identify Tauri app traits (`tauri`, `wry`, `index.html`, webview-related strings).
-2. In disassembler, pivot from `index.html` string xrefs to locate the asset index table.
-3. Recover each asset record (filename + blob offset + blob length; exact layout varies by build/version).
-4. Dump blob bytes from the binary and attempt Brotli decompression first.
-5. If decompression fails, re-check exact boundaries; Brotli is highly sensitive to off-by-one errors.
-
-Reference points:
-- Tauri embedded assets implementation: `tauri-codegen/src/embedded_assets.rs`
+### Tauri Packed Desktop Apps
+Tauri embeds Brotli-compressed frontend assets in the executable. Find `index.html` xrefs to locate asset index table, dump blobs, Brotli decompress. Reference: `tauri-codegen/src/embedded_assets.rs`.
 
 ## Anti-Debugging Bypass
 
@@ -268,34 +220,11 @@ Sign extension and 32-bit truncation pitfalls. See [patterns.md](patterns.md#x86
 
 ## Iterative Solver Pattern
 
-```python
-for pos in range(flag_length):
-    for c in range(256):
-        computed = compute_output(c, current_state)
-        if computed == EXPECTED[pos]:
-            flag.append(c)
-            update_state(c, computed)
-            break
-```
-
-**Uniform transform shortcut:** if changing one input byte only changes one output byte,
-build a 0..255 mapping by repeating a single byte across the whole input, then invert.
+Try each byte (0-255) per position, match against expected output. **Uniform transform shortcut:** if one input byte only changes one output byte, build 0..255 mapping then invert. See [patterns.md](patterns.md) for full implementation.
 
 ## Unicorn Emulation (Complex State)
 
-```python
-from unicorn import *
-from unicorn.x86_const import *
-
-mu = Uc(UC_ARCH_X86, UC_MODE_64)
-# Map segments, set up stack
-# Hook to trace register changes
-mu.emu_start(start_addr, end_addr)
-```
-
-**Mixed-mode pitfall:** if a 64-bit stub jumps into 32-bit code via `retf/retfq`, you must
-switch to a UC_MODE_32 emulator and copy **GPRs, EFLAGS, and XMM regs**; missing XMM state
-will corrupt SSE-based transforms.
+`from unicorn import *` -- map segments, set up stack, hook to trace. **Mixed-mode pitfall:** 64-bit stub jumping to 32-bit via `retf` requires switching to UC_MODE_32 and copying GPRs + EFLAGS + XMM regs. See [tools.md](tools.md#unicorn-emulation).
 
 ## Multi-Stage Shellcode Loaders
 

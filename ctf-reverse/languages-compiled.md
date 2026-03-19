@@ -13,6 +13,14 @@
   - [Symbol Demangling](#symbol-demangling)
   - [Common Rust Patterns in Decompilation](#common-rust-patterns-in-decompilation)
   - [Rust-Specific Analysis Tools](#rust-specific-analysis-tools)
+- [Swift Binary Reversing](#swift-binary-reversing)
+- [Kotlin / JVM Binary Reversing](#kotlin--jvm-binary-reversing)
+  - [JVM Bytecode (Android/Server)](#jvm-bytecode-androidserver)
+  - [Kotlin/Native](#kotlinnative)
+- [C++ Binary Reversing (Quick Reference)](#c-binary-reversing-quick-reference)
+  - [vtable Reconstruction](#vtable-reconstruction)
+  - [RTTI (Run-Time Type Information)](#rtti-run-time-type-information)
+  - [Standard Library Patterns](#standard-library-patterns)
 
 ---
 

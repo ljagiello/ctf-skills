@@ -4,7 +4,13 @@ Advanced tooling for commercial packers/protectors, binary diffing, deobfuscatio
 
 ## Table of Contents
 - [VMProtect Analysis](#vmprotect-analysis)
+  - [Recognition](#recognition)
+  - [Approach](#approach)
+  - [Tools](#tools)
+  - [CTF Strategy](#ctf-strategy)
 - [Themida / WinLicense Analysis](#themida--winlicense-analysis)
+  - [Recognition](#recognition-1)
+  - [Approach for CTF](#approach-for-ctf)
 - [Binary Diffing](#binary-diffing)
   - [BinDiff](#bindiff)
   - [Diaphora](#diaphora)
@@ -19,12 +25,15 @@ Advanced tooling for commercial packers/protectors, binary diffing, deobfuscatio
 - [RetDec (Retargetable Decompiler)](#retdec-retargetable-decompiler)
 - [Advanced GDB Techniques](#advanced-gdb-techniques)
   - [Python Scripting](#python-scripting)
+  - [Brute-Force with GDB Script](#brute-force-with-gdb-script)
   - [Conditional Breakpoints](#conditional-breakpoints)
   - [Watchpoints](#watchpoints)
   - [Reverse Debugging (rr)](#reverse-debugging-rr)
   - [GDB Dashboard / GEF / pwndbg](#gdb-dashboard--gef--pwndbg)
 - [Advanced Ghidra Scripting](#advanced-ghidra-scripting)
 - [Patching Strategies](#patching-strategies)
+  - [Binary Ninja Patching (Python API)](#binary-ninja-patching-python-api)
+  - [LIEF (Library for Instrumenting Executable Formats)](#lief-library-for-instrumenting-executable-formats)
 
 ---
 

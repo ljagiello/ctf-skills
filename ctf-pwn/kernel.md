@@ -24,6 +24,7 @@
   - [Bruteforce Without Leak](#bruteforce-without-leak)
   - [Checking CONFIG_STATIC_USERMODEHELPER](#checking-config_static_usermodehelper)
 - [core_pattern Overwrite](#core_pattern-overwrite)
+- [Kernel Heap Overflow via kmalloc Size Mismatch (PlaidCTF 2013)](#kernel-heap-overflow-via-kmalloc-size-mismatch-plaidctf-2013)
 For tty_struct kROP, userfaultfd race stabilization, SLUB internals, cross-cache attacks, and DiceCTF 2026 kernel patterns, see [kernel-techniques.md](kernel-techniques.md).
 
 For protection bypass techniques (KASLR, FGKASLR, KPTI, SMEP, SMAP), GDB debugging, initramfs workflow, and exploit templates, see [kernel-bypass.md](kernel-bypass.md).

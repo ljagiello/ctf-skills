@@ -12,6 +12,7 @@
   - [64-bit: BEXTR + XLAT + STOSB](#64-bit-bextr--xlat--stosb)
   - [32-bit: PEXT (Parallel Bits Extract)](#32-bit-pext-parallel-bits-extract)
 - [Stack Pivot via xchg rax,esp (Crypto-Cat)](#stack-pivot-via-xchg-raxesp-crypto-cat)
+- [sprintf() Gadget Chaining for Bad Character Bypass (PlaidCTF 2013)](#sprintf-gadget-chaining-for-bad-character-bypass-plaidctf-2013)
 
 For double stack pivot, SROP with UTF-8 constraints, RETF architecture switch, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template, and shellcode with input reversal, see [rop-advanced.md](rop-advanced.md).
 

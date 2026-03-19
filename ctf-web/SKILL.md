@@ -14,7 +14,8 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (including EXIF metadata injection, keyword fragmentation bypass), SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, PHP extract() variable overwrite, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, Java deserialization (ysoserial), Python pickle RCE (+ STOP opcode chaining), XPath blind injection, race conditions (TOCTOU)
+- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (including EXIF metadata injection, keyword fragmentation bypass), SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, PHP extract() variable overwrite, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, XPath blind injection
+- [server-side-deser.md](server-side-deser.md) - Deserialization and execution attacks: Java deserialization (ysoserial gadget chains, JNDI injection, blind detection), Python pickle RCE (`__reduce__`, restricted unpickler bypass, STOP opcode chaining), race conditions (TOCTOU async exploits, double-spend, coupon reuse)
 - [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB), SQLite file path traversal to bypass string equality
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle, client-side HMAC bypass via leaked JS secret
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: password inference, weak validation, client-side gates, NoSQL auth bypass, HAProxy/Express.js bypass, IDOR on WIP endpoints, HTTP TRACE method bypass, LLM/AI chatbot jailbreak, open redirect chains (OAuth token theft), subdomain takeover, Apache mod_status info disclosure + session forging
@@ -171,15 +172,15 @@ See [server-side.md](server-side.md) for full payloads and bypass techniques.
 
 ## Java Deserialization
 
-Serialized Java objects (`rO0AB` / `aced0005`) + ysoserial gadget chains → RCE via `ObjectInputStream.readObject()`. Try `CommonsCollections1-7`, `URLDNS` for blind detection. See [server-side.md](server-side.md#java-deserialization-ysoserial).
+Serialized Java objects (`rO0AB` / `aced0005`) + ysoserial gadget chains → RCE via `ObjectInputStream.readObject()`. Try `CommonsCollections1-7`, `URLDNS` for blind detection. See [server-side-deser.md](server-side-deser.md#java-deserialization-ysoserial).
 
 ## Python Pickle Deserialization
 
-`pickle.loads()` calls `__reduce__()` → `(os.system, ('cmd',))` instant RCE. Also via `yaml.load()`, `torch.load()`, `joblib.load()`. See [server-side.md](server-side.md#python-pickle-deserialization).
+`pickle.loads()` calls `__reduce__()` → `(os.system, ('cmd',))` instant RCE. Also via `yaml.load()`, `torch.load()`, `joblib.load()`. See [server-side-deser.md](server-side-deser.md#python-pickle-deserialization).
 
 ## Race Conditions (TOCTOU)
 
-Concurrent requests bypass check-then-act patterns (balance, coupons, registration). Send 50 simultaneous requests — all see pre-modification state. See [server-side.md](server-side.md#race-conditions-toctou).
+Concurrent requests bypass check-then-act patterns (balance, coupons, registration). Send 50 simultaneous requests — all see pre-modification state. See [server-side-deser.md](server-side-deser.md#race-conditions-toctou).
 
 ## Node.js Quick Reference
 
@@ -379,7 +380,7 @@ Single-pass `preg_replace()` keyword filters bypassed by nesting the stripped ke
 
 ## Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)
 
-Strip pickle STOP opcode (`\x2e`) from first payload, concatenate second — both `__reduce__` calls execute in single `pickle.loads()`. Chain `os.dup2()` for socket output. See [server-side.md](server-side.md#pickle-chaining-via-stop-opcode-stripping-volgactf-2013).
+Strip pickle STOP opcode (`\x2e`) from first payload, concatenate second — both `__reduce__` calls execute in single `pickle.loads()`. Chain `os.dup2()` for socket output. See [server-side-deser.md](server-side-deser.md#pickle-chaining-via-stop-opcode-stripping-volgactf-2013).
 
 ## XPath Blind Injection (BaltCTF 2013)
 

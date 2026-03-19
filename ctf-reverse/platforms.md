@@ -26,6 +26,9 @@ macOS/iOS, embedded/IoT firmware, kernel driver, automotive, and game engine rev
   - [Lua-Scripted Games](#lua-scripted-games)
 - [Automotive / CAN Bus RE](#automotive--can-bus-re)
 - [RISC-V (Advanced)](#risc-v-advanced)
+  - [Custom Extensions](#custom-extensions)
+  - [Privileged Modes](#privileged-modes)
+  - [RISC-V Debugging](#risc-v-debugging)
 
 ---
 

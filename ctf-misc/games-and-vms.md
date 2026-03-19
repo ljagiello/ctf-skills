@@ -23,6 +23,8 @@
 - [memfd_create Packed Binaries](#memfd_create-packed-binaries)
 - [Multi-Phase Interactive Crypto Game (EHAX 2026)](#multi-phase-interactive-crypto-game-ehax-2026)
 - [References](#references)
+- [Python Marshal Code Injection (iCTF 2013)](#python-marshal-code-injection-ictf-2013)
+- [Benford's Law Frequency Distribution Bypass (iCTF 2013)](#benfords-law-frequency-distribution-bypass-ictf-2013)
 
 ---
 

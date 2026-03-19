@@ -29,7 +29,16 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
   - [Pin/DynamoRIO Detection](#pindynamorio-detection)
 - [Code Integrity / Self-Hashing](#code-integrity--self-hashing)
 - [Anti-Disassembly Techniques](#anti-disassembly-techniques)
+  - [Opaque Predicates](#opaque-predicates)
+  - [Junk Bytes / Overlapping Instructions](#junk-bytes--overlapping-instructions)
+  - [Jump-in-the-Middle](#jump-in-the-middle)
+  - [Function Chunking / Scattered Code](#function-chunking--scattered-code)
+  - [Control Flow Flattening (Advanced)](#control-flow-flattening-advanced)
+  - [Mixed Boolean-Arithmetic (MBA) Identification & Simplification](#mixed-boolean-arithmetic-mba-identification--simplification)
 - [Comprehensive Bypass Strategies](#comprehensive-bypass-strategies)
+  - [Universal Bypass Checklist](#universal-bypass-checklist)
+  - [Layered Anti-Debug (Real-World Pattern)](#layered-anti-debug-real-world-pattern)
+  - [Quick Reference: Check → Bypass](#quick-reference-check--bypass)
 
 ---
 
@@ -202,7 +211,7 @@ if (flags & 0x70) exit(1);
 ```
 
 **Bypass (x64dbg):**
-```
+```text
 # ScyllaHide plugin auto-patches PEB fields
 # Manual: dump PEB, zero BeingDebugged and NtGlobalFlag
 ```
