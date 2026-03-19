@@ -15,7 +15,7 @@
   - [MCP Commands](#mcp-commands)
 - [Unicorn Emulation](#unicorn-emulation)
   - [Basic Setup](#basic-setup)
-  - [Mixed-Mode (64→32) Switch](#mixed-mode-6432-switch)
+  - [Mixed-Mode (64 to 32) Switch](#mixed-mode-64-to-32-switch)
   - [Register Tracing Hook](#register-tracing-hook)
   - [Track Register Changes](#track-register-changes)
 - [Python Bytecode](#python-bytecode)
@@ -179,7 +179,7 @@ mu.reg_write(UC_X86_REG_RSP, 0x7fff0000 + 0xff00)
 mu.emu_start(start_addr, end_addr)
 ```
 
-### Mixed-Mode (64→32) Switch
+### Mixed-Mode (64 to 32) Switch
 ```python
 # When a 64-bit stub jumps into 32-bit code via retf/retfq:
 # - retf pops 4-byte EIP + 2-byte CS (6 bytes)

@@ -14,7 +14,7 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (including EXIF metadata injection, keyword fragmentation bypass), SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, PHP extract() variable overwrite, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, XPath blind injection
+- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (including EXIF metadata injection, keyword fragmentation bypass, MySQL column truncation, DNS record injection), SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python/Prolog), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, PHP extract() variable overwrite, PHP preg_replace /e RCE, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, XPath blind injection
 - [server-side-deser.md](server-side-deser.md) - Deserialization and execution attacks: Java deserialization (ysoserial gadget chains, JNDI injection, blind detection), Python pickle RCE (`__reduce__`, restricted unpickler bypass, STOP opcode chaining), race conditions (TOCTOU async exploits, double-spend, coupon reuse)
 - [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB), SQLite file path traversal to bypass string equality
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle, client-side HMAC bypass via leaked JS secret
@@ -55,7 +55,7 @@ XML entity encoding: `&#x55;&#x4e;&#x49;&#x4f;&#x4e;` → `UNION` after XML pars
 
 EXIF metadata injection: embed SQL in image EXIF fields (`exiftool -Comment="' UNION SELECT flag FROM flags--" image.jpg`) to bypass WAFs that only inspect HTTP parameters.
 
-See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, SQLi→SSTI chains, XML entity WAF bypass, EXIF metadata injection.
+See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, MySQL column truncation, SQLi→SSTI chains, XML entity WAF bypass, EXIF metadata injection, SQLi via DNS records, PHP preg_replace /e RCE, Prolog injection.
 
 ## XSS Quick Reference
 

@@ -32,6 +32,7 @@
   - [Anti-Debug Bypass via Emulation](#anti-debug-bypass-via-emulation)
   - [Input Fuzzing with Qiling](#input-fuzzing-with-qiling)
 - [Triton (Dynamic Symbolic Execution)](#triton-dynamic-symbolic-execution)
+- [Intel Pin Instruction-Counting Side Channel (Hackover CTF 2015)](#intel-pin-instruction-counting-side-channel-hackover-ctf-2015)
 
 ---
 
@@ -594,3 +595,34 @@ flag = ''.join(chr(v.getValue()) for _, v in sorted(model.items()))
 ```
 
 **Best for:** Single-path symbolic execution, deobfuscation, taint analysis. Faster than angr for linear code paths.
+
+---
+
+## Intel Pin Instruction-Counting Side Channel (Hackover CTF 2015)
+
+**Pattern:** Brute-force input character-by-character against a binary using Intel Pin's `inscount0` tool. Each correct character causes deeper execution (more instructions) in the comparison logic.
+
+```python
+import string
+from subprocess import Popen, PIPE
+
+pin = './pin'
+tool = './source/tools/ManualExamples/obj-ia32/inscount0.so'
+binary = './target'
+
+key = ''
+while True:
+    best_count, best_char = 0, ''
+    for c in string.printable:
+        cmd = [pin, '-injection', 'child', '-t', tool, '--', binary]
+        p = Popen(cmd, stdout=PIPE, stdin=PIPE, stderr=PIPE)
+        p.communicate((key + c + '\n').encode())
+        with open('inscount.out') as f:
+            count = int(f.read().split()[-1])
+        if count > best_count:
+            best_count, best_char = count, c
+    key += best_char
+    print(f"Found: {key}")
+```
+
+**Key insight:** Movfuscated binaries (compiled with `movfuscator`) expand every instruction into sequences of `mov` operations, making static analysis impractical. However, character-by-character comparison still creates measurable instruction count differences. Pin's `inscount0.so` counts total executed instructions — the correct character at each position causes ~1000+ more instructions (proceeding further in the comparison). Also works for obfuscated binaries with sequential input checks.

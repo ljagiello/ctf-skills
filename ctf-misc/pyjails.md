@@ -25,7 +25,7 @@
 - [Server Communication](#server-communication)
 - [Magic File ReDoS](#magic-file-redos)
 - [Environment Variable RCE](#environment-variable-rce)
-- [func_globals → Module Chain Traversal (PlaidCTF 2013)](#func_globals--module-chain-traversal-plaidctf-2013)
+- [func_globals to Module Chain Traversal (PlaidCTF 2013)](#func_globals-to-module-chain-traversal-plaidctf-2013)
 - [Restricted Charset Number Generation (PlaidCTF 2013)](#restricted-charset-number-generation-plaidctf-2013)
 - [Multi-Stage Payload with Class Attribute Persistence (PlaidCTF 2013)](#multi-stage-payload-with-class-attribute-persistence-plaidctf-2013)
 - [Decorator-Based Escape (No Call, No Quotes, No Equals)](#decorator-based-escape-no-call-no-quotes-no-equals)
@@ -474,7 +474,7 @@ expr = '+'.join(terms)  # e.g., "111...1+111...1+11+1+1"
 
 ---
 
-## func_globals → Module Chain Traversal (PlaidCTF 2013)
+## func_globals to Module Chain Traversal (PlaidCTF 2013)
 
 **Pattern:** Access `os.system` through the `func_globals` dictionary of a loaded class's method, without importing any modules.
 

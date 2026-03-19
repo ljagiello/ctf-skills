@@ -13,6 +13,8 @@
 - [Nested Tar Archive with Whitespace Encoding (UTCTF 2026)](#nested-tar-archive-with-whitespace-encoding-utctf-2026)
 - [Audio Waveform Binary Encoding (BackdoorCTF 2013)](#audio-waveform-binary-encoding-backdoorctf-2013)
 - [Audio Spectrogram Hidden QR Code (BaltCTF 2013)](#audio-spectrogram-hidden-qr-code-baltctf-2013)
+- [Video Frame Accumulation for Hidden Image (ASIS CTF Finals 2013)](#video-frame-accumulation-for-hidden-image-asis-ctf-finals-2013)
+- [Reversed Audio Hidden Message (ASIS CTF Finals 2013)](#reversed-audio-hidden-message-asis-ctf-finals-2013)
 
 ---
 
@@ -384,3 +386,71 @@ sox audio.mp3 -n spectrogram -o spec.png
 ```
 
 **Key insight:** Use Sonic Visualiser (Layer → Add Spectrogram) with adjustable window size and color mapping. QR codes or text often appear in the 2-15 kHz band. Multiple spectrogram fragments may need to be stitched together in an image editor before scanning.
+
+---
+
+## Video Frame Accumulation for Hidden Image (ASIS CTF Finals 2013)
+
+**Pattern:** Video shows small images (icons, shapes) flashing briefly at different screen positions. Individual frames appear random, but the positions trace out a hidden pattern (QR code, text, image) when all frames are composited together.
+
+**Extraction workflow:**
+
+1. Extract individual frames from the video:
+```bash
+ffmpeg -i challenge.mp4 -vsync 0 frames/frame_%04d.png
+```
+
+2. Composite all frames by taking the maximum (or union) of all pixel values:
+```python
+from PIL import Image
+import os
+
+frames_dir = 'frames'
+frame_files = sorted(os.listdir(frames_dir))
+
+# Load first frame as base
+base = Image.open(os.path.join(frames_dir, frame_files[0])).convert('L')
+
+# Accumulate: take maximum pixel value across all frames
+import numpy as np
+accumulated = np.array(base, dtype=np.float64)
+for f in frame_files[1:]:
+    frame = np.array(Image.open(os.path.join(frames_dir, f)).convert('L'), dtype=np.float64)
+    accumulated = np.maximum(accumulated, frame)
+
+result = Image.fromarray(accumulated.astype(np.uint8))
+result.save('accumulated.png')
+```
+
+3. Alternative: convert to GIF and delete the black background frame in GIMP to see all positions overlaid.
+
+4. Clean up the revealed pattern (e.g., QR code) — select foreground, grow/shrink selection, flood fill, scale to expected dimensions (e.g., 21x21 for Version 1 QR):
+```bash
+# Scan for QR code
+zbarimg accumulated.png
+```
+
+**Key insight:** When a video shows objects flashing at seemingly random positions, composite all frames together. The positions themselves encode the hidden data — each frame contributes one pixel/cell to a larger image. Convert to GIF for frame-by-frame inspection in GIMP, or use PIL/NumPy to take per-pixel maximum across all frames.
+
+---
+
+## Reversed Audio Hidden Message (ASIS CTF Finals 2013)
+
+**Pattern:** Audio track (standalone or extracted from video) sounds garbled or unintelligible. Playing it in reverse reveals speech, numbers, or other meaningful content.
+
+**Extraction and reversal:**
+```bash
+# Extract audio from video
+ffmpeg -i challenge.mp4 -vn -acodec pcm_s16le audio.wav
+
+# Reverse audio
+sox audio.wav reversed.wav reverse
+# Or: ffmpeg -i audio.wav -af areverse reversed.wav
+
+# Play to hear hidden message
+play reversed.wav
+```
+
+**Alternative:** Open in Audacity → Effect → Reverse. Listen for speech, numbers, or encoded data.
+
+**Key insight:** Reversed audio is one of the simplest audio steganography techniques. If audio sounds like garbled speech with recognizable cadence, try reversing it first. The hidden content is often a numeric string (e.g., an MD5 hash) or instructions for the next step of the challenge. Check both the audio and video tracks of multimedia files independently.

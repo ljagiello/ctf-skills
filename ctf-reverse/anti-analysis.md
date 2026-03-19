@@ -38,7 +38,7 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
 - [Comprehensive Bypass Strategies](#comprehensive-bypass-strategies)
   - [Universal Bypass Checklist](#universal-bypass-checklist)
   - [Layered Anti-Debug (Real-World Pattern)](#layered-anti-debug-real-world-pattern)
-  - [Quick Reference: Check → Bypass](#quick-reference-check--bypass)
+  - [Quick Reference: Check to Bypass](#quick-reference-check-to-bypass)
 
 ---
 
@@ -610,7 +610,7 @@ Many CTF challenges stack multiple checks:
 
 **Approach:** Identify ALL checks before patching. Patch or hook each one systematically. Run under emulator if too many to patch individually.
 
-### Quick Reference: Check → Bypass
+### Quick Reference: Check to Bypass
 
 | Anti-Debug Check | Platform | Bypass |
 |---|---|---|

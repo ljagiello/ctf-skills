@@ -19,7 +19,7 @@
   - [Pattern: XOR Decryption](#pattern-xor-decryption)
 - [Known-Plaintext XOR (Flag Prefix)](#known-plaintext-xor-flag-prefix)
   - [Variant: XOR with Position Index](#variant-xor-with-position-index)
-- [Mixed-Mode (x86-64 ↔ x86) Stagers](#mixed-mode-x86-64--x86-stagers)
+- [Mixed-Mode (x86-64 / x86) Stagers](#mixed-mode-x86-64--x86-stagers)
 - [LLVM Obfuscation (Control Flow Flattening)](#llvm-obfuscation-control-flow-flattening)
   - [Pattern](#pattern)
   - [De-obfuscation](#de-obfuscation)
@@ -259,7 +259,7 @@ for klen in range(2, 33):
 
 ---
 
-## Mixed-Mode (x86-64 ↔ x86) Stagers
+## Mixed-Mode (x86-64 / x86) Stagers
 
 **Pattern:** 64-bit ELF jumps into a 32-bit blob via far return (`retf`/`retfq`), often after anti-debug.
 

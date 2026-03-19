@@ -6,7 +6,7 @@
 - [LLL Algorithm for Approximate GCD](#lll-algorithm-for-approximate-gcd)
 - [Coppersmith's Method (Close Private Keys)](#coppersmiths-method-close-private-keys)
 - [Coppersmith's Method (Structured Primes, LACTF 2026)](#coppersmiths-method-structured-primes-lactf-2026)
-- [Clock Group (x²+y²≡1 mod p) DLP (LACTF 2026)](#clock-group-xy1-mod-p-dlp-lactf-2026)
+- [Clock Group (x^2+y^2=1 mod p) DLP (LACTF 2026)](#clock-group-x2y21-mod-p-dlp-lactf-2026)
 - [Quaternion RSA](#quaternion-rsa)
 - [Polynomial Arithmetic in GF(2)[x]](#polynomial-arithmetic-in-gf2x)
 - [RSA Signing Bug](#rsa-signing-bug)
@@ -160,7 +160,7 @@ if roots:
 - `X` parameter is upper bound on root size
 - Works for any "partially known prime" pattern
 
-## Clock Group (x²+y²≡1 mod p) DLP (LACTF 2026)
+## Clock Group (x^2+y^2=1 mod p) DLP (LACTF 2026)
 
 **Pattern (the-clock):** Diffie-Hellman on the unit circle group.
 

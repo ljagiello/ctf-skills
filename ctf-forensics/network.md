@@ -15,6 +15,8 @@
 - [USB HID Stenography/Chord PCAP (UTCTF 2024)](#usb-hid-stenographychord-pcap-utctf-2024)
 - [BCD Encoding in UDP (VuwCTF 2025)](#bcd-encoding-in-udp-vuwctf-2025)
 - [HTTP File Upload Exfiltration in PCAP (MetaCTF 2026)](#http-file-upload-exfiltration-in-pcap-metactf-2026)
+- [TLS Master Key Extraction from Coredump (PlaidCTF 2014)](#tls-master-key-extraction-from-coredump-plaidctf-2014)
+- [Split Archive Reassembly from HTTP Transfers (ASIS CTF Finals 2013)](#split-archive-reassembly-from-http-transfers-asis-ctf-finals-2013)
 
 ---
 
@@ -386,6 +388,90 @@ tshark -r capture.pcap -q -z "follow,tcp,ascii,1"
 - "Dead drop" pattern: attacker uploads file to web server for later retrieval
 
 **Lesson:** Always start with `--export-objects` to extract transferred files before deep packet analysis. The flag is often in the exfiltrated file itself.
+
+---
+
+## TLS Master Key Extraction from Coredump (PlaidCTF 2014)
+
+**Pattern:** Given a PCAP with HTTPS traffic and a coredump from the server/client process, extract the TLS master key from OpenSSL's in-memory session structure to decrypt the traffic.
+
+**Extraction workflow:**
+
+1. Find the TLS Session ID from the handshake in Wireshark (visible in plaintext in the ClientHello/ServerHello)
+2. Search the coredump for the session ID bytes:
+```bash
+# Search for session ID in coredump
+grep -c '\x19\xAB\x5E\xDC\x02\xF0\x97\xD5' corefile
+hexdump -C corefile | grep --before=5 '19 ab 5e dc'
+```
+
+3. In OpenSSL's `ssl_session_st`, `master_key[48]` is stored immediately before `session_id[32]`. Read the 48 bytes before the session ID match.
+
+4. Create a Wireshark pre-master-secret log file:
+```text
+RSA Session-ID:<hex_session_id> Master-Key:<hex_master_key>
+```
+
+5. Load in Wireshark: Edit → Preferences → Protocols → TLS → (Pre-)Master-Secret log filename
+
+**Key insight:** OpenSSL stores `master_key[48]` directly before `session_id[32]` in `ssl_session_st`. Search the coredump for the session ID (from the TLS handshake), then read the 48 bytes before it. This works with coredumps, memory dumps, and Volatility memory extractions.
+
+---
+
+## Split Archive Reassembly from HTTP Transfers (ASIS CTF Finals 2013)
+
+**Pattern:** PCAP contains multiple HTTP file transfers with MD5-hash filenames, all the same size except one smaller file. Files are fragments of a split archive (e.g., 7z) that must be reassembled in order. A separate TCP stream contains a chat conversation with the archive password.
+
+**Identification:**
+- Multiple HTTP-transferred files with uniform size (e.g., 61440 bytes) and one smaller trailing fragment
+- First file has an archive magic number (e.g., `7z` header `37 7A BC AF 27 1C`)
+- Cover traffic and multiple ports used to obscure the transfers
+- Apache directory listing in PCAP provides file modification timestamps
+
+**Reassembly workflow:**
+
+1. Extract all HTTP objects and identify fragments:
+```bash
+# Export HTTP objects
+tshark -r capture.pcap --export-objects http,/tmp/http_objects
+ls -la /tmp/http_objects/
+
+# Check first file for archive magic number
+xxd /tmp/http_objects/d33cf9e6230f3b8e5a0c91a0514ab476 | head -1
+# 00000000: 377a bcaf 271c ...  → 7z archive header
+```
+
+2. Determine fragment order from Apache directory listing timestamps in PCAP:
+```bash
+# Extract the directory listing page
+tshark -r capture.pcap -Y "http.response and http.content_type contains html" \
+  -T fields -e http.file_data | head -1
+# Parse modification timestamps from the HTML table, sort chronologically
+```
+
+3. Concatenate fragments in timestamp order:
+```bash
+# Order files by modification timestamp (earliest first, smallest file last)
+cat d33cf9e6230f3b8e5a0c91a0514ab476 \
+    57f18f111f47eb9f7b5cdf5bd45144b0 \
+    1e13be50f05092e2a4e79b321c8450d4 \
+    ... \
+    c68cc0718b8b85e62c8a671f7c81e80a > archive.7z
+```
+
+4. Extract password from TCP conversation stream:
+```bash
+# Follow TCP streams to find chat with key exchange
+tshark -r capture.pcap -q -z "follow,tcp,ascii,0"
+# Look for "secret key" / "part N" messages, concatenate all parts
+```
+
+5. Decompress with recovered password:
+```bash
+7z x archive.7z -p"M)m5s6S^[>@#Q3+10PD.KE#cyPsvqH"
+```
+
+**Key insight:** When PCAP contains many same-sized file transfers, suspect a split archive. The fragment order is not the download order — look for an Apache/nginx directory listing page in the PCAP whose modification timestamps provide the correct reassembly sequence. The smallest file is the trailing fragment.
 
 ---
 

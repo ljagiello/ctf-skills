@@ -9,6 +9,8 @@
 - [__free_hook Overwrite via Format String (glibc < 2.34)](#__free_hook-overwrite-via-format-string-glibc--234)
 - [.rela.plt / .dynsym Patching](#relaplt--dynsym-patching)
 - [Format String for Game State Manipulation (UTCTF 2026)](#format-string-for-game-state-manipulation-utctf-2026)
+- [Format String Saved EBP Overwrite for .bss Pivot (PlaidCTF 2015)](#format-string-saved-ebp-overwrite-for-bss-pivot-plaidctf-2015)
+- [argv[0] Overwrite for Stack Smash Info Leak (HITCON CTF 2015)](#argv0-overwrite-for-stack-smash-info-leak-hitcon-ctf-2015)
 
 ---
 
@@ -285,3 +287,45 @@ p.sendline(b'%1000c%7$n')
 **When `%n` writes to adjacent variables:** If player and dealer chips are adjacent in memory (4 bytes apart), positions N and N+1 point to them. Write 0 to dealer (`%N$n` with 0 chars printed) and high value to player (`%9999c%(N+1)$n`).
 
 **Key insight:** Format string vulnerabilities in game binaries are simpler than typical pwn — you don't need shell, just manipulate game state to trigger the win condition. Map stack positions to game variables, then write the winning values.
+
+---
+
+## Format String Saved EBP Overwrite for .bss Pivot (PlaidCTF 2015)
+
+**Pattern (EBP):** Format string buffer is in `.bss` (fixed address) rather than on the stack. Classic `%n` arbitrary-write requires attacker addresses on the stack, which is impossible with `.bss` buffers. Instead, overwrite the saved EBP to redirect the function epilogue (`leave; ret`) to the `.bss` buffer.
+
+**How `leave; ret` works:**
+```asm
+leave:  mov esp, ebp    ; esp = saved_ebp
+        pop ebp         ; ebp = [saved_ebp]
+ret:    pop eip         ; eip = [saved_ebp + 4]
+```
+
+**Exploit layout in `.bss` buffer at address `0x0804A080`:**
+```text
+[addr_of_buf-4][padding_to_write_value][%n][shellcode...]
+```
+Write `buf_addr - 4` (e.g., `0x0804A07C`) into saved EBP via `%n`. On function return, `leave` sets `esp = 0x0804A07C`, then `ret` jumps to the value at `0x0804A080` — the start of shellcode.
+
+**Key insight:** When the format string buffer is at a fixed `.bss` address (not stack), overwrite saved EBP to pivot the stack into `.bss`. The `leave; ret` epilogue uses EBP to set ESP, so controlling EBP controls where `ret` reads EIP from. Place shellcode address (or ROP chain) at `buf_addr` and shellcode at `buf_addr + offset`.
+
+---
+
+## argv[0] Overwrite for Stack Smash Info Leak (HITCON CTF 2015)
+
+**Pattern (nanana):** When a stack canary is corrupted, glibc's `__stack_chk_fail` prints: `*** stack smashing detected ***: <argv[0]> terminated`. Since `argv[0]` is a pointer stored on the stack, overwriting it with the address of a secret (e.g., global password buffer) leaks the secret through the crash message.
+
+**Attack steps:**
+1. Overflow past the canary (deliberately corrupting it)
+2. Continue overwriting the stack to reach `argv[0]` (pointer to program name)
+3. Replace `argv[0]` with the address of the target data (e.g., `0x601090` = `g_password`)
+4. The stack smash handler prints: `*** stack smashing detected ***: <password_contents>`
+
+```python
+# Overflow to overwrite argv[0] with address of global password
+payload = b"A" * canary_offset     # reach canary (deliberately corrupt it)
+payload += b"B" * (argv0_offset - canary_offset)  # padding to argv[0]
+payload += p64(password_addr)      # overwrite argv[0] -> password string
+```
+
+**Key insight:** A "failed" exploit that triggers `__stack_chk_fail` becomes an information leak when `argv[0]` is overwritten. This is useful as a first stage: leak a secret (password, canary, address), then use it in a second connection for the real exploit. Works because `argv` is stored on the stack above local variables.

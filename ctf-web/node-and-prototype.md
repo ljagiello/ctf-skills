@@ -10,8 +10,8 @@
   - [ESM-Compatible Escape (CVE-2025-61927)](#esm-compatible-escape-cve-2025-61927)
   - [CommonJS Escape](#commonjs-escape)
   - [Why `document.write` Matters for Happy-DOM](#why-documentwrite-matters-for-happy-dom)
-- [Full Chain: Prototype Pollution → VM Escape RCE (4llD4y)](#full-chain-prototype-pollution--vm-escape-rce-4lld4y)
-- [Lodash Prototype Pollution → Pug AST Injection (VuwCTF 2025)](#lodash-prototype-pollution--pug-ast-injection-vuwctf-2025)
+- [Full Chain: Prototype Pollution to VM Escape RCE (4llD4y)](#full-chain-prototype-pollution-to-vm-escape-rce-4lld4y)
+- [Lodash Prototype Pollution to Pug AST Injection (VuwCTF 2025)](#lodash-prototype-pollution-to-pug-ast-injection-vuwctf-2025)
 - [Affected Libraries](#affected-libraries)
 - [Detection](#detection)
 
@@ -112,7 +112,7 @@ const result = proc.mainModule.require("child_process").execSync("id").toString(
 
 ---
 
-## Full Chain: Prototype Pollution → VM Escape RCE (4llD4y)
+## Full Chain: Prototype Pollution to VM Escape RCE (4llD4y)
 
 **Architecture:**
 1. Pollute `Object.prototype.settings` to enable JS eval in Happy-DOM
@@ -153,7 +153,7 @@ print(r.text.split("<title>")[1].split("</title>")[0])
 
 ---
 
-## Lodash Prototype Pollution → Pug AST Injection (VuwCTF 2025)
+## Lodash Prototype Pollution to Pug AST Injection (VuwCTF 2025)
 
 **Vulnerable:** Lodash < 4.17.5 `_.merge()` allows prototype pollution via `constructor.prototype`.
 

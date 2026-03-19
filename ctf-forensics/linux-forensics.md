@@ -17,6 +17,7 @@
 - [Browser Artifact Analysis](#browser-artifact-analysis)
   - [Chrome/Chromium](#chromechromium)
   - [Firefox](#firefox)
+- [Corrupted Git Blob Repair via Byte Brute-Force (CSAW CTF 2015)](#corrupted-git-blob-repair-via-byte-brute-force-csaw-ctf-2015)
 
 ---
 
@@ -366,3 +367,48 @@ with open('sessionstore-backups/recovery.jsonlz4','rb') as f:
 ```
 
 **Key insight:** Browser artifacts are SQLite databases with non-standard timestamp formats. Chrome uses WebKit epoch (microseconds since 1601-01-01), Firefox uses Unix epoch in microseconds. Always check History, Cookies, Login Data, Local Storage, and session restore files. For encrypted passwords, you need the master key (DPAPI on Windows, keychain on macOS, key4.db on Firefox).
+
+---
+
+## Corrupted Git Blob Repair via Byte Brute-Force (CSAW CTF 2015)
+
+**Pattern (sharpturn):** Git repository with corrupted blob objects. Since git identifies objects by SHA-1 hash, a single-byte corruption changes the hash, making the object unreadable. Repair by brute-forcing each byte position until `git hash-object` produces the expected hash.
+
+```python
+import subprocess, shutil
+
+def repair_blob(filepath, target_hash):
+    """Brute-force single-byte corruption in a git blob."""
+    with open(filepath, 'rb') as f:
+        data = bytearray(f.read())
+
+    for pos in range(len(data)):
+        original = data[pos]
+        for val in range(256):
+            if val == original:
+                continue
+            data[pos] = val
+            with open(filepath, 'wb') as f:
+                f.write(data)
+            result = subprocess.run(
+                ['git', 'hash-object', filepath],
+                capture_output=True, text=True
+            )
+            if result.stdout.strip() == target_hash:
+                print(f"Fixed byte {pos}: 0x{original:02x} -> 0x{val:02x}")
+                return True
+            data[pos] = original
+
+    with open(filepath, 'wb') as f:
+        f.write(data)
+    return False
+```
+
+**Workflow:**
+1. `git fsck` to identify corrupted objects and their expected hashes
+2. Locate the corrupt blob files in `.git/objects/`
+3. Decompress with `python3 -c "import zlib; print(zlib.decompress(open('blob','rb').read()))"`
+4. Brute-force each byte position (256 values * file_size attempts)
+5. Verify with `git hash-object` matching the expected hash
+
+**Key insight:** Git's content-addressable storage means the expected SHA-1 hash is known from the commit tree, even when the blob is corrupted. Single-byte corruption is brute-forceable in seconds. For multi-byte corruption, combine with contextual knowledge (e.g., source code must compile, numeric constants must be valid).

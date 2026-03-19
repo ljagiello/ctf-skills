@@ -5,10 +5,7 @@ For core injection attacks (SQLi, SSTI, SSRF, XXE, command injection), see [serv
 ## Table of Contents
 - [Java Deserialization (ysoserial)](#java-deserialization-ysoserial)
 - [Python Pickle Deserialization](#python-pickle-deserialization)
-  - [Bypass restricted unpicklers](#bypass-restricted-unpicklers)
 - [Race Conditions (TOCTOU)](#race-conditions-toctou)
-  - [Common CTF race condition targets](#common-ctf-race-condition-targets)
-  - [Detection in source code](#detection-in-source-code)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013)
 
 ---

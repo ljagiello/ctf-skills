@@ -13,6 +13,7 @@
 - [Deterministic OTP with Load-Balanced Backends (Pragyan 2026)](#deterministic-otp-with-load-balanced-backends-pragyan-2026)
 - [OTP Key Reuse / Many-Time Pad XOR (BYPASS CTF 2025)](#otp-key-reuse--many-time-pad-xor-bypass-ctf-2025)
 - [Book Cipher](#book-cipher)
+- [Variable-Length Homophonic Substitution (ASIS CTF Finals 2013)](#variable-length-homophonic-substitution-asis-ctf-finals-2013)
 
 ---
 
@@ -305,3 +306,56 @@ def crib_drag(c1, c2, crib, max_pos=None):
 **Pattern (Booking Key, Nullcon 2026):** Book cipher with "steps forward" encoding. Brute-force starting position with charset filtering reduces ~56k candidates to 3-4.
 
 See [historical.md](historical.md) for full implementation.
+
+---
+
+## Variable-Length Homophonic Substitution (ASIS CTF Finals 2013)
+
+**Pattern (Rookie Agent):** Ciphertext uses alphanumeric characters grouped in blocks of 5. Single-character frequency analysis shows non-uniform distribution. N-gram analysis reveals repeated multi-character groups mapping to single plaintext characters, with different plaintext characters encoded by groups of different lengths (1-4 characters).
+
+**Analysis workflow:**
+
+1. Collapse whitespace and compute n-gram frequencies (1 through 6):
+```python
+from collections import Counter
+
+ct = "6di16ovhtmnzslsxqcjo8fkdmtyrbn..."  # cleaned ciphertext
+for n in range(1, 7):
+    ngrams = [ct[i:i+n] for i in range(len(ct)-n+1)]
+    freq = Counter(ngrams).most_common(20)
+    print(f"{n}-grams: {freq[:10]}")
+```
+
+2. Identify constant-frequency groups — if `8f`, `fk`, and `kd` each appear exactly 36 times, check whether `8fkd` also appears 36 times. If so, it is a single substitution unit:
+```python
+# Iteratively replace most-frequent fixed groups with single symbols
+substitutions = {
+    '8fkd': 'E', '4bg9': 'I', 'lsxq': 'A', 'fmrk': 'B',
+    '9gle': 'C', 'mtyr': 'D', 'cjo': 'F', 'htm': 'G',
+    # ... continue for all identified groups
+}
+reduced = ct
+for pattern, symbol in sorted(substitutions.items(), key=lambda x: -len(x[0])):
+    reduced = reduced.replace(pattern, symbol)
+```
+
+3. The reduced text is now a monoalphabetic substitution — solve with [quipqiup.com](https://quipqiup.com/) or statistical analysis on English.
+
+4. When some characters remain ambiguous after decryption, brute-force permutations against a known hash of the flag:
+```python
+from itertools import permutations
+from hashlib import sha256
+
+partial_flag = '3c6a1c371b381c943065864b95ae5546'
+ambiguous_chars = '12456789x'  # chars with uncertain mapping
+known_hash = '9f2a579716af14400c9ba1de8682ca52c17b3ed4235ea17ac12ae78ca24876ef'
+
+for p in permutations(ambiguous_chars):
+    mapping = dict(zip(ambiguous_chars, p))
+    candidate = ''.join(mapping.get(c, c) for c in partial_flag)
+    if sha256(('ASIS_' + candidate).encode()).hexdigest() == known_hash:
+        print(f"Flag: ASIS_{candidate}")
+        break
+```
+
+**Key insight:** Variable-length homophonic substitution hides letter frequencies by mapping common plaintext letters to longer codegroups. The attack reverses this: find n-grams that always appear as a unit (identical frequency for all sub-n-grams), replace them with single symbols, then solve the resulting monoalphabetic substitution. When the flag format provides a hash for verification, brute-force remaining ambiguous character permutations offline.

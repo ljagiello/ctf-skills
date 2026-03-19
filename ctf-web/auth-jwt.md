@@ -2,7 +2,7 @@
 
 ## Table of Contents
 - [Algorithm None](#algorithm-none)
-- [Algorithm Confusion (RS256 → HS256)](#algorithm-confusion-rs256--hs256)
+- [Algorithm Confusion (RS256 to HS256)](#algorithm-confusion-rs256-to-hs256)
 - [Weak Secret Brute-Force](#weak-secret-brute-force)
 - [Unverified Signature (Crypto-Cat)](#unverified-signature-crypto-cat)
 - [JWK Header Injection (Crypto-Cat)](#jwk-header-injection-crypto-cat)
@@ -18,7 +18,7 @@ For general auth bypass, access control, and session attacks, see [auth-and-acce
 ## Algorithm None
 Remove signature, set `"alg": "none"` in header.
 
-## Algorithm Confusion (RS256 → HS256)
+## Algorithm Confusion (RS256 to HS256)
 App accepts both RS256 and HS256, uses public key for both:
 ```javascript
 const jwt = require('jsonwebtoken');

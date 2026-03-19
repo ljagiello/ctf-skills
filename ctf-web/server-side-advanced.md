@@ -25,7 +25,7 @@
   - [Step 4 — Bypass WAF keyword filters](#step-4--bypass-waf-keyword-filters)
   - [Step 5 — Post-RCE enumeration](#step-5--post-rce-enumeration)
   - [Step 6 — Lateral movement to internal services](#step-6--lateral-movement-to-internal-services)
-- [SSRF → Docker API RCE Chain (H7CTF 2025)](#ssrf--docker-api-rce-chain-h7ctf-2025)
+- [SSRF to Docker API RCE Chain (H7CTF 2025)](#ssrf-to-docker-api-rce-chain-h7ctf-2025)
 - [Castor XML Deserialization via xsi:type Polymorphism (Atlas HTB)](#castor-xml-deserialization-via-xsitype-polymorphism-atlas-htb)
 - [Apache ErrorDocument Expression File Read (Zero HTB)](#apache-errordocument-expression-file-read-zero-htb)
 - [SQLite File Path Traversal to Bypass String Equality (Codegate 2013)](#sqlite-file-path-traversal-to-bypass-string-equality-codegate-2013)
@@ -473,7 +473,7 @@ throw Object.assign(new Error('NEXT_REDIRECT'),
 
 ---
 
-## SSRF → Docker API RCE Chain (H7CTF 2025)
+## SSRF to Docker API RCE Chain (H7CTF 2025)
 
 **Pattern (Moby Dock):** Web app with SSRF vulnerability exposes unauthenticated Docker daemon API on port 2375. Chain SSRF through an internal proxy endpoint to relay POST requests and achieve RCE.
 

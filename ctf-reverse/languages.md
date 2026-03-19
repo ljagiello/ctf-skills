@@ -72,6 +72,8 @@ Decompiler fails with opcode errors.
 4. Patch target .pyc
 5. Decompile normally
 
+**Shortcut (Hack.lu CTF 2013):** If the challenge bundles its own modified Python interpreter (e.g., a custom `./py` binary), install `uncompyle2`/`uncompyle6` into that interpreter's environment and decompile using the challenge's own runtime. The modified interpreter understands its own opcode mapping, so standard decompilation tools work without manual opcode recovery.
+
 ---
 
 ## Pyarmor 8/9 Static Unpack (1shot)
