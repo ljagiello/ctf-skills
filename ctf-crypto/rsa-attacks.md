@@ -19,6 +19,9 @@
 - [RSA Cube Root CRT when gcd(e, phi) > 1 (BearCatCTF 2026)](#rsa-cube-root-crt-when-gcde-phi--1-bearcatctf-2026)
 - [Factoring n from Multiple of phi(n) (BearCatCTF 2026)](#factoring-n-from-multiple-of-phin-bearcatctf-2026)
 - [RSA Signature Forgery via Multiplicative Homomorphism (MMA CTF 2015)](#rsa-signature-forgery-via-multiplicative-homomorphism-mma-ctf-2015)
+- [Weak RSA Key Generation via Base Representation (Sharif CTF 2016)](#weak-rsa-key-generation-via-base-representation-sharif-ctf-2016)
+- [RSA with gcd(e, phi(n)) > 1 (CSAW 2015)](#rsa-with-gcde-phin--1-csaw-2015)
+- [Batch GCD for Shared Prime Factoring (BSidesSF 2025)](#batch-gcd-for-shared-prime-factoring-bsidessf-2025)
 
 ---
 
@@ -532,3 +535,101 @@ forged_sig = (sig_a * sig_b) % n
 ```
 
 **Key insight:** Textbook RSA signatures are homomorphic: `m^d mod n` preserves multiplication. If the oracle blacklists `m` but signs its factors, multiply the partial signatures. To find a suitable factorization, try small divisors (2, 3, ...) until `m / divisor` also passes the blacklist check. This is why PKCS#1 padding is essential — padded messages cannot be factored into other valid padded messages.
+
+---
+
+## Weak RSA Key Generation via Base Representation (Sharif CTF 2016)
+
+When RSA primes are generated as `p = kp * B + tp` where B = product_of_small_primes * 2^400 and kp is small (< 2^12):
+
+1. **Compute n mod B^2:** Since n = p*q and both p,q have form k*B + t, expansion gives: `n = kp*kq*B^2 + (kp*tq + kq*tp)*B + tp*tq`
+2. **Recover kp*kq:** Brute-force 2^24 possibilities for (kp, kq) where each < 2^12
+3. **Solve quadratic:** From known kp*kq and the middle coefficient, recover tp and tq
+
+```python
+B = product_of_first_443_primes * (2**400)
+B2 = B * B
+
+# n = A*B^2 + C*B + D where A=kp*kq, D=tp*tq
+A = n // B2
+D = n % B
+
+# Brute-force kp, kq such that kp*kq == A
+for kp in range(1, 2**12):
+    if A % kp == 0:
+        kq = A // kp
+        # Solve for tp, tq from remaining equations
+```
+
+**Key insight:** Structured prime generation creates a mixed-radix representation of n, allowing efficient factorization by reducing the search space from exponential to polynomial.
+
+---
+
+## RSA with gcd(e, phi(n)) > 1 (CSAW 2015)
+
+When `gcd(e, phi(n)) = g > 1`, standard RSA decryption fails because `d = e^(-1) mod phi(n)` doesn't exist. Instead:
+
+1. Compute `e' = e / g` (reduced exponent)
+2. Compute `d' = e'^(-1) mod phi(n)` (now coprime)
+3. Compute `m^g = pow(c, d', n)` (partial decryption)
+4. Take g-th root: iterate candidate m values where `pow(m, g, n) == m^g`
+
+```python
+from sympy import factorint, mod_inverse
+from gmpy2 import iroot
+
+g = gcd(e, phi_n)
+e_prime = e // g
+d_prime = mod_inverse(e_prime, phi_n)
+m_g = pow(c, d_prime, n)
+
+# For small g, try integer root first
+m, is_exact = iroot(m_g, g)
+if is_exact:
+    plaintext = int(m)
+else:
+    # Brute-force: m_g + k*n for small k
+    for k in range(10000):
+        m, exact = iroot(m_g + k * n, g)
+        if exact:
+            plaintext = int(m)
+            break
+```
+
+**Key insight:** Reduce e by the GCD to make decryption possible, then recover the g-th root. Filter candidates by checking plaintext length or ASCII validity.
+
+---
+
+## Batch GCD for Shared Prime Factoring (BSidesSF 2025)
+
+When multiple RSA moduli share a common prime factor (due to faulty hardware RNG, smartcard bugs, or weak seeding):
+
+```python
+from math import gcd
+from functools import reduce
+
+def batch_gcd(moduli):
+    """Find shared factors among a list of RSA moduli"""
+    # Product tree
+    product = reduce(lambda a, b: a * b, moduli)
+
+    factors = {}
+    for n in moduli:
+        g = gcd(n, product // n)
+        if g != 1 and g != n:
+            p = g
+            q = n // p
+            factors[n] = (p, q)
+    return factors
+
+# Usage: given list of public keys from smartcards
+moduli = [key.n for key in public_keys]
+shared = batch_gcd(moduli)
+for n, (p, q) in shared.items():
+    phi = (p - 1) * (q - 1)
+    d = pow(e, -1, phi)  # Private exponent
+```
+
+For keys with patterned primes (hardware RNG faults producing primes with fixed bit patterns), combine with Coppersmith's method to recover remaining random bits. See [advanced-math.md](advanced-math.md) for Coppersmith.
+
+**Key insight:** A single shared prime compromises both keys. Batch GCD runs in O(n log n) time via product/remainder trees, making it feasible for thousands of keys. Real-world incidents: Taiwanese citizen smartcards (2013), many IoT device certificates.

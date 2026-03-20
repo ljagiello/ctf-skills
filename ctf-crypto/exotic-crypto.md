@@ -4,6 +4,10 @@
 - [Braid Group DH — Alexander Polynomial Multiplicativity (DiceCTF 2026)](#braid-group-dh--alexander-polynomial-multiplicativity-dicectf-2026)
 - [Monotone Function Inversion with Partial Output](#monotone-function-inversion-with-partial-output)
 - [Tropical Semiring Residuation Attack (BearCatCTF 2026)](#tropical-semiring-residuation-attack-bearcatctf-2026)
+- [Paillier Cryptosystem Attack (SECCON 2015)](#paillier-cryptosystem-attack-seccon-2015)
+- [Hamming Code Error Correction with Helical Interleaving (Sharif CTF 2016)](#hamming-code-error-correction-with-helical-interleaving-sharif-ctf-2016)
+- [ElGamal Universal Re-encryption (Sharif CTF 2016)](#elgamal-universal-re-encryption-sharif-ctf-2016)
+- [Paillier Oracle Size Bypass via Ciphertext Factoring (BSidesSF 2025)](#paillier-oracle-size-bypass-via-ciphertext-factoring-bsidessf-2025)
 
 ---
 
@@ -247,3 +251,124 @@ for i, enc_char in enumerate(encrypted):
 **Key insight:** Tropical DH is broken because the min-plus semiring lacks cancellation — given `M` and `M*b`, the "residual" `b*` can be computed directly via `max(Mb[i] - M[i][j])`. Unlike standard DH where recovering `b` from `g^b` is hard, tropical residuation recovers enough of `b`'s effect to compute the shared secret. This makes tropical matrix DH insecure for any matrix size.
 
 **Detection:** Challenge mentions "tropical", "min-plus", "exotic algebra", or defines custom matrix multiplication using `min` and `+`.
+
+---
+
+## Paillier Cryptosystem Attack (SECCON 2015)
+
+The Paillier cryptosystem is a homomorphic encryption scheme where `c = g^m * r^n mod n^2`. When given oracle equations involving c, o, h values:
+
+1. **Recover n:** Compute lower bound `sqrt(max(c, o, h))` to approximate n, then brute-force nearby values
+2. **Validate n:** Check equation `h = (c * o) % (n^2)` for correctness
+3. **Factor n:** Use standard methods (e.g., factordb) to find p, q
+4. **Decrypt:** Apply Paillier decryption:
+
+```python
+from sympy import lcm, mod_inverse
+
+# n = p * q (factored)
+lam = lcm(p - 1, q - 1)  # Carmichael function
+n2 = n * n
+
+def L(x):
+    return (x - 1) // n
+
+# Compute mu
+g_lam = pow(g, lam, n2)
+mu = mod_inverse(L(g_lam), n)
+
+# Decrypt
+c_lam = pow(c, lam, n2)
+m = (L(c_lam) * mu) % n
+```
+
+**Key insight:** Paillier operates mod n^2, so ciphertext values are much larger than RSA. The homomorphic property `E(m1) * E(m2) = E(m1 + m2)` can leak relationships between plaintexts.
+
+---
+
+## Hamming Code Error Correction with Helical Interleaving (Sharif CTF 2016)
+
+When data is protected by Hamming(31,26) codes with helical scan interleaving:
+
+1. **Determine matrix dimensions:** Brute-force width/height (30x30 search space) by testing which dimensions produce valid Hamming codewords
+2. **Read data in helical pattern:** Extract bits diagonally from the interleaved matrix
+3. **Apply Hamming parity check:** Multiply codeword by parity check matrix H to detect/correct errors
+
+```python
+import numpy as np
+
+def check_hamming(codeword, H):
+    """Syndrome = H * c^T; zero syndrome means valid codeword"""
+    syndrome = np.dot(H, codeword) % 2
+    return np.all(syndrome == 0)
+
+# Brute-force dimensions
+for w in range(1, 31):
+    for h in range(1, 31):
+        # Reshape data into w x h matrix
+        matrix = data[:w*h].reshape(h, w)
+        # Read diagonals (helical scan)
+        bits = read_helical(matrix)
+        # Check if bits form valid Hamming codewords
+        if validate_hamming_stream(bits, H):
+            print(f"Dimensions: {w}x{h}")
+```
+
+**Key insight:** Try 8 different bit alignment offsets when the start position is unknown. Valid Hamming codewords have zero syndrome under multiplication by the parity check matrix.
+
+---
+
+## ElGamal Universal Re-encryption (Sharif CTF 2016)
+
+Given an ElGamal-like ciphertext tuple (a, b, c, d) = (g^r, h^r, g^s, m*h^s), produce a different valid ciphertext decrypting to the same message without knowing the private key:
+
+Transform exponents r -> 2r, s -> r+s:
+
+```python
+def reencrypt(a, b, c, d, p):
+    return [
+        (a * a) % p,    # g^(2r)
+        (b * b) % p,    # h^(2r)
+        (a * c) % p,    # g^(r+s)
+        (d * b) % p     # m*h^(r+s)
+    ]
+```
+
+**Key insight:** ElGamal's homomorphic property allows re-randomizing ciphertexts by multiplying components. The relationship between exponents must remain consistent: both pairs must share the same exponent offset.
+
+---
+
+## Paillier Oracle Size Bypass via Ciphertext Factoring (BSidesSF 2025)
+
+When a Paillier decryption oracle rejects messages exceeding a size limit (e.g., >2000 bits), exploit the homomorphic property to factor the encrypted flag into smaller pieces:
+
+1. **Paillier additive homomorphism:** `E(m1) * E(m2) mod n^2 = E(m1 + m2 mod n)`
+2. **Multiplicative (scalar):** `E(m)^k mod n^2 = E(k*m mod n)`
+3. **Factoring ciphertext:** Divide n into small ranges, query oracle with `E(flag) * E(-offset)^1` to determine which range contains the flag
+4. **Chunk extraction:** Split the flag value into pieces that each fit within the oracle's size limit, decrypt individually, sum to recover original
+
+```python
+from Crypto.Util.number import inverse
+
+def paillier_sub(c, plaintext_sub, n):
+    """Compute E(m - plaintext_sub) from E(m) using homomorphic property"""
+    n2 = n * n
+    # E(-plaintext_sub) = E(n - plaintext_sub) = (n+1)^(n-plaintext_sub) * r^n mod n^2
+    neg_enc = pow(n + 1, n - plaintext_sub, n2)
+    return (c * neg_enc) % n2
+
+# Binary search for flag value using oracle
+def recover_flag(enc_flag, n, oracle_decrypt):
+    low, high = 0, n
+    while high - low > 1:
+        mid = (low + high) // 2
+        test_ct = paillier_sub(enc_flag, mid, n)
+        result = oracle_decrypt(test_ct)
+        if result < n // 2:  # Positive (flag > mid)
+            low = mid
+        else:  # Negative (flag < mid, wraps around)
+            high = mid
+    return low
+```
+
+**Key insight:** Paillier's additive homomorphism allows computing `E(flag - offset)` without decryption. If the oracle reveals whether the decrypted value is "small" (within limit) or "large" (rejected/wraps), binary search recovers the flag in O(log n) queries.

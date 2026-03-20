@@ -193,6 +193,8 @@ For comprehensive anti-analysis techniques and bypasses (30+ methods with code),
 
 See [patterns.md](patterns.md#custom-vm-reversing) for VM workflow, opcode tables, and state machine BFS.
 
+**Sequential key-chain brute-force:** When a VM validates input in small blocks (e.g., 3 bytes = 2^24 candidates) with each block's output key feeding the next, brute-force each block sequentially with OpenMP parallelization. Compile solver with `gcc -O3 -march=native -fopenmp`. See [patterns-ctf-2.md](patterns-ctf-2.md#vm-sequential-key-chain-brute-force-midnight-flag-2026).
+
 ## Python Bytecode Reversing
 
 XOR flag checkers with interleaved even/odd tables are common. See [languages.md](languages.md#python-bytecode-reversing-disdis-output) for bytecode analysis tips and reversing patterns.

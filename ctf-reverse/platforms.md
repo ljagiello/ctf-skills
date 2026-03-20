@@ -24,6 +24,7 @@ macOS/iOS, embedded/IoT firmware, kernel driver, automotive, and game engine rev
   - [Unity (Beyond IL2CPP)](#unity-beyond-il2cpp)
   - [Anti-Cheat Analysis](#anti-cheat-analysis)
   - [Lua-Scripted Games](#lua-scripted-games)
+- [HD44780 LCD Controller GPIO Reconstruction (32C3 2015)](#hd44780-lcd-controller-gpio-reconstruction-32c3-2015)
 - [Automotive / CAN Bus RE](#automotive--can-bus-re)
 - [RISC-V (Advanced)](#risc-v-advanced)
   - [Custom Extensions](#custom-extensions)
@@ -536,6 +537,38 @@ luajit -bl bytecode.lua                     # Disassemble
 # Embedded Lua: strings binary | grep "lua_\|luaL_\|LUA_"
 # Hook lua_pcall to intercept script execution
 ```
+
+---
+
+## HD44780 LCD Controller GPIO Reconstruction (32C3 2015)
+
+Recover text displayed on an HD44780 LCD from raw Raspberry Pi GPIO recordings:
+
+1. **Identify signal lines:** Map GPIO pins to HD44780 signals (RS, CLK, D4-D7 for 4-bit mode)
+2. **Clock edge detection:** Sample data lines on falling clock edges (1→0 transition)
+3. **Nibble assembly:** Combine two 4-bit samples into one 8-bit command/data byte
+4. **DRAM address mapping:** HD44780 uses non-contiguous addressing for multi-line displays:
+   - Line 0: 0x00-0x27
+   - Line 1: 0x40-0x67
+   - Line 2: 0x14-0x3B
+   - Line 3: 0x54-0x7B
+
+```python
+display = [' '] * 80  # 4 lines x 20 chars
+cursor = 0
+
+for timestamp, gpio_state in sorted(gpio_log):
+    if falling_edge(gpio_state, CLK_PIN):
+        nibble = extract_data_bits(gpio_state)
+        byte = assemble_nibble(nibble)  # Two nibbles per byte
+        if rs_high(gpio_state):  # RS=1: data write
+            display[dram_to_position(cursor)] = chr(byte)
+            cursor += 1
+        else:  # RS=0: command (set cursor, clear, etc.)
+            cursor = parse_command(byte)
+```
+
+**Key insight:** GPIO pin-to-signal mapping is rarely documented; identify CLK by finding the pin with most transitions, RS by correlation with data patterns (alternating command/data phases).
 
 ---
 

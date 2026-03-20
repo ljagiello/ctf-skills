@@ -578,6 +578,37 @@ python3 xs128p.py --multiple 100000 --gen <state0>,<state1>,<count>
 - Multiple browser tabs or web workers may have separate PRNG states
 - Cache boundary (every 64 calls) can introduce discontinuities if observations span a refill
 
+**Inverse xorshift128+ (backward prediction):** After recovering state, step the PRNG backward to predict values generated *before* the observed sequence. Essential when the target value was generated earlier than observations (e.g., predicting another user's 2FA code). (Midnight Flag 2026)
+
+```python
+def undo_rshift_xor(val, shift):
+    """Invert val ^= (val >> shift)"""
+    result = val
+    for _ in range(3):  # 3 iterations sufficient for 64-bit
+        result = val ^ (result >> shift)
+    return result & 0xFFFFFFFFFFFFFFFF
+
+def undo_lshift_xor(val, shift):
+    """Invert val ^= (val << shift)"""
+    result = val
+    for _ in range(3):
+        result = val ^ ((result << shift) & 0xFFFFFFFFFFFFFFFF)
+    return result & 0xFFFFFFFFFFFFFFFF
+
+def reverse_step(s0, s1):
+    """Run xs128p one step backward: (s0, s1) → (old_s0, old_s1)"""
+    old_s1 = s0
+    known = (s1 ^ s0 ^ ((s0 >> 26) & 0xFFFFFFFFFFFFFFFF)) & 0xFFFFFFFFFFFFFFFF
+    x = undo_rshift_xor(known, 17)
+    old_s0 = undo_lshift_xor(x, 23)
+    return old_s0, old_s1
+
+# Usage: step backward N times from recovered state
+for _ in range(N):
+    state0, state1 = reverse_step(state0, state1)
+    predicted = math.floor(CONST * to_double(state0))
+```
+
 **When to use:** Web challenge where JavaScript generates predictable-looking random values (tokens, verification codes, game rolls) using `Math.random()`. Look for patterns like `Math.floor(N * Math.random())` or `Math.random().toString(36).substr(2)` in client-side or server-side Node.js code.
 
 ---

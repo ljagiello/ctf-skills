@@ -11,6 +11,7 @@
 - [Brainfuck Interpreter Instrumentation (BearCatCTF 2026)](#brainfuck-interpreter-instrumentation-bearcatctf-2026)
 - [WASM Linear Memory Manipulation (BearCatCTF 2026)](#wasm-linear-memory-manipulation-bearcatctf-2026)
 - [Neural Network Encoder Collision via Optimization (RootAccess2026)](#neural-network-encoder-collision-via-optimization-rootaccess2026)
+- [ML Model Inversion via Gradient Descent (BSidesSF 2025)](#ml-model-inversion-via-gradient-descent-bsidessf-2025)
 - [References](#references)
 
 ---
@@ -406,6 +407,43 @@ for _ in range(100):
 
 ---
 
+## ML Model Inversion via Gradient Descent (BSidesSF 2025)
+
+Extract training images from an overfitted neural network classifier by optimizing inputs to maximize class activation:
+
+```python
+import tensorflow as tf
+import numpy as np
+
+def invert_model(model, target_class, input_shape=(64, 64, 1), steps=5000, lr=0.1):
+    """Recover training image by maximizing target class activation"""
+    # Start from random noise
+    image = tf.Variable(tf.random.uniform(input_shape, 0, 1))
+
+    for step in range(steps):
+        with tf.GradientTape() as tape:
+            prediction = model(tf.expand_dims(image, 0))
+            loss = -prediction[0][target_class]  # Maximize target class
+
+        gradients = tape.gradient(loss, image)
+        image.assign_sub(lr * gradients)
+        # Clip to valid pixel range
+        image.assign(tf.clip_by_value(image, 0.0, 1.0))
+
+    return image.numpy()
+
+# Extract one image per class
+for class_id in range(num_classes):
+    recovered = invert_model(model, class_id)
+    plt.imsave(f'class_{class_id}.png', recovered.squeeze(), cmap='gray')
+```
+
+**Key insight:** Overfitted models (~24M parameters for 4 classes) memorize training data almost exactly. Gradient descent on the input pixels converges to the memorized training image. Works best on models with high parameter-to-class ratios and greyscale inputs. For color images, optimize each channel independently or jointly.
+
+**Detection signs:** Model file is unusually large relative to the task complexity; few output classes but many parameters.
+
+---
+
 ## References
 - DiceCTF 2026 "leadgate": ML weight perturbation negation for flag extraction
 - BYPASS CTF 2025 "Signal from the Deck": Cookie checkpoint game brute-forcing
@@ -417,6 +455,7 @@ for _ in range(100):
 - BearCatCTF 2026 "Ghost Ship": Brainfuck instrumentation brute-force
 - BearCatCTF 2026 "Dubious Doubloon": WASM linear memory state patching
 - RootAccess2026 "The AI Techbro": Neural network encoder collision via greedy + simulated annealing
+- BSidesSF 2025: ML model inversion via gradient descent for training data extraction
 
 ---
 

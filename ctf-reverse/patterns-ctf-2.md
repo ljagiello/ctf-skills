@@ -12,6 +12,10 @@
 - [Z3 for Single-Line Python Boolean Circuit (BearCatCTF 2026)](#z3-for-single-line-python-boolean-circuit-bearcatctf-2026)
 - [Sliding Window Popcount Differential Propagation (BearCatCTF 2026)](#sliding-window-popcount-differential-propagation-bearcatctf-2026)
 - [Morse Code from Keyboard LEDs via ioctl (PlaidCTF 2013)](#morse-code-from-keyboard-leds-via-ioctl-plaidctf-2013)
+- [C++ Destructor-Hidden Validation (Defcamp 2015)](#c-destructor-hidden-validation-defcamp-2015)
+- [VM Sequential Key-Chain Brute-Force (Midnight Flag 2026)](#vm-sequential-key-chain-brute-force-midnight-flag-2026)
+- [Syscall Side-Effect Memory Corruption (Hack.lu 2015)](#syscall-side-effect-memory-corruption-hacklu-2015)
+- [MFC Dialog Event Handler Location (WhiteHat 2015)](#mfc-dialog-event-handler-location-whitehat-2015)
 
 ---
 
@@ -516,6 +520,117 @@ morse_map = {'.-':'A', '-...':'B', '-.-.':'C', '-..':'D', '.':'E',
 ```
 
 **Key insight:** `KDSETLED` controls physical keyboard LEDs on Linux (`/dev/console`). The binary must run with console access. Use `strace -e ioctl` to capture all LED state changes without needing physical observation. Timing between calls determines dot vs dash.
+
+---
+
+## C++ Destructor-Hidden Validation (Defcamp 2015)
+
+Validation logic may hide in C++ destructors that execute after `main()` returns. The `__cxa_atexit` mechanism registers destructor callbacks:
+
+1. **Locate destructors:** Search for `__cxa_atexit` calls in `.init_array`/constructor sections
+2. **Static analysis:** Identify global objects whose destructors perform flag checking
+3. **Dynamic verification:** Set breakpoints on `__cxa_finalize` to trace post-main execution
+
+```bash
+# In IDA/Ghidra: look for atexit registrations
+__cxa_atexit(destructor_func, object_ptr, dso_handle);
+
+# Destructor contains actual validation:
+# - Regex pattern matching on 4-byte blocks (8 sequential checks)
+# - Arithmetic: v2 += -3 * s[i] + 36 + (s[i] ^ 0x2FCFBA)
+# - Modular verification of accumulated sum
+```
+
+**Key insight:** When `main()` appears trivial or incomplete, check destructors of global/static C++ objects. The `.fini_array` section and `__cxa_atexit` registrations reveal hidden post-main logic.
+
+---
+
+## Syscall Side-Effect Memory Corruption (Hack.lu 2015)
+
+The `rt_sigprocmask` syscall writes a `sigset_t` structure to its output pointer. When input parsing passes a pointer near a security-critical variable:
+
+1. Certain input characters (e.g., `:` to `@` range, values 0x3A-0x40) trigger `rt_sigprocmask` as a side effect
+2. The syscall zeros out bytes at the output address, which may overlap adjacent variables
+3. In little-endian layout, zeroing the MSB of an adjacent integer variable effectively sets it to a small value
+
+```c
+// Memory layout (no ASLR):
+// 0x603390: input_buffer[4]
+// 0x603394: security_check_var
+
+// Input ':' triggers: rt_sigprocmask(SIG_BLOCK, NULL, (sigset_t*)0x603397, ...)
+// This zeros bytes at 0x603397+, corrupting security_check_var's high bytes
+```
+
+**Key insight:** Audit how input validation functions interact with syscalls. Character-to-syscall mappings in hex conversion routines can produce unintended memory writes via kernel-space operations.
+
+---
+
+## MFC Dialog Event Handler Location (WhiteHat 2015)
+
+To find event handlers in MFC (Microsoft Foundation Class) applications:
+
+1. **Break on SendMessageW:** Set breakpoint on `user32!SendMessageW` to intercept dialog messages
+2. **Filter for WM_COMMAND:** Message ID 0x111 indicates button clicks and control events
+3. **Trace message map:** Follow the MFC message dispatch from `CWnd::OnWndMsg` → `CCmdTarget::OnCmdMsg` → handler function
+4. **OnInitDialog:** Often contains decryption or validation setup; triggered by WM_INITDIALOG (0x110)
+
+```asm
+# WinDbg/x64dbg:
+bp user32!SendMessageW ".if (poi(@esp+8)==0x111) {} .else {gc}"
+# Or in IDA: find cross-references to AFX_MSGMAP_ENTRY structures
+```
+
+**Key insight:** MFC applications route messages through dispatch tables. Identify the `AFX_MSGMAP` structure to enumerate all handled messages without runtime analysis.
+
+---
+
+## VM Sequential Key-Chain Brute-Force (Midnight Flag 2026)
+
+**Pattern (67):** Custom VM validates input in N-byte blocks. Each block's output key feeds as input to the next block, preventing parallel solving. Per-block search space is small enough to brute-force (2^24 for 3-byte blocks).
+
+**Recognition signs:**
+- Bytecode with XOR-obfuscated opcodes (all bytes XOR'd with a constant, producing ASCII-looking bytecode)
+- Iterative transformation loop (xorshift + multiply, repeated 1000+ times) making algebraic inversion impractical
+- CHECK opcodes comparing accumulated state against embedded constants
+- Large `.data` section with repetitive bytecode patterns
+
+**Solving approach:**
+1. Parse bytecode to extract CHECK values (expected key after each block)
+2. For each block sequentially, brute-force the input bytes that produce the expected key
+3. Use the CHECK value as the key for the next block
+
+```c
+// OpenMP-parallelized per-block brute-force
+uint32_t process(uint32_t val) {
+    for (int i = 0; i < 1000; i++) {
+        val ^= (val << 13);
+        val ^= (val >> 17);
+        val ^= (val << 5);
+        val *= 0x2545f491;
+    }
+    return val;
+}
+
+int solve_block(uint32_t old_key, uint32_t expected_key, unsigned char *out) {
+    int found = 0;
+    #pragma omp parallel for shared(found)
+    for (int v = 0; v < 0x1000000; v++) {
+        if (found) continue;
+        uint32_t input_val = ((v >> 16) << 16) | (v & 0xFF) | ((v >> 8 & 0xFF) << 8);
+        uint32_t saved = input_val ^ old_key;
+        uint32_t final_val = process(saved);
+        if ((final_val ^ saved) == expected_key) {
+            #pragma omp critical
+            { if (!found) { out[0]=v>>16; out[1]=(v>>8)&0xFF; out[2]=v&0xFF; found=1; } }
+        }
+    }
+    return found;
+}
+// Compile: gcc -O3 -march=native -fopenmp -o solve solve.c
+```
+
+**Key insight:** When a transformation is intentionally non-invertible (iterated hash-like function), brute-force is the intended solution. OpenMP parallelization is critical — 287 blocks x 16.7M candidates each takes minutes parallelized vs hours single-threaded. The sequential key dependency means blocks must be solved in order, but each individual block search is embarrassingly parallel.
 
 ---
 

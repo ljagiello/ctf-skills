@@ -4,6 +4,7 @@
 - [Elliptic Curve Isogenies](#elliptic-curve-isogenies)
 - [Pohlig-Hellman Attack (Weak ECC)](#pohlig-hellman-attack-weak-ecc)
 - [LLL Algorithm for Approximate GCD](#lll-algorithm-for-approximate-gcd)
+- [Merkle-Hellman Knapsack Cryptosystem via LLL (ASIS 2014)](#merkle-hellman-knapsack-cryptosystem-via-lll-asis-2014)
 - [Coppersmith's Method (Close Private Keys)](#coppersmiths-method-close-private-keys)
 - [Coppersmith's Method (Structured Primes, LACTF 2026)](#coppersmiths-method-structured-primes-lactf-2026)
 - [Clock Group (x^2+y^2=1 mod p) DLP (LACTF 2026)](#clock-group-x2y21-mod-p-dlp-lactf-2026)
@@ -114,6 +115,35 @@ reduced = M.LLL()
 # Short vector contains p1, p2, p3
 # Recover f = (h1 - n1) / p1
 ```
+
+## Merkle-Hellman Knapsack Cryptosystem via LLL (ASIS 2014)
+
+The Merkle-Hellman knapsack is a broken asymmetric scheme. Given public key P = [p0, ..., pn-1] and ciphertext C (sum of selected public key elements), recover the binary plaintext vector:
+
+```python
+# Sage
+nbit = len(pubKey)
+A = Matrix(ZZ, nbit + 1, nbit + 1)
+
+# Identity matrix in upper-left (tracks which elements are selected)
+for i in range(nbit):
+    A[i, i] = 1
+    A[i, nbit] = pubKey[i]
+
+# Target sum in bottom-right
+A[nbit, nbit] = -int(encoded)
+
+# LLL reduction finds short vector where last element is 0
+res = A.LLL()
+
+# Find row with last element == 0 and all others in {0, 1}
+for row in res:
+    if row[-1] == 0 and all(b in (0, 1) for b in row[:-1]):
+        plaintext_bits = list(row[:-1])
+        break
+```
+
+**Key insight:** The knapsack problem becomes easy when reformulated as a shortest vector problem. The LLL-reduced basis contains a row representing the binary plaintext when the last column is zero.
 
 ## Coppersmith's Method (Close Private Keys)
 

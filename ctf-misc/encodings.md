@@ -23,11 +23,15 @@
 - [Esoteric Languages](#esoteric-languages)
   - [Whitespace Language Parser (BYPASS CTF 2025)](#whitespace-language-parser-bypass-ctf-2025)
   - [Custom Brainfuck Variants (Themed Esolangs)](#custom-brainfuck-variants-themed-esolangs)
+  - [Multi-Layer Esoteric Language Chains (Break In 2016)](#multi-layer-esoteric-language-chains-break-in-2016)
 - [Verilog/HDL](#veriloghdl)
 - [Gray Code Cyclic Encoding (EHAX 2026)](#gray-code-cyclic-encoding-ehax-2026)
 - [Binary Tree Key Encoding](#binary-tree-key-encoding)
 - [RTF Custom Tag Data Extraction (VolgaCTF 2013)](#rtf-custom-tag-data-extraction-volgactf-2013)
 - [SMS PDU Decoding and Reassembly (RuCTF 2013)](#sms-pdu-decoding-and-reassembly-ructf-2013)
+- [Automated Multi-Encoding Sequential Solver (HackIM 2016)](#automated-multi-encoding-sequential-solver-hackim-2016)
+- [RFC 4042 UTF-9 Decoding (SECCON 2015)](#rfc-4042-utf-9-decoding-seccon-2015)
+- [Pixel Color Binary Encoding (Break In 2016)](#pixel-color-binary-encoding-break-in-2016)
 
 ---
 
@@ -384,6 +388,29 @@ bf = ''.join(mapping.get(w, '') for w in words)
 
 ---
 
+### Multi-Layer Esoteric Language Chains (Break In 2016)
+
+Challenges may stack multiple esoteric languages requiring sequential interpretation:
+
+1. **Piet:** Visual programming language using colored pixel blocks. Execute PNG images as code:
+```bash
+npiet challenge.png         # npiet interpreter
+# Or: java -jar PietDev.jar challenge.png
+```
+
+2. **Malbolge:** Extremely difficult esoteric language. Decode output from previous layer:
+```bash
+# Piet output → base64 decode → Malbolge source
+echo "piet_output" | base64 -d > program.mal
+malbolge program.mal        # Or use online interpreter
+```
+
+Common esoteric chains: Piet → base64 → Malbolge, Brainfuck → Ook → Whitespace, JSFuck → standard JS.
+
+**Key insight:** When a PNG file doesn't contain obvious visual stego, try interpreting it as Piet code. Use `file` + visual inspection to identify the first layer, then decode sequentially.
+
+---
+
 ## Verilog/HDL
 
 ```python
@@ -494,4 +521,114 @@ with open('output.png', 'wb') as f:
 ```
 
 **Key insight:** SMS PDU format: `0041000B91` prefix identifies SMS-SUBMIT. UDH field at bytes 29-40 contains `05000301XXYY` where XX=total parts, YY=sequence number. Install `smspdu` library (`pip install smspdu`) for automated parsing. Output is often a base64-encoded image — use reverse image search to identify the subject.
+
+---
+
+## Automated Multi-Encoding Sequential Solver (HackIM 2016)
+
+Some challenges require decoding 25+ sequential layers of different encodings. Build an automated decoder:
+
+```python
+import base64, zlib, bz2, codecs
+
+def auto_decode(data):
+    """Try each encoding and return first successful decode"""
+    decoders = [
+        ('base64', lambda d: base64.b64decode(d)),
+        ('base32', lambda d: base64.b32decode(d)),
+        ('base16', lambda d: base64.b16decode(d.upper())),
+        ('zlib',   lambda d: zlib.decompress(d if isinstance(d, bytes) else d.encode())),
+        ('bz2',    lambda d: bz2.decompress(d if isinstance(d, bytes) else d.encode())),
+        ('rot13',  lambda d: codecs.decode(d, 'rot_13')),
+        ('hex',    lambda d: bytes.fromhex(d if isinstance(d, str) else d.decode())),
+        ('binary', lambda d: bytes(int(d[i:i+8], 2) for i in range(0, len(d.strip()), 8))),
+        ('ebcdic', lambda d: d.decode('cp500') if isinstance(d, bytes) else d.encode().decode('cp500')),
+    ]
+
+    for name, decoder in decoders:
+        try:
+            result = decoder(data)
+            if result and len(result) > 0:
+                return name, result
+        except:
+            continue
+    return None, data
+
+# Chain decoder
+data = initial_input
+for i in range(50):  # Max layers
+    name, data = auto_decode(data)
+    if name is None:
+        break
+    print(f"Layer {i}: {name}")
+```
+
+Add Brainfuck detection (presence of `+-<>[].,` characters only) and other esoteric languages as needed.
+
+---
+
+## RFC 4042 UTF-9 Decoding (SECCON 2015)
+
+RFC 4042 (April Fools' RFC) defines UTF-9, a 9-bit encoding for Unicode on systems with 9-bit bytes:
+
+- Each 9-bit "byte" has a continuation bit (MSB): 1 = more bytes follow, 0 = last byte
+- Lower 8 bits contain character data
+- Multi-byte sequences concatenate the 8-bit portions
+
+```python
+def decode_utf9(data_bits):
+    """Decode UTF-9 from a bitstring"""
+    chars = []
+    i = 0
+    while i < len(data_bits):
+        # Read 9-bit units until continuation bit is 0
+        codepoint_bits = ''
+        while i + 9 <= len(data_bits):
+            continuation = int(data_bits[i])
+            codepoint_bits += data_bits[i+1:i+9]
+            i += 9
+            if continuation == 0:
+                break
+        if codepoint_bits:
+            chars.append(chr(int(codepoint_bits, 2)))
+    return ''.join(chars)
+
+# Convert octal/hex input to binary first
+binary_string = bin(int(octal_data, 8))[2:]
+result = decode_utf9(binary_string)
+```
+
+**Key insight:** Look for "4042" or "UTF-9" in challenge descriptions. The April Fools' RFC series (RFC 1149, 2549, 4042) occasionally appears in CTFs.
+
+---
+
+## Pixel Color Binary Encoding (Break In 2016)
+
+Narrow images (7-8 pixels wide) may encode ASCII characters as binary pixel rows:
+
+```python
+from PIL import Image
+
+img = Image.open('challenge.png')
+pixels = img.load()
+width, height = img.size
+
+text = ''
+for y in range(height):
+    bits = ''
+    for x in range(width):
+        r, g, b = pixels[x, y][:3]
+        # Red pixel = 1, Black pixel = 0 (or white=1, black=0)
+        bits += '1' if r > 128 else '0'
+
+    # Pad to 8 bits if needed (7-pixel-wide images)
+    if len(bits) == 7:
+        bits = '0' + bits  # Prepend leading zero
+
+    text += chr(int(bits, 2))
+
+print(text)
+```
+
+**Key insight:** Image width of 7 or 8 pixels strongly suggests binary character encoding (7-bit ASCII or 8-bit). Check both color channels and brightness thresholds.
 

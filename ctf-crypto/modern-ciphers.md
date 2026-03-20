@@ -26,6 +26,8 @@
 - [Hash Length Extension Attack (PlaidCTF 2014)](#hash-length-extension-attack-plaidctf-2014)
 - [Compression Oracle / CRIME-Style Attack (BCTF 2015)](#compression-oracle--crime-style-attack-bctf-2015)
 - [RC4 Second-Byte Bias Distinguisher (Hackover CTF 2015)](#rc4-second-byte-bias-distinguisher-hackover-ctf-2015)
+- [XOR Consecutive Byte Correlation Attack (Defcamp 2015)](#xor-consecutive-byte-correlation-attack-defcamp-2015)
+- [Hash Function Time Reversal via Cycle Detection (BSidesSF 2025)](#hash-function-time-reversal-via-cycle-detection-bsidessf-2025)
 
 ---
 
@@ -613,3 +615,72 @@ else:
 ```
 
 **Key insight:** RC4's key scheduling creates a well-known bias where `P(second_byte == 0) = 1/128` instead of `1/256`. With ~2048 samples, RC4 produces ~16 zero second-bytes vs ~8 for random. Other RC4 biases: bytes 3-255 show weaker biases; long-term biases exist at every 256th position.
+
+---
+
+## XOR Consecutive Byte Correlation Attack (Defcamp 2015)
+
+When a cipher XORs consecutive ciphertext bytes, the relationship between two ciphertexts reveals plaintext differences without knowing the key:
+
+```python
+# Observation: xorct[i] = ct[i] ^ ct[i+1]
+# For two ciphertext/plaintext pairs:
+# plain2[i] ^ plain1[i] == xorct1[i] ^ xorct2[i]
+
+# With one known plaintext, decrypt the other:
+for i in range(len(ct2)):
+    xorct1 = ct1[i] ^ ct1[i+1]
+    xorct2 = ct2[i] ^ ct2[i+1]
+    plain2_char = xorct1 ^ xorct2 ^ plain1[i]
+```
+
+**Key insight:** XOR of consecutive bytes cancels key material, leaving only plaintext-dependent differences. One known plaintext breaks all subsequent messages.
+
+---
+
+## Hash Function Time Reversal via Cycle Detection (BSidesSF 2025)
+
+When a system uses iterated hashing as a "time" function (`state_t = H(state_{t-1})`), reverse time by exploiting the finite cycle structure:
+
+1. **Detect cycle:** Use Floyd's tortoise-and-hare or Brent's algorithm to find cycle length L
+2. **Compute backward steps:** To go from time T to earlier time T_goal: iterate forward `(L - (T - T_goal)) % L` steps
+
+```python
+import hashlib
+
+def hash_step(state):
+    return hashlib.md5(state).digest()[:8]  # Truncated hash
+
+def find_cycle(start):
+    """Brent's cycle detection: returns (cycle_length, start_of_cycle)"""
+    power = lam = 1
+    tortoise = start
+    hare = hash_step(start)
+    while tortoise != hare:
+        if power == lam:
+            tortoise = hare
+            power *= 2
+            lam = 0
+        hare = hash_step(hare)
+        lam += 1
+    # lam = cycle length; find cycle start
+    tortoise = hare = start
+    for _ in range(lam):
+        hare = hash_step(hare)
+    mu = 0
+    while tortoise != hare:
+        tortoise = hash_step(tortoise)
+        hare = hash_step(hare)
+        mu += 1
+    return lam, mu  # cycle_length, cycle_start_offset
+
+# Reverse from T_known to T_goal
+cycle_len, _ = find_cycle(known_state)
+forward_steps = (cycle_len - (t_known - t_goal)) % cycle_len
+state = known_state
+for _ in range(forward_steps):
+    state = hash_step(state)
+# state is now the value at t_goal
+```
+
+**Key insight:** For truncated hashes (e.g., MD5 -> 64 bits), the expected cycle length is ~2^32, making cycle detection feasible. Going "backward" N steps is equivalent to going forward (cycle_length - N) steps. Assumes the target state is within the main cycle, not on a tail.

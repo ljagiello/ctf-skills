@@ -11,6 +11,8 @@
 - [Brotli Decompression Bomb Seam Analysis (BearCatCTF 2026)](#brotli-decompression-bomb-seam-analysis-bearcatctf-2026)
 - [SMB RID Recycling via LSARPC (Midnight 2026)](#smb-rid-recycling-via-lsarpc-midnight-2026)
 - [Timeroasting / MS-SNTP Hash Extraction (Midnight 2026)](#timeroasting--ms-sntp-hash-extraction-midnight-2026)
+- [ICMP Payload Steganography with Byte Rotation (HackIM 2016)](#icmp-payload-steganography-with-byte-rotation-hackim-2016)
+- [Packet Reconstruction via Checksum Validation (Break In 2016)](#packet-reconstruction-via-checksum-validation-break-in-2016)
 
 ---
 
@@ -443,6 +445,64 @@ hashcat -m 31300 -a 0 -O hashes.txt rockyou.txt --username
 3. Send MS-SNTP requests with discovered RIDs
 4. Extract HMAC-MD5 hashes from NTP responses
 5. Crack offline with Hashcat mode 31300
+
+---
+
+## ICMP Payload Steganography with Byte Rotation (HackIM 2016)
+
+Data hidden in ICMP echo request/reply payloads with byte-level rotation encoding:
+
+```python
+from scapy.all import rdpcap, ICMP
+
+packets = rdpcap('challenge.pcap')
+icmp_data = b''
+for pkt in packets:
+    if pkt.haslayer(ICMP) and pkt[ICMP].type == 8:  # Echo request
+        icmp_data += bytes(pkt[ICMP].payload)
+
+# Apply byte rotation (Caesar cipher on bytes)
+SHIFT = 42
+decoded = bytes((b - SHIFT) % 256 for b in icmp_data)
+
+# Result may be base64-encoded
+import base64
+plaintext = base64.b64decode(decoded)
+```
+
+**Key insight:** ICMP payloads are often ignored by analysts focused on TCP/UDP. Check for non-standard payload sizes or non-zero data in ICMP packets. Common encoding layers: byte rotation -> base64 -> shell commands.
+
+---
+
+## Packet Reconstruction via Checksum Validation (Break In 2016)
+
+Reconstruct corrupted/incomplete packets by using protocol checksums as validation:
+
+1. **Identify missing bytes** from packet structure analysis (Ethernet, IP, TCP headers)
+2. **Brute-force missing values** and validate against:
+   - IP header checksum (16-bit ones' complement)
+   - TCP checksum (includes pseudo-header)
+3. **Extract data** from reconstructed payload
+
+```python
+import struct
+
+def ip_checksum(header_bytes):
+    """Compute IP header checksum"""
+    words = struct.unpack('!' + 'H' * (len(header_bytes) // 2), header_bytes)
+    s = sum(words)
+    while s >> 16:
+        s = (s & 0xFFFF) + (s >> 16)
+    return ~s & 0xFFFF
+
+# Brute-force missing byte to match expected checksum
+for candidate in range(256):
+    header = header_template[:missing_offset] + bytes([candidate]) + header_template[missing_offset+1:]
+    if ip_checksum(header) == 0:  # Valid checksum sums to 0
+        print(f"Missing byte: 0x{candidate:02x}")
+```
+
+**Key insight:** Protocol checksums constrain missing data. For single missing bytes, brute-force is instant. For multiple missing bytes, use TCP sequence numbers and MAC/IP header structure to reduce the search space.
 
 ---
 

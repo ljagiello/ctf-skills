@@ -15,6 +15,7 @@
 - [Audio Spectrogram Hidden QR Code (BaltCTF 2013)](#audio-spectrogram-hidden-qr-code-baltctf-2013)
 - [Video Frame Accumulation for Hidden Image (ASIS CTF Finals 2013)](#video-frame-accumulation-for-hidden-image-asis-ctf-finals-2013)
 - [Reversed Audio Hidden Message (ASIS CTF Finals 2013)](#reversed-audio-hidden-message-asis-ctf-finals-2013)
+- [Video Frame Averaging for Hidden Content (SECCON 2015)](#video-frame-averaging-for-hidden-content-seccon-2015)
 
 ---
 
@@ -454,3 +455,37 @@ play reversed.wav
 **Alternative:** Open in Audacity → Effect → Reverse. Listen for speech, numbers, or encoded data.
 
 **Key insight:** Reversed audio is one of the simplest audio steganography techniques. If audio sounds like garbled speech with recognizable cadence, try reversing it first. The hidden content is often a numeric string (e.g., an MD5 hash) or instructions for the next step of the challenge. Check both the audio and video tracks of multimedia files independently.
+
+---
+
+## Video Frame Averaging for Hidden Content (SECCON 2015)
+
+Extract content hidden across multiple video frames by temporal averaging:
+
+```python
+import numpy as np
+from PIL import Image
+import glob
+
+frames = sorted(glob.glob('frames/*.png'))
+N = len(frames)
+
+# Accumulate frames as floating-point to preserve precision
+acc = np.zeros(np.array(Image.open(frames[0])).shape, dtype=np.float64)
+for f in frames:
+    acc += np.array(Image.open(f), dtype=np.float64) / N
+
+# Convert back to uint8
+result = Image.fromarray(np.round(acc).astype(np.uint8))
+result.save('averaged.png')
+```
+
+Use histogram equalization to enhance contrast if the averaged image is faint:
+
+```python
+from PIL import ImageOps
+enhanced = ImageOps.equalize(result.convert('L'))
+enhanced.save('enhanced.png')
+```
+
+**Key insight:** Content obscured by motion, noise, or rapid changes across frames becomes visible when averaged. Extract frames with `ffmpeg -i video.mp4 frames/%04d.png` first. Works for hidden QR codes, text, and watermarks.

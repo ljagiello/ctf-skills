@@ -14,7 +14,8 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (including EXIF metadata injection, keyword fragmentation bypass, MySQL column truncation, DNS record injection), SSTI, SSRF (Host header, DNS rebinding), XXE, command injection, LaTeX injection RCE, code injection (Ruby/Perl/Python/Prolog), ReDoS, file upload→RCE, eval bypass, PHP type juggling, PHP file inclusion / php://filter, PHP extract() variable overwrite, PHP preg_replace /e RCE, SSTI `__dict__.update()` quote bypass, ERB SSTI Sequel bypass, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, XPath blind injection
+- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (EXIF metadata injection, MySQL column truncation, backslash/hex bypass, second-order, LIKE brute-force, processList trick, XML entity WAF bypass), SSTI (Jinja2, Go, EJS, ERB Sequel bypass, Mako, Twig, `__dict__.update()` quote bypass), SSRF (Host header, DNS rebinding, curl redirect), XXE, command injection (newline, blocklist bypass, sendmail, multi-barcode), PHP type juggling, PHP file inclusion / php://filter
+- [server-side-exec.md](server-side-exec.md) - Code execution and server-side access attacks: Ruby/Perl/JS code injection, LaTeX injection RCE, PHP preg_replace /e RCE, Prolog injection, ReDoS timing oracle, file upload→RCE (.htaccess, log poisoning, Python .so hijack, Gogs symlink, ZipSlip), PHP deserialization from cookies, PHP extract() variable overwrite, XPath blind injection, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, SQLi keyword fragmentation bypass, SQL WHERE ORDER BY bypass, SQL injection via DNS records, API filter injection, WebSocket mass assignment
 - [server-side-deser.md](server-side-deser.md) - Deserialization and execution attacks: Java deserialization (ysoserial gadget chains, JNDI injection, blind detection), Python pickle RCE (`__reduce__`, restricted unpickler bypass, STOP opcode chaining), race conditions (TOCTOU async exploits, double-spend, coupon reuse)
 - [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182), SSRF→Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB), SQLite file path traversal to bypass string equality
 - [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle, client-side HMAC bypass via leaked JS secret
@@ -55,7 +56,7 @@ XML entity encoding: `&#x55;&#x4e;&#x49;&#x4f;&#x4e;` → `UNION` after XML pars
 
 EXIF metadata injection: embed SQL in image EXIF fields (`exiftool -Comment="' UNION SELECT flag FROM flags--" image.jpg`) to bypass WAFs that only inspect HTTP parameters.
 
-See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, MySQL column truncation, SQLi→SSTI chains, XML entity WAF bypass, EXIF metadata injection, SQLi via DNS records, PHP preg_replace /e RCE, Prolog injection.
+See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, MySQL column truncation, SQLi→SSTI chains, XML entity WAF bypass, EXIF metadata injection. See [server-side-exec.md](server-side-exec.md) for SQLi via DNS records, SQLi keyword fragmentation, PHP preg_replace /e RCE, Prolog injection.
 
 ## XSS Quick Reference
 
@@ -116,7 +117,7 @@ See [auth-jwt.md](auth-jwt.md) for full JWT/JWE attacks and session manipulation
 
 **ERB SSTI (Ruby/Sinatra):** `<%= Sequel::DATABASES.first[:table].all %>` bypasses ERBSandbox variable-name restrictions via the global `Sequel::DATABASES` array. See [server-side.md](server-side.md#erb-ssti--sequeldatabases-bypass-bearcatctf-2026).
 
-**Thymeleaf SpEL SSTI (Java/Spring):** `${T(org.springframework.util.FileCopyUtils).copyToByteArray(new java.io.File("/flag.txt"))}` reads files via Spring utility classes when standard I/O is WAF-blocked. Works in distroless containers (no shell). See [server-side.md](server-side.md#thymeleaf-spel-ssti--spring-filecopyutils-waf-bypass-apoorvctf-2026).
+**Thymeleaf SpEL SSTI (Java/Spring):** `${T(org.springframework.util.FileCopyUtils).copyToByteArray(new java.io.File("/flag.txt"))}` reads files via Spring utility classes when standard I/O is WAF-blocked. Works in distroless containers (no shell). See [server-side-exec.md](server-side-exec.md#thymeleaf-spel-ssti--spring-filecopyutils-waf-bypass-apoorvctf-2026).
 
 ## SSRF Quick Reference
 
@@ -168,7 +169,7 @@ See [server-side.md](server-side.md#php-file-inclusion--phpfilter) for filter ch
 **PHP deserialization:** Craft serialized object in cookie → LFI/RCE
 **LaTeX injection:** `\input{|"cat /flag.txt"}` — shell command via pipe syntax in PDF generation services. `\@@input"/etc/passwd"` for file reads without shell.
 
-See [server-side.md](server-side.md) for full payloads and bypass techniques.
+See [server-side-exec.md](server-side-exec.md) for full payloads and bypass techniques.
 
 ## Java Deserialization
 
@@ -240,7 +241,7 @@ See [auth-and-access.md](auth-and-access.md) for access control bypasses, [auth-
 - ZipSlip: symlink in zip for file read, path traversal for file write
 - Log poisoning: PHP payload in User-Agent + path traversal to include log
 
-See [server-side.md](server-side.md) for detailed steps.
+See [server-side-exec.md](server-side-exec.md) for detailed steps.
 
 ## Multi-Stage Chain Patterns
 
@@ -376,7 +377,7 @@ Deobfuscate client-side JS to extract hardcoded HMAC secret, then forge signatur
 
 ## SQLi Keyword Fragmentation Bypass (SecuInside 2013)
 
-Single-pass `preg_replace()` keyword filters bypassed by nesting the stripped keyword inside the payload: `unload_fileon` → `union` after `load_file` removal. See [server-side.md](server-side.md#sqli-keyword-fragmentation-bypass-secuinside-2013).
+Single-pass `preg_replace()` keyword filters bypassed by nesting the stripped keyword inside the payload: `unload_fileon` → `union` after `load_file` removal. See [server-side-exec.md](server-side-exec.md#sqli-keyword-fragmentation-bypass-secuinside-2013).
 
 ## Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)
 
@@ -384,7 +385,7 @@ Strip pickle STOP opcode (`\x2e`) from first payload, concatenate second — bot
 
 ## XPath Blind Injection (BaltCTF 2013)
 
-`substring(normalize-space(../../../node()),1,1)='a'` — boolean-based blind extraction from XML data stores via response length oracle. See [server-side.md](server-side.md#xpath-blind-injection-baltctf-2013).
+`substring(normalize-space(../../../node()),1,1)='a'` — boolean-based blind extraction from XML data stores via response length oracle. See [server-side-exec.md](server-side-exec.md#xpath-blind-injection-baltctf-2013).
 
 ## SQLite File Path Traversal to Bypass String Equality (Codegate 2013)
 

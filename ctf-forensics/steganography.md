@@ -20,6 +20,9 @@
 - [Conditional LSB Extraction — Near-Black Pixel Filter (BaltCTF 2013)](#conditional-lsb-extraction--near-black-pixel-filter-baltctf-2013)
 - [GIF Frame Differential + Morse Code (BaltCTF 2013)](#gif-frame-differential--morse-code-baltctf-2013)
 - [GZSteg + Spammimic Text Steganography (VolgaCTF 2013)](#gzsteg--spammimic-text-steganography-volgactf-2013)
+- [Spreadsheet Frequency Analysis Binary Recovery (Sharif CTF 2016)](#spreadsheet-frequency-analysis-binary-recovery-sharif-ctf-2016)
+- [JPEG Slack Space Steganography (BSidesSF 2025)](#jpeg-slack-space-steganography-bsidessf-2025)
+- [Nearest-Neighbor Interpolation Steganography (BSidesSF 2025)](#nearest-neighbor-interpolation-steganography-bsidessf-2025)
 
 ---
 
@@ -629,3 +632,71 @@ done
 3. Decoded output is the flag
 
 **Key insight:** GZSteg exploits redundancy in the gzip DEFLATE compression format to embed covert data. The extracted payload often uses a second steganographic layer (spammimic encodes data as innocuous-looking spam text). Look for `.gz` files larger than expected for their content.
+
+---
+
+## Spreadsheet Frequency Analysis Binary Recovery (Sharif CTF 2016)
+
+When spreadsheet cells contain numbers with varying frequencies, the frequency rank may encode binary data:
+
+1. **Count occurrences** of each unique value
+2. **Sort by frequency** to create a mapping: value -> frequency rank (0-255)
+3. **Replace each cell** with its frequency rank to recover raw bytes
+
+```python
+from collections import Counter
+
+# Count frequency of each value
+freq = Counter(all_cell_values)
+
+# Create mapping: value -> index in frequency-sorted list
+sorted_vals = sorted(freq.keys(), key=lambda x: freq[x])
+mapping = {v: i for i, v in enumerate(sorted_vals)}
+
+# Apply mapping to recover binary
+binary = bytes(mapping[v] for v in all_cell_values)
+# Result is typically an ELF binary or image
+```
+
+**Key insight:** 256 unique values suggest byte-level encoding. The frequency distribution of the mapped output should resemble typical binary file statistics.
+
+---
+
+## JPEG Slack Space Steganography (BSidesSF 2025)
+
+JPEG compression pads images to 8x8 pixel block boundaries. Data hidden in the padding pixels beyond the visible image dimensions:
+
+1. **Identify padded dimensions:** JPEG rounds up to nearest multiple of 8. A 253x195 image pads to 256x200
+2. **Extract slack pixels:** Use tools to extend visible region to true block dimensions
+
+```bash
+# Extend image to see slack pixels
+python3 jpeg_uncrop.py input.jpg --width 256 --height 200
+# Or use ImageMagick to force full decode
+magick input.jpg -define jpeg:size=256x200 extended.png
+```
+
+3. **Decode binary from slack pixels:** Black=0, white=1 in the padding region. Common encoding:
+   - 2 bytes: magic number
+   - 1 byte: key length
+   - N bytes: encryption key
+   - 1 byte: message length
+   - N bytes: encrypted message
+
+**Key insight:** Most image editors and viewers crop to the stated dimensions, hiding the padding. Use `jpegtran -crop` or raw DCT decoders to access full block data.
+
+---
+
+## Nearest-Neighbor Interpolation Steganography (BSidesSF 2025)
+
+Hidden data encoded as a pixel grid at regular intervals within a high-resolution image. Downscaling with nearest-neighbor interpolation extracts only the hidden pixels:
+
+```bash
+# Hidden pixels spaced 16 apart in a 4096x3072 image
+# Downscale by 16x with nearest-neighbor to recover 256x192 hidden image
+magick flag.webp -interpolate nearest-neighbor -interpolative-resize 256x192 flag_visible.png
+```
+
+**Key insight:** Nearest-neighbor interpolation selects exact pixel values (no blending), preserving the hidden data. Bilinear or bicubic interpolation would average surrounding pixels, destroying the message. The challenge name or description often hints at the interpolation method.
+
+**Detection:** Open in image viewer and zoom to see repeating pixel patterns at regular intervals. Calculate GCD of image dimensions and suspected grid spacing.

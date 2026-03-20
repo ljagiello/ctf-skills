@@ -193,7 +193,7 @@ See [format-string.md](format-string.md) for GOT overwrite patterns, blind pwn, 
 
 - tcache poisoning (glibc 2.26+), fastbin dup / double free
 - House of Force (old glibc), unsorted bin attack
-- **House of Apple 2** (glibc 2.34+): FSOP (File Stream Oriented Programming) via `_IO_wfile_jumps` when `__free_hook`/`__malloc_hook` removed. Fake FILE with `_flags = " sh"`, vtable chain → `system(fp)`.
+- **House of Apple 2** (glibc 2.34+): FSOP (File Stream Oriented Programming) via `_IO_wfile_jumps` when `__free_hook`/`__malloc_hook` removed. Fake FILE with `_flags = " sh"`, vtable chain → `system(fp)`. For SUID binaries: use `setcontext()` variant to stack pivot → `setuid(0)` → `system()` (dash drops privs when uid != euid). See [advanced.md](advanced.md#setcontext-variant-for-suid-binaries-midnight-flag-2026).
 - **Classic unlink**: Corrupt adjacent chunk metadata, trigger backward consolidation for write-what-where primitive. Pre-2.26 glibc only. See [advanced.md](advanced.md#classic-heap-unlink-attack-crypto-cat).
 - **House of Einherjar**: Off-by-one null clears PREV_INUSE, backward consolidation with self-pointing unlink.
 - **Safe-linking** (glibc 2.32+): tcache fd mangled as `ptr ^ (chunk_addr >> 12)`.
@@ -211,7 +211,9 @@ See [format-string.md](format-string.md) for GOT overwrite patterns, blind pwn, 
 
 **tcache stashing unlink (glibc 2.29+):** Corrupt smallbin chunk's `bk` during tcache stashing → arbitrary address linked into tcache → write primitive. See [advanced.md](advanced.md#tcache-stashing-unlink-attack).
 
-See [advanced.md](advanced.md) for House of Apple 2 FSOP chain, House of Orange/Spirit/Lore, ret2dlresolve, tcache stashing unlink, custom allocator exploitation (nginx pools), heap overlap via base conversion, tree data structure stack underallocation, FSOP + seccomp bypass via openat/mmap/write with `mov rsp, rdx` stack pivot.
+See [advanced.md](advanced.md) for House of Apple 2 FSOP chain (+ setcontext SUID variant), House of Orange/Spirit/Lore, ret2dlresolve, tcache stashing unlink, custom allocator exploitation (nginx pools), heap overlap via base conversion, tree data structure stack underallocation, FSOP + seccomp bypass via openat/mmap/write with `mov rsp, rdx` stack pivot.
+
+**GF(2) Gaussian elimination for tcache poisoning:** When a deterministic XOR cipher corrupts heap metadata as a side effect, model the corruption as linear algebra over GF(2). Find a subset of cipher seeds whose combined XOR transforms tcache `fd` from current value to target address. See [advanced-exploits-2.md](advanced-exploits-2.md#gf2-gaussian-elimination-for-multi-pass-tcache-poisoning-midnight-flag-2026).
 
 ## JIT Compilation Exploits
 

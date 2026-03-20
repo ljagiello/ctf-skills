@@ -189,6 +189,7 @@ new_data = sha.extend(b'extension', b'original_message', len_secret, known_hash_
 - **Brainfuck instrumentation:** Instrument BF interpreter to track tape cells, brute-force flag character-by-character via validation cell. See [games-and-vms-2.md](games-and-vms-2.md).
 - **WASM memory manipulation:** Patch WASM linear memory at runtime to set game state variables directly, bypassing game logic. See [games-and-vms-2.md](games-and-vms-2.md).
 - **Neural network encoder collision:** Greedy search + simulated annealing finds collisions in dimensionality-reducing encoders (16D→4D). See [games-and-vms-2.md](games-and-vms-2.md).
+- **C code jail via emoji + gadget embedding:** When only emoji and punctuation are allowed in C, use `(😃==😃)` as constant 1, build integers, embed gadgets in `add eax, imm32` constants, jump to offset+1 for shellcode primitives. See [games-and-vms.md](games-and-vms.md#c-code-jail-escape-via-emoji-identifiers-and-gadget-embedding-midnight-flag-2026).
 
 ## 3D Printer Video Nozzle Tracking (LACTF 2026)
 

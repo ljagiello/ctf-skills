@@ -35,6 +35,7 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
   - [Function Chunking / Scattered Code](#function-chunking--scattered-code)
   - [Control Flow Flattening (Advanced)](#control-flow-flattening-advanced)
   - [Mixed Boolean-Arithmetic (MBA) Identification & Simplification](#mixed-boolean-arithmetic-mba-identification--simplification)
+- [SIGILL Handler for Execution Mode Switching (Hack.lu 2015)](#sigill-handler-for-execution-mode-switching-hacklu-2015)
 - [Comprehensive Bypass Strategies](#comprehensive-bypass-strategies)
   - [Universal Bypass Checklist](#universal-bypass-checklist)
   - [Layered Anti-Debug (Real-World Pattern)](#layered-anti-debug-real-world-pattern)
@@ -583,6 +584,29 @@ from simba import simplify_mba
 expr = "(a | b) + (a & b) - (~a & b)"
 print(simplify_mba(expr))  # → a
 ```
+
+---
+
+## SIGILL Handler for Execution Mode Switching (Hack.lu 2015)
+
+Binaries may install SIGILL (illegal instruction) handlers to switch between x86 and x86-64 execution modes or implement custom opcode dispatch:
+
+1. **Signal registration:** `signal(SIGILL, handler)` installs a callback for illegal instruction exceptions
+2. **Mode switching:** The handler modifies the saved instruction pointer or segment registers to switch between 32-bit and 64-bit code
+3. **Custom opcodes:** Invalid x86 instructions trigger the handler, which interprets operand bytes as custom VM opcodes
+
+```c
+// Signal handler decodes "illegal" instructions as custom opcodes
+void sigill_handler(int sig, siginfo_t *info, void *ucontext) {
+    ucontext_t *ctx = (ucontext_t *)ucontext;
+    unsigned char *pc = (unsigned char *)ctx->uc_mcontext.gregs[REG_RIP];
+    // Decode custom opcode from bytes at PC
+    // Advance PC past the custom instruction
+    ctx->uc_mcontext.gregs[REG_RIP] += opcode_length;
+}
+```
+
+**Key insight:** If a binary installs signal handlers for SIGILL/SIGSEGV/SIGTRAP early in execution, suspect custom instruction dispatch. Trace signal deliveries with `strace -e signal` or set GDB to not intercept: `handle SIGILL nostop pass`.
 
 ---
 
