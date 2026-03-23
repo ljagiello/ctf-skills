@@ -16,6 +16,7 @@
 - [Video Frame Accumulation for Hidden Image (ASIS CTF Finals 2013)](#video-frame-accumulation-for-hidden-image-asis-ctf-finals-2013)
 - [Reversed Audio Hidden Message (ASIS CTF Finals 2013)](#reversed-audio-hidden-message-asis-ctf-finals-2013)
 - [Video Frame Averaging for Hidden Content (SECCON 2015)](#video-frame-averaging-for-hidden-content-seccon-2015)
+- [JPEG XL TOC Permutation Steganography (BSidesSF 2026)](#jpeg-xl-toc-permutation-steganography-bsidessf-2026)
 
 ---
 
@@ -489,3 +490,82 @@ enhanced.save('enhanced.png')
 ```
 
 **Key insight:** Content obscured by motion, noise, or rapid changes across frames becomes visible when averaged. Extract frames with `ffmpeg -i video.mp4 frames/%04d.png` first. Works for hidden QR codes, text, and watermarks.
+
+---
+
+## JPEG XL TOC Permutation Steganography (BSidesSF 2026)
+
+**Pattern (image-progress):** JPEG XL's Table of Contents (TOC) supports a permutation field that reorders how AC groups (progressive scan tiles) are stored in the file. The convergence order during progressive decoding — which 256x256 tiles appear first as you truncate the file at increasing offsets — encodes the flag.
+
+**Decoding approach:**
+1. **Progressive truncation:** Truncate the JXL file at increasing byte offsets (e.g., every 1KB)
+2. **Decode each truncation:** Use `djxl` to decode each truncated file
+3. **Measure tile convergence:** Compare each decoded truncation against the full decode to determine which 256x256 tiles have converged (match the final image)
+4. **Read convergence order:** The order in which tiles reach their final state spells the flag
+
+```python
+import subprocess
+import numpy as np
+from PIL import Image
+
+# Full decode as reference
+subprocess.run(['djxl', 'flag.jxl', 'full.png'])
+full = np.array(Image.open('full.png'))
+h, w = full.shape[:2]
+tile_size = 256
+tiles_x = (w + tile_size - 1) // tile_size
+tiles_y = (h + tile_size - 1) // tile_size
+
+# Track when each tile converges
+converged = {}
+jxl_data = open('flag.jxl', 'rb').read()
+
+for offset in range(1000, len(jxl_data), 1000):
+    # Write truncated file
+    with open('/tmp/trunc.jxl', 'wb') as f:
+        f.write(jxl_data[:offset])
+
+    # Try to decode (may fail for very short truncations)
+    result = subprocess.run(['djxl', '/tmp/trunc.jxl', '/tmp/trunc.png'],
+                          capture_output=True)
+    if result.returncode != 0:
+        continue
+
+    partial = np.array(Image.open('/tmp/trunc.png'))
+
+    # Check which tiles match the full decode
+    for ty in range(tiles_y):
+        for tx in range(tiles_x):
+            tile_id = ty * tiles_x + tx
+            if tile_id in converged:
+                continue
+            y0, y1 = ty * tile_size, min((ty+1) * tile_size, h)
+            x0, x1 = tx * tile_size, min((tx+1) * tile_size, w)
+            if np.array_equal(partial[y0:y1, x0:x1], full[y0:y1, x0:x1]):
+                converged[tile_id] = offset
+
+# Sort tiles by convergence order
+order = sorted(converged.items(), key=lambda x: x[1])
+flag_chars = [chr(tile_id) for tile_id, _ in order]
+print('Flag:', ''.join(flag_chars))
+```
+
+**Alternative — direct TOC extraction:**
+```bash
+# Modified djxl with debug prints can extract TOC permutation directly
+# Look for the permutation array in the JXL frame header
+# The TOC permutation maps: stored_order[i] → logical_group[i]
+# Inverse gives: logical_group → stored_order (convergence priority)
+```
+
+**JPEG XL progressive structure:**
+- **DC groups:** Low-frequency data (converges first, gives blurry preview)
+- **AC groups:** High-frequency detail, stored per 256x256 tile
+- **TOC permutation:** Reorders the storage of AC groups — controls which tiles get detail first during progressive loading
+- **Lehmer code:** JXL encodes the permutation as a Lehmer code sequence in the TOC header
+
+**Key insight:** JPEG XL's TOC permutation is a legitimate feature for progressive rendering optimization (prioritize important image regions). As a steganographic channel, it's invisible — the fully decoded image looks identical regardless of permutation. The hidden data is only revealed by observing the progressive convergence order, which requires truncating the file at multiple points.
+
+**Detection:** JXL file where progressive rendering shows tiles appearing in an unusual order (e.g., spelling text). Challenge mentions "progressive", "convergence", or "order matters".
+
+**References:** BSidesSF 2026 "image-progress"

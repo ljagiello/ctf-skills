@@ -15,6 +15,8 @@
 - [Kernel Module Maze Solving (DiceCTF 2026)](#kernel-module-maze-solving-dicectf-2026)
 - [Multi-Threaded VM with Channel Synchronization (DiceCTF 2026)](#multi-threaded-vm-with-channel-synchronization-dicectf-2026)
 - [Backdoored Shared Library Detection via String Diffing (Hack.lu CTF 2012)](#backdoored-shared-library-detection-via-string-diffing-hacklu-ctf-2012)
+- [Custom binfmt Kernel Module with RC4 Flat Binaries (BSidesSF 2026)](#custom-binfmt-kernel-module-with-rc4-flat-binaries-bsidessf-2026)
+- [Hash-Resolved Imports / No-Import Ransomware (BSidesSF 2026)](#hash-resolved-imports--no-import-ransomware-bsidessf-2026)
 
 ---
 
@@ -468,6 +470,124 @@ gdb /lib/libc/libc.so.6
 ```
 
 **Key insight:** When a binary behaves differently under GDB vs. normal execution, check `ldd` for non-standard library paths. Suid binaries drop privileges under debuggers, so a backdoored libc can detect this via `getuid`/`geteuid` syscalls and change program behavior accordingly. The `strings | diff` approach quickly reveals injected data without full disassembly.
+
+---
+
+---
+
+## Custom binfmt Kernel Module with RC4 Flat Binaries (BSidesSF 2026)
+
+**Pattern (Private Binary):** A custom Linux kernel module (`.ko`) registers a `binfmt` handler for non-standard binary formats. When a file with a specific magic number is executed, the kernel module intercepts it, decrypts the contents in memory, and jumps to the entry point.
+
+**Reverse engineering approach:**
+1. **Analyze the `.ko`:** Look for `register_binfmt()` call — it registers a `struct linux_binfmt` with a `load_binary` callback
+2. **Find the magic number:** The `load_binary` function checks the file's first bytes against a specific magic number to identify its format
+3. **Extract the encryption key:** Look for `movabs` instructions loading 8-byte constants — these are often RC4 key bytes
+4. **Identify the encryption scheme:** Common choices are RC4, XOR, or AES-ECB. RC4 is identifiable by the S-box initialization loop (256-byte array, swap pattern)
+5. **Decrypt the flat binary:** Apply the recovered key to the encrypted file contents, skipping any header
+
+```python
+from Crypto.Cipher import ARC4
+
+# Extract RC4 key from kernel module (found via movabs instructions)
+key = bytes([0x41, 0x42, 0x43, ...])  # Key bytes from .ko disassembly
+
+with open('encrypted.bin', 'rb') as f:
+    header = f.read(HEADER_SIZE)  # Skip binfmt header
+    encrypted = f.read()
+
+cipher = ARC4.new(key)
+decrypted = cipher.decrypt(encrypted)
+
+# The decrypted output is a flat binary (no ELF headers)
+# Load at the fixed virtual address specified in the kernel module
+# Disassemble with: objdump -b binary -m i386:x86-64 -D decrypted.bin
+# Or in Ghidra: import as "Raw Binary", set base address from .ko
+```
+
+**Detection in kernel module:**
+- `register_binfmt` / `unregister_binfmt` calls
+- `vm_mmap()` or `vm_brk()` for memory allocation at fixed addresses
+- Direct jump to mapped memory (entry point execution)
+- S-box initialization pattern (RC4): loop 0-255, swap `S[i]` with `S[j]`
+
+**Key insight:** The flat binary has no ELF headers, so standard tools won't recognize it. You must extract the load address from the kernel module (look for the `vm_mmap` call's address argument) and import the decrypted blob at that address in your disassembler. RC4 keys in kernel modules are often stored as immediate values in `mov` or `movabs` instructions rather than in data sections.
+
+**References:** BSidesSF 2026 "Private Binary"
+
+---
+
+## Hash-Resolved Imports / No-Import Ransomware (BSidesSF 2026)
+
+**Pattern (Ran Somewhere):** Malware binary has zero visible imports — all API calls are resolved at runtime by hashing symbol names and comparing against pre-computed hash values. The binary uses `dlopen` + a custom hash table to find libc and libcrypto functions.
+
+**Identification:**
+- `readelf -d` shows no dynamic symbols or very few (just `dlopen`/`dlsym`)
+- Strings reveal no standard API names
+- Disassembly shows hash computation loops followed by indirect calls
+- RC4-encrypted embedded strings (RSA public key, file paths, passphrases)
+
+**Analysis shortcut — LD_PRELOAD key extraction:**
+
+Rather than reversing the full hash resolution and key derivation, hook the crypto functions that the malware ultimately calls:
+
+```c
+// hook_crypto.c — captures AES key used by the ransomware
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <openssl/evp.h>
+#include <stdio.h>
+
+int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type,
+                       ENGINE *impl, const unsigned char *key,
+                       const unsigned char *iv) {
+    if (key) {
+        FILE *f = fopen("/tmp/aes_key.bin", "wb");
+        fwrite(key, 1, 32, f);  // AES-256
+        fclose(f);
+        fprintf(stderr, "[HOOK] AES key captured\n");
+    }
+    typedef int (*orig_t)(EVP_CIPHER_CTX*, const EVP_CIPHER*, ENGINE*,
+                          const unsigned char*, const unsigned char*);
+    orig_t orig = (orig_t)dlsym(RTLD_NEXT, "EVP_CipherInit_ex");
+    return orig(ctx, type, impl, key, iv);
+}
+```
+
+```bash
+# Compile and run
+gcc -shared -fPIC -o hook.so hook_crypto.c -ldl
+# Run in Docker container (ransomware may be destructive!)
+docker run --rm -v $(pwd):/work -w /work ubuntu:22.04 \
+  bash -c "LD_PRELOAD=./hook.so ./ransomware; xxd /tmp/aes_key.bin"
+```
+
+**Hash resolution patterns:**
+- **SipHash variant:** Two 64-bit seeds, iterative mixing with symbol name bytes
+- **DJB2/FNV variants:** Simpler hash functions with recognizable constants (`5381`, `0xcbf29ce484222325`)
+- **ROR13-based:** Windows malware favorite: `hash = (hash >> 13) | (hash << 19); hash += c`
+
+**Decryption after key capture:**
+```python
+from Crypto.Cipher import AES
+
+key = open('/tmp/aes_key.bin', 'rb').read()
+iv = open('/tmp/aes_iv.bin', 'rb').read()  # Also hookable
+cipher = AES.new(key, AES.MODE_CBC, iv)
+
+with open('flag.txt.enc', 'rb') as f:
+    ct = f.read()
+pt = cipher.decrypt(ct)
+# Remove PKCS7 padding
+pt = pt[:-pt[-1]]
+print(pt.decode())
+```
+
+**Key insight:** When a binary resolves all imports via hashing, don't waste time reversing the hash function and building a rainbow table. Instead, let the malware resolve everything itself by running it in a sandboxed environment with `LD_PRELOAD` hooks on the functions you care about (OpenSSL crypto functions, file I/O, network calls). The AES key is deterministic across runs — if it works once, it works always.
+
+**Safety:** Always run suspected ransomware in a Docker container or VM. Mount only copies of the encrypted files, never originals.
+
+**References:** BSidesSF 2026 "Ran Somewhere"
 
 ---
 

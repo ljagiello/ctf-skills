@@ -9,6 +9,7 @@
 - [Saleae Logic 2 UART Decode (EHAX 2026)](#saleae-logic-2-uart-decode-ehax-2026)
 - [Flipper Zero .sub File (0xFun 2026)](#flipper-zero-sub-file-0xfun-2026)
 - [Keyboard Acoustic Side-Channel (ApoorvCTF 2026)](#keyboard-acoustic-side-channel-apoorvctf-2026)
+- [CD Audio Disc Image Steganography (BSidesSF 2026)](#cd-audio-disc-image-steganography-bsidessf-2026)
 
 ---
 
@@ -315,3 +316,109 @@ flag = ''.join(knn.predict([extract_features(flag_audio, sr, p) for p in flag_pe
 **Key insight:** Window size is critical — 10ms captures the initial impact transient which is most distinctive per key. Larger windows (20-30ms) include key release noise that reduces classification accuracy. Use all individual reference samples rather than averaging, as KNN handles variance better with more data points.
 
 **Detection:** Two audio files provided (reference + target), or challenge mentions "typing", "keyboard", "acoustic".
+
+---
+
+## CD Audio Disc Image Steganography (BSidesSF 2026)
+
+**Pattern (cdimage):** Visual images encoded as pit/land patterns on a CD surface. A `.cdda` file (raw CD Digital Audio) contains only two byte values (e.g., `0x0d` and `0xa8`) representing reflective lands and non-reflective pits. When rendered as a spiral on a disc image, the binary pattern forms readable text or images — similar to LightScribe but using the data layer.
+
+**Key components:**
+1. **CIRC de-interleaving** — CD audio data is Cross-Interleaved for error correction. The encoding tool (e.g., [arduinocelentano/cdimage](https://github.com/arduinocelentano/cdimage)) pre-interleaves data to compensate. To decode, reverse the CIRC interleaving before rendering.
+2. **Spiral geometry** — bytes per track increases linearly: `tr(n) = tr0 + n * dtr`, physical radius `r(n) = r0 + n * dr`. Default params: `tr0=22951.52`, `dtr=1.387`, `r0=24.5mm`.
+3. **Polar-to-Cartesian rendering** — accumulate byte values into a polar grid `(radius_pixel, angle_bin)`, then convert to a circular disc image.
+
+**De-interleaving (CIRC reverse):**
+
+```python
+import numpy as np
+
+def deinterleave_cdda(data):
+    """Reverse CIRC pre-interleaving from cdimage tool."""
+    D = 4
+    delays = [
+        -24*(3),          -24*(1*D+2)+1,    8-24*(2*D+3),    8-24*(3*D+2)+1,
+        16-24*(4*D+3),    16-24*(5*D+2)+1,  2-24*(6*D+3),    2-24*(7*D+2)+1,
+        10-24*(8*D+3),    10-24*(9*D+2)+1,  18-24*(10*D+3),  18-24*(11*D+2)+1,
+        4-24*(16*D+1),    4-24*(17*D)+1,    12-24*(18*D+1),  12-24*(19*D)+1,
+        20-24*(20*D+1),   20-24*(21*D)+1,   6-24*(22*D+1),   6-24*(23*D)+1,
+        14-24*(24*D+1),   14-24*(25*D)+1,   22-24*(26*D+1),  22-24*(27*D)+1
+    ]
+    # Build per-output-index offset: output[g*24+i] came from input[g*24+i + offset[i]]
+    offsets = [0] * 24
+    for pinf in range(24):
+        i = delays[pinf] % 24
+        if i < 0:
+            i += 24
+        dg = (i - delays[pinf]) // 24
+        offsets[i] = -(111 - dg) * 24 + (pinf - i)
+
+    total = len(data)
+    result = np.zeros(total, dtype=np.uint8)
+    for i in range(24):
+        out_pos = np.arange(i, total, 24, dtype=np.int64)
+        in_pos = out_pos + offsets[i]
+        valid = (in_pos >= 0) & (in_pos < total)
+        result[in_pos[valid]] = data[out_pos[valid]]
+    return result
+```
+
+**Rendering de-interleaved data to disc image:**
+
+```python
+from PIL import Image
+
+def render_cdda_disc(data, img_size=1024, tr0=22951.52052, dtr=1.3865961805,
+                     r0=24.5, rcd=57.5, scale=0.115, n_angle_bins=8192,
+                     bright_byte=0x0d):
+    """Render de-interleaved CDDA data as a circular disc image."""
+    center = img_size // 2
+    dr = dtr * r0 / tr0
+    polar_sum = np.zeros((img_size, n_angle_bins), dtype=np.float64)
+    polar_count = np.zeros((img_size, n_angle_bins), dtype=np.float64)
+
+    tr, r, pos, c_float = tr0, r0, 0, 0.0
+    total = len(data)
+    while c_float < (800 * 1024 * 1024 - tr) and pos < total:
+        itr = int(tr)
+        r_px = int(r / scale)
+        if 0 <= r_px < img_size:
+            end = min(pos + itr, total)
+            chunk = data[pos:end]
+            n_tb = len(chunk)
+            if n_tb > 0:
+                angles = (np.arange(n_tb, dtype=np.int64) * n_angle_bins // n_tb) % n_angle_bins
+                is_bright = (chunk == bright_byte).astype(np.float64)
+                np.add.at(polar_sum[r_px], angles, is_bright)
+                np.add.at(polar_count[r_px], angles, 1.0)
+        c_float += tr
+        ic = pos + itr
+        while int(c_float) > ic:
+            ic += 1
+        pos = ic
+        tr += dtr
+        r += dr
+
+    density = np.where(polar_count > 0, polar_sum / polar_count, 0)
+    ys, xs = np.mgrid[0:img_size, 0:img_size]
+    dx, dy = (xs - center).astype(float), (ys - center).astype(float)
+    r_arr = np.sqrt(dx * dx + dy * dy).astype(int)
+    theta = np.arctan2(-dy, dx)
+    theta[theta < 0] += 2 * np.pi
+    a_idx = (theta / (2 * np.pi) * n_angle_bins).astype(int) % n_angle_bins
+    output = density[np.clip(r_arr, 0, img_size - 1), a_idx]
+    output[(r_arr < int(r0 / scale)) | (r_arr > int(rcd / scale))] = 0
+    return Image.fromarray((output * 255).astype(np.uint8))
+
+# Full pipeline
+data = np.fromfile('flag.cdda', dtype=np.uint8)
+deinterleaved = deinterleave_cdda(data)
+img = render_cdda_disc(deinterleaved)
+img.save('disc_output.png')
+```
+
+**Key insight:** Without CIRC de-interleaving, the radial structure (bright/dark rings) is visible but angular detail (text) is completely scrambled. The interleaving spreads each byte across ~108 groups (~2592 bytes), which at typical track lengths (~30K-50K bytes/revolution) shifts angular positions by up to 30 degrees — enough to destroy any readable pattern. The calibration image confirms correct decoding by showing known text.
+
+**Calibration workflow:** The challenge provides `calibrate_img.cdda` with a known output (`calibrate_img.png` showing "Calibrate: 0123456789abc..."). Use this pair to verify geometry parameters (tr0, dtr, r0, scale) before decoding the flag file.
+
+**Detection:** Challenge mentions "album", "CD rip", "CDDA", or provides large (~800MB) files with only 2 unique byte values. The `file` command reports "ISO-8859 text with CR line terminators" because `0x0d` (CR) is one of the two values.

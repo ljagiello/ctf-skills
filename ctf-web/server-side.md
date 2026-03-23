@@ -464,7 +464,7 @@ open(SH, "|/usr/sbin/sendmail -bm '$user_input'");
 
 Inject shell commands by breaking out of the quoted context:
 
-```
+```bash
 mail=' -bp|ls SECRETS #
 mail=' -bp|cat SECRETS/backdoor123.php #
 ```

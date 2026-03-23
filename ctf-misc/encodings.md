@@ -32,6 +32,7 @@
 - [Automated Multi-Encoding Sequential Solver (HackIM 2016)](#automated-multi-encoding-sequential-solver-hackim-2016)
 - [RFC 4042 UTF-9 Decoding (SECCON 2015)](#rfc-4042-utf-9-decoding-seccon-2015)
 - [Pixel Color Binary Encoding (Break In 2016)](#pixel-color-binary-encoding-break-in-2016)
+- [Hexadecimal Sudoku + QR Assembly (BSidesSF 2026)](#hexadecimal-sudoku--qr-assembly-bsidessf-2026)
 
 ---
 
@@ -631,4 +632,61 @@ print(text)
 ```
 
 **Key insight:** Image width of 7 or 8 pixels strongly suggests binary character encoding (7-bit ASCII or 8-bit). Check both color channels and brightness thresholds.
+
+---
+
+### Hexadecimal Sudoku + QR Assembly (BSidesSF 2026)
+
+**Pattern (hexhaustion):** Flag is encoded across 4 QR codes, each containing one quadrant of a 16x16 hexadecimal Sudoku grid. Solve the Sudoku, read the main diagonal values as hex pairs, convert to ASCII for the flag.
+
+**Solving steps:**
+
+1. **Scan QR codes:** Use `zbarimg` or `pyzbar` to decode all 4 QR codes
+2. **Assemble grid:** Each QR contains a quadrant (8x8) with hex values (0-F) and blanks
+3. **Solve the 16x16 Sudoku:** Standard Sudoku rules apply with hex digits (0-F) — each row, column, and 4x4 box contains each digit exactly once
+4. **Extract flag:** Read diagonal values `grid[i][i]` for i=0..15, pair into bytes, decode as ASCII
+
+```python
+from itertools import product
+
+def solve_hex_sudoku(grid):
+    """Solve 16x16 Sudoku with hex digits 0-F using backtracking."""
+    digits = set(range(16))
+
+    def possible(r, c):
+        used = set()
+        used.update(grid[r])              # Row
+        used.update(grid[i][c] for i in range(16))  # Column
+        br, bc = (r // 4) * 4, (c // 4) * 4  # 4x4 box
+        for i, j in product(range(br, br+4), range(bc, bc+4)):
+            used.update({grid[i][j]})
+        used.discard(-1)  # -1 = blank
+        return digits - used
+
+    def solve():
+        for r, c in product(range(16), range(16)):
+            if grid[r][c] == -1:
+                for d in possible(r, c):
+                    grid[r][c] = d
+                    if solve():
+                        return True
+                    grid[r][c] = -1
+                return False
+        return True
+
+    solve()
+    return grid
+
+# Read diagonal and convert to ASCII
+solved = solve_hex_sudoku(grid)
+diag_hex = ''.join(format(solved[i][i], 'X') for i in range(16))
+flag = bytes.fromhex(diag_hex).decode('ascii')
+print(flag)  # e.g., "HYPOAXIS"
+```
+
+**Key insight:** The QR codes serve as both a distribution mechanism (splitting the puzzle into 4 pieces) and a data encoding layer. The actual flag encoding is in the Sudoku solution's diagonal values interpreted as hex bytes.
+
+**When to recognize:** Challenge distributes multiple QR codes, mentions "hex", "nibbles", or "16x16 grid". QR content contains hex characters with blanks/underscores.
+
+**References:** BSidesSF 2026 "hexhaustion"
 

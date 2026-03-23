@@ -9,6 +9,7 @@
 - [Tar Archive Duplicate Entry Extraction (BSidesSF 2025)](#tar-archive-duplicate-entry-extraction-bsidessf-2025)
 - [Nested Matryoshka Filesystem Extraction (BSidesSF 2025)](#nested-matryoshka-filesystem-extraction-bsidessf-2025)
 - [Anti-Carving via Null Byte Interleaving (BSidesSF 2024)](#anti-carving-via-null-byte-interleaving-bsidessf-2024)
+- [BTRFS Subvolume/Snapshot Recovery (BSidesSF 2026)](#btrfs-subvolumesnapshot-recovery-bsidessf-2026)
 
 ---
 
@@ -256,6 +257,63 @@ perl -0777 -pe 's/(.)./\1/gs' raw.bin > recovered.png
 ```
 
 **Key insight:** When file carving fails but the filesystem metadata is intact, extract via block-level access and look for byte-level obfuscation patterns. Null byte interleaving doubles the file size — compare actual size vs expected size as a detection heuristic.
+
+---
+
+---
+
+## BTRFS Subvolume/Snapshot Recovery (BSidesSF 2026)
+
+**Pattern (turn-back-the-clock):** Deleted files on a BTRFS filesystem may persist in snapshots or alternate subvolumes. The default mount shows only the active subvolume, but backup snapshots contain historical file states.
+
+**Recovery workflow:**
+```bash
+# 1. Set up loop device
+sudo losetup /dev/loop0 challenge.img
+
+# 2. List available subvolumes
+sudo btrfs subvolume list /dev/loop0
+# Output: ID 256 gen 7 top level 5 path @
+#         ID 257 gen 5 top level 5 path @backup
+
+# 3. Mount the default subvolume (may show deleted files as missing)
+sudo mount /dev/loop0 /mnt/default
+ls /mnt/default/  # Flag file missing
+
+# 4. Mount the backup subvolume
+sudo mount -o subvol=@backup /dev/loop0 /mnt/backup
+ls /mnt/backup/   # Flag file present!
+cat /mnt/backup/flag.txt
+
+# 5. Alternative: mount by subvolume ID
+sudo mount -o subvolid=257 /dev/loop0 /mnt/backup
+```
+
+**Key BTRFS commands for forensics:**
+```bash
+# Show filesystem info
+btrfs filesystem show /dev/loop0
+
+# List all subvolumes (including snapshots)
+btrfs subvolume list -a /mnt
+
+# Show snapshot details
+btrfs subvolume show /mnt/@backup
+
+# Find deleted subvolumes (orphaned)
+btrfs-find-root /dev/loop0
+```
+
+**BTRFS snapshot types:**
+- **Writable subvolumes:** `@`, `@home` — standard Ubuntu layout
+- **Read-only snapshots:** Created by `btrfs subvolume snapshot -r` — immutable copies
+- **Backup subvolumes:** `@backup`, `@snap-YYYYMMDD` — naming varies by tool (Timeshift, snapper)
+
+**Key insight:** BTRFS is copy-on-write. Deleting a file from the active subvolume doesn't erase the data if a snapshot or alternate subvolume still references those blocks. Always enumerate all subvolumes with `btrfs subvolume list`. The `-o subvol=` mount option is the key to accessing non-default subvolumes.
+
+**Detection:** `file disk.img` shows "BTRFS Filesystem". Challenge mentions "snapshots", "time travel", "turn back", or "recovery".
+
+**References:** BSidesSF 2026 "turn-back-the-clock"
 
 ---
 

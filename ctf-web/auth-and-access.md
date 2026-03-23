@@ -23,6 +23,7 @@
 - [Open Redirect Chains](#open-redirect-chains)
 - [Subdomain Takeover](#subdomain-takeover)
 - [Apache mod_status Information Disclosure + Session Forging (29c3 CTF 2012)](#apache-mod_status-information-disclosure--session-forging-29c3-ctf-2012)
+- [JA4/JA4H TLS and HTTP Fingerprint Matching (BSidesSF 2026)](#ja4ja4h-tls-and-http-fingerprint-matching-bsidessf-2026)
 
 For JWT/JWE token attacks, see [auth-jwt.md](auth-jwt.md). For OAuth/OIDC, SAML, CI/CD credential theft, and infrastructure auth attacks, see [auth-infra.md](auth-infra.md).
 
@@ -610,3 +611,46 @@ for offset in range(-10, 10):
 **Key insight:** `/server-status` is a goldmine for session analysis — it reveals who is authenticated, what endpoints exist, and sometimes exposes session tokens directly. Always check for it during reconnaissance. The endpoint is enabled by default in many Apache installations and is often left accessible due to misconfigured `<Location>` directives.
 
 **Detection:** During initial recon, check `/server-status`, `/server-info`, and `/status`. If the response contains HTML with worker tables and request details, `mod_status` is active. Automated scanners like `nikto` and `nuclei` flag this automatically.
+
+---
+
+### JA4/JA4H TLS and HTTP Fingerprint Matching (BSidesSF 2026)
+
+**Pattern (cloudpear):** Server validates three browser fingerprints before granting access: User-Agent string hash, JA4H (HTTP header ordering fingerprint), and JA4 (TLS ClientHello fingerprint). Spoofing User-Agent alone is insufficient because the server computes JA4/JA4H from the actual connection.
+
+**JA4 (TLS fingerprint):** Hash of TLS ClientHello parameters — protocol version, cipher suites (sorted), extensions, signature algorithms, and supported groups. Different TLS libraries produce different JA4 hashes even with identical User-Agents.
+
+**JA4H (HTTP fingerprint):** Hash of HTTP header ordering, names, and values. Each HTTP client (browser, curl, Python requests) sends headers in a distinct order.
+
+**Attack approach:**
+1. Identify the required browser by examining error messages or source code (e.g., "Firefox 4" from User-Agent validation)
+2. Attempt User-Agent spoofing first — if JA4H/JA4 checks fail, the server reveals which fingerprint mismatched
+3. For JA4H: replicate the exact HTTP header ordering of the target browser using raw socket or `requests` with ordered headers
+4. For JA4: use the actual target browser or a TLS library configured to produce the matching ClientHello (cipher suite order, extensions, etc.)
+
+```python
+# JA4H can sometimes be matched with careful header ordering:
+import requests
+
+headers = collections.OrderedDict([
+    ('Host', 'target.com'),
+    ('User-Agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:2.0) Gecko/20100101 Firefox/4.0'),
+    ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+    ('Accept-Language', 'en-us,en;q=0.5'),
+    ('Accept-Encoding', 'gzip, deflate'),
+    ('Connection', 'keep-alive'),
+])
+# For JA4 (TLS), may need to use the actual legacy browser or
+# a tool like curl with specific --ciphers and --tls-max flags
+```
+
+**Key insight:** JA4/JA4H fingerprinting is increasingly used in WAFs and bot detection (Cloudflare, Akamai). Unlike User-Agent which is trivially spoofable, TLS fingerprints require matching the exact cipher suite order, extensions, and TLS version negotiation of the target browser. For legacy browsers, running the actual browser (e.g., Firefox 4 in a VM) may be the easiest path.
+
+**When to recognize:** Challenge mentions "browser fingerprinting", "firewall", or rejects requests despite correct User-Agent. Server returns different responses for `curl` vs browser despite identical URLs and headers. Error messages reference "JA3", "JA4", or "TLS fingerprint".
+
+**Detection tools:**
+- `ja4` CLI tool to compute your client's JA4 hash
+- Wireshark with JA4 plugin to inspect ClientHello
+- `curl -v --ciphers <list> --tls-max 1.2` to manually control TLS parameters
+
+**References:** BSidesSF 2026 "cloudpear"

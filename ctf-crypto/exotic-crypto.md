@@ -8,6 +8,9 @@
 - [Hamming Code Error Correction with Helical Interleaving (Sharif CTF 2016)](#hamming-code-error-correction-with-helical-interleaving-sharif-ctf-2016)
 - [ElGamal Universal Re-encryption (Sharif CTF 2016)](#elgamal-universal-re-encryption-sharif-ctf-2016)
 - [Paillier Oracle Size Bypass via Ciphertext Factoring (BSidesSF 2025)](#paillier-oracle-size-bypass-via-ciphertext-factoring-bsidessf-2025)
+- [Format-Preserving Encryption Feistel Brute-Force (BSidesSF 2026)](#format-preserving-encryption-feistel-brute-force-bsidessf-2026)
+- [Icosahedral Symmetry Group Cipher (BSidesSF 2026)](#icosahedral-symmetry-group-cipher-bsidessf-2026)
+- [Goldwasser-Micali Ciphertext Replication Oracle (BSidesSF 2026)](#goldwasser-micali-ciphertext-replication-oracle-bsidessf-2026)
 
 ---
 
@@ -372,3 +375,151 @@ def recover_flag(enc_flag, n, oracle_decrypt):
 ```
 
 **Key insight:** Paillier's additive homomorphism allows computing `E(flag - offset)` without decryption. If the oracle reveals whether the decrypted value is "small" (within limit) or "large" (rejected/wraps), binary search recovers the flag in O(log n) queries.
+
+---
+
+## Format-Preserving Encryption Feistel Brute-Force (BSidesSF 2026)
+
+**Pattern (tokencrypt):** Format-preserving encryption (FPE) using a Feistel network with a small round key. The 96-bit key splits into three components with different roles: a brute-forceable core, a GF(2) mixing matrix, and an affine offset.
+
+**Key structure:**
+- `s` (16 bits): Feistel round subkey — only 2^16 = 65536 possibilities
+- `seed56` (56 bits): Generates an invertible GF(2) affine mixing matrix `M` (24x24)
+- `b24` (24 bits): Affine offset applied after mixing
+
+**Attack:**
+1. **Collect encrypt pairs:** Get multiple `(plaintext, ciphertext)` pairs from the FPE oracle
+2. **Brute-force `s`:** For each of 65536 candidate round keys, run the Feistel network on known plaintexts. If the Feistel core is correct, the remaining transformation is affine over GF(2)
+3. **Solve linear system:** With correct `s`, the relationship `ciphertext = M * feistel_output XOR b24` is linear. Collect 24+ pairs, build a GF(2) matrix equation, solve for `M` and `b24` via Gaussian elimination
+
+```python
+import numpy as np
+
+def feistel_encrypt(pt_24bit, s, rounds=3):
+    """24-bit Feistel with 16-bit round key s."""
+    L, R = pt_24bit >> 12, pt_24bit & 0xFFF
+    for r in range(rounds):
+        f = (R * s + r) & 0xFFF  # Round function (example)
+        L, R = R, L ^ f
+    return (L << 12) | R
+
+# Brute-force s (16-bit)
+for s_candidate in range(1 << 16):
+    feistel_outputs = [feistel_encrypt(pt, s_candidate) for pt in known_pts]
+    # Check if feistel_outputs -> known_cts is affine over GF(2)
+    # Build system: for each bit position, collect equations
+    # If consistent -> found correct s, solve for M and b24
+```
+
+**When to recognize:** Challenge mentions "format-preserving encryption", "FPE", or uses a Feistel structure with suspiciously small key components. Any round key under 32 bits is brute-forceable.
+
+**Key lessons:**
+- FPE with small Feistel round keys is trivially broken despite the total key looking large (96 bits)
+- After recovering the Feistel core, the remaining affine layer is solvable as a linear system over GF(2)
+- Collect enough plaintext-ciphertext pairs to overdetermine the linear system
+
+**References:** BSidesSF 2026 "tokencrypt"
+
+---
+
+## Icosahedral Symmetry Group Cipher (BSidesSF 2026)
+
+**Pattern (dodecacrypt):** Encryption maps message bytes to face permutations of a dodecahedron. The icosahedral symmetry group has order 120 (the rotation group of a regular dodecahedron/icosahedron), so each "digit" in base-120 encodes one group element as a specific arrangement of 12 face labels.
+
+**How it works:**
+1. Message is converted to a large integer and expressed in base 120
+2. Each base-120 digit selects one of 120 possible face permutations
+3. The dodecahedron is rendered from a fixed viewing angle, showing only 6 of 12 faces
+4. Despite only 6 faces being visible, collisions between the 120 permutations are rare enough for unique recovery
+
+**Attack:**
+1. **Build lookup table:** Probe the encryption API with all 120 single-digit inputs (0-119 in base 120), capture the rendered face arrangement for each
+2. **Match visible faces:** For each encrypted symbol in the ciphertext, compare the visible face pattern against the lookup table to recover the base-120 digit
+3. **Reconstruct message:** Convert the sequence of base-120 digits back to an integer, then to bytes
+
+```python
+import itertools
+
+# Build lookup: probe API with single-digit values
+lookup = {}
+for digit in range(120):
+    # Send digit, capture 6 visible face labels from rendered image
+    visible = get_visible_faces(encrypt_single(digit))
+    lookup[tuple(visible)] = digit
+
+# Decrypt ciphertext
+base120_digits = []
+for symbol in ciphertext_symbols:
+    visible = get_visible_faces(symbol)
+    base120_digits.append(lookup[tuple(visible)])
+
+# Convert base-120 to bytes
+value = sum(d * 120**i for i, d in enumerate(reversed(base120_digits)))
+plaintext = value.to_bytes((value.bit_length() + 7) // 8, 'big')
+```
+
+**When to recognize:** Challenge involves polyhedra, dodecahedra, icosahedra, or mentions "120 rotations", "symmetry group", or shows 3D-rendered geometric objects with labeled faces.
+
+**Key insight:** The icosahedral rotation group is small enough (order 120) that a complete lookup table fits easily in memory. Even with partial information (only 6 of 12 faces visible), the permutations are sufficiently distinct to avoid collisions in practice.
+
+**References:** BSidesSF 2026 "dodecacrypt"
+
+---
+
+## Goldwasser-Micali Ciphertext Replication Oracle (BSidesSF 2026)
+
+**Pattern (kproof):** A "proof of knowledge" protocol encrypts a user-chosen AES key using Goldwasser-Micali (GM) bit-by-bit encryption. The service decrypts GM ciphertext bits to reconstruct the AES key, then uses it to decrypt and hash a probe payload. The vulnerability: individual GM ciphertext values can be replayed, and 128 copies of the same GM-encrypted bit produce an AES key of either `0x00...00` or `0xFF...FF`.
+
+**Goldwasser-Micali basics:**
+- Encrypts one bit at a time: bit 0 → quadratic residue mod n, bit 1 → non-residue
+- Decryption tests whether each ciphertext value is a quadratic residue
+- Each ciphertext value independently encodes exactly one bit
+
+**The vulnerability:**
+The service accepts 128 GM ciphertext lines as the AES key. By sending the SAME GM ciphertext value 128 times, the decrypted key is either all-zeros (if the bit was 0) or all-ones (if the bit was 1). Since you control the probe plaintext and IV, you can precompute both possible SHA-256 hashes and compare against the service response.
+
+**Attack (128 oracle queries for full key recovery):**
+
+```python
+from Crypto.Cipher import AES
+import hashlib
+
+def recover_bit(gm_ciphertext_line, probe_ct, probe_iv, oracle):
+    """Determine if a single GM ciphertext encodes 0 or 1."""
+    # Replicate the single GM bit 128 times as the AES key
+    key_all_zero = b'\x00' * 16
+    key_all_ones = b'\xff' * 16
+
+    # Precompute expected hashes for both possible keys
+    hash0 = hashlib.sha256(
+        AES.new(key_all_zero, AES.MODE_CBC, probe_iv).decrypt(probe_ct)
+    ).hexdigest()
+    hash1 = hashlib.sha256(
+        AES.new(key_all_ones, AES.MODE_CBC, probe_iv).decrypt(probe_ct)
+    ).hexdigest()
+
+    # Query oracle with replicated GM line
+    result_hash = oracle.query(gm_ciphertext_line, copies=128)
+
+    if result_hash == hash0:
+        return 0
+    elif result_hash == hash1:
+        return 1
+
+# Recover all 128 bits of the AES key
+captured_gm_lines = parse_transcript(transcript)  # 128 GM ciphertext values
+key_bits = [recover_bit(line, probe_ct, probe_iv, oracle)
+            for line in captured_gm_lines]
+
+# Reconstruct AES key and decrypt the captured payload
+aes_key = bits_to_bytes(key_bits)
+plaintext = AES.new(aes_key, AES.MODE_CBC, captured_iv).decrypt(captured_ct)
+```
+
+**Key insight:** Goldwasser-Micali's bit-by-bit encryption means each ciphertext value independently encodes one bit. If a protocol allows replaying individual GM values as components of a larger key, each bit can be isolated and determined via a distinguishing oracle (here, SHA-256 hash comparison). This reduces key recovery from 2^128 brute-force to 128 linear queries.
+
+**When to recognize:** Challenge uses bit-by-bit public-key encryption (GM, Rabin) combined with a symmetric key derivation step. The service decrypts individual ciphertext values without binding them to a position or preventing replay.
+
+**Broader principle:** Any protocol that (1) encrypts a key bit-by-bit and (2) provides an oracle on the reconstructed key is vulnerable to bit-by-bit recovery via replication. The specific oracle (hash, decryption check, timing) varies but the attack structure is the same.
+
+**References:** BSidesSF 2026 "kproof"
