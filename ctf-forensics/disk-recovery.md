@@ -10,6 +10,8 @@
 - [Nested Matryoshka Filesystem Extraction (BSidesSF 2025)](#nested-matryoshka-filesystem-extraction-bsidessf-2025)
 - [Anti-Carving via Null Byte Interleaving (BSidesSF 2024)](#anti-carving-via-null-byte-interleaving-bsidessf-2024)
 - [BTRFS Subvolume/Snapshot Recovery (BSidesSF 2026)](#btrfs-subvolumesnapshot-recovery-bsidessf-2026)
+- [FAT16 Free Space Data Recovery (BSidesSF 2026)](#fat16-free-space-data-recovery-bsidessf-2026)
+- [Ext2 Orphaned Inode Recovery via fsck (BSidesSF 2026)](#ext2-orphaned-inode-recovery-via-fsck-bsidessf-2026)
 
 ---
 
@@ -314,6 +316,92 @@ btrfs-find-root /dev/loop0
 **Detection:** `file disk.img` shows "BTRFS Filesystem". Challenge mentions "snapshots", "time travel", "turn back", or "recovery".
 
 **References:** BSidesSF 2026 "turn-back-the-clock"
+
+---
+
+## FAT16 Free Space Data Recovery (BSidesSF 2026)
+
+**Pattern (freeflag):** Data is hidden in the free (unallocated) clusters of a FAT16 filesystem. The mounted filesystem shows no suspicious files, but free clusters contain recoverable data.
+
+```python
+import struct
+
+with open("disk.img", "rb") as f:
+    # Read FAT16 boot sector
+    f.seek(0)
+    boot = f.read(512)
+    bytes_per_sector = struct.unpack_from("<H", boot, 11)[0]
+    sectors_per_cluster = boot[13]
+    reserved_sectors = struct.unpack_from("<H", boot, 14)[0]
+    num_fats = boot[16]
+    sectors_per_fat = struct.unpack_from("<H", boot, 22)[0]
+    root_entries = struct.unpack_from("<H", boot, 17)[0]
+
+    cluster_size = bytes_per_sector * sectors_per_cluster
+    fat_start = reserved_sectors * bytes_per_sector
+    root_dir_start = fat_start + (num_fats * sectors_per_fat * bytes_per_sector)
+    data_start = root_dir_start + (root_entries * 32)
+
+    # Read FAT table
+    f.seek(fat_start)
+    fat = f.read(sectors_per_fat * bytes_per_sector)
+
+    # Find free clusters (FAT entry == 0x0000)
+    free_data = b""
+    for cluster in range(2, len(fat) // 2):
+        entry = struct.unpack_from("<H", fat, cluster * 2)[0]
+        if entry == 0x0000:  # Free cluster
+            offset = data_start + (cluster - 2) * cluster_size
+            f.seek(offset)
+            free_data += f.read(cluster_size)
+
+    # Search for flag in free space
+    if b"CTF{" in free_data:
+        idx = free_data.index(b"CTF{")
+        print(free_data[idx:idx+100])
+```
+
+**Key insight:** FAT16/FAT32 mark deleted file clusters as "free" (entry = 0x0000) but don't zero the data. Enumerating free clusters and reading their contents recovers deleted or hidden data. Tools like `foremost`, `scalpel`, or manual FAT parsing extract this data. Check the volume label for hints (e.g., "FREESPACE").
+
+**When to recognize:** Challenge provides a filesystem image. Mounting shows nothing useful, but `file` identifies it as FAT16/FAT32. Volume label or challenge description hints at "free space", "deleted", or "hidden in plain sight".
+
+**References:** BSidesSF 2026 "freeflag"
+
+---
+
+## Ext2 Orphaned Inode Recovery via fsck (BSidesSF 2026)
+
+**Pattern (orphan):** A file has been deleted from an ext2 filesystem, leaving an orphaned inode. The file doesn't appear in any directory listing, but `fsck` detects the unattached inode and can reconnect it to `/lost+found`.
+
+```bash
+# Mount the image — no flag visible
+sudo mount -o loop disk.img /mnt
+ls /mnt  # Nothing useful
+
+# Run fsck to detect orphaned inodes
+sudo umount /mnt
+e2fsck -y disk.img
+# Output: "Unattached inode 13"
+# Output: "Connect to /lost+found? yes"
+
+# Re-mount and check lost+found
+sudo mount -o loop disk.img /mnt
+ls /mnt/lost+found/
+# Found: #13
+file /mnt/lost+found/\#13  # Identify file type (e.g., PNG)
+cp /mnt/lost+found/\#13 recovered_flag.png
+```
+
+**Key insight:** Ext2/ext3/ext4 deletion removes directory entries but the inode and data blocks may persist until overwritten. `e2fsck` (with `-y` for auto-fix) detects these orphaned inodes and reconnects them to `/lost+found` with numeric names. For ext2 specifically (no journaling), recovery is more reliable because blocks aren't zeroed on deletion.
+
+**When to recognize:** Challenge provides an ext2/ext3/ext4 filesystem image. Normal mounting shows nothing. Challenge hints at "deleted", "orphan", "lost", or "recovery". Always run `fsck` on forensics filesystem images.
+
+**Alternative tools:**
+- `debugfs` — interactive ext2 exploration: `debugfs disk.img` then `lsdel` to list deleted inodes
+- `extundelete` — automated ext3/ext4 recovery
+- `icat` (Sleuth Kit) — extract file by inode number: `icat disk.img 13 > recovered`
+
+**References:** BSidesSF 2026 "orphan"
 
 ---
 

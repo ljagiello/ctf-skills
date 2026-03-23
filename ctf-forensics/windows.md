@@ -11,6 +11,7 @@
 - [Hosts File Hidden Data](#hosts-file-hidden-data)
 - [Contact Files (.contact)](#contact-files-contact)
 - [WinZip AES Encrypted Archives](#winzip-aes-encrypted-archives)
+- [NTFS Alternate Data Streams](#ntfs-alternate-data-streams)
 - [NTFS MFT Analysis](#ntfs-mft-analysis)
 - [USN Journal ($J) Analysis](#usn-journal-j-analysis)
 - [SAM Account Creation Timing](#sam-account-creation-timing)
@@ -211,6 +212,78 @@ hashcat -m 13600 zip_hash.txt wordlist.txt
 # Hybrid: word + 4 digits
 hashcat -m 13600 zip_hash.txt wordlist.txt -a 6 '?d?d?d?d'
 ```
+
+---
+
+## NTFS Alternate Data Streams
+
+**Pattern:** NTFS supports multiple data streams per file. The default stream stores normal file content, but additional named streams (Alternate Data Streams / ADS) can hide arbitrary data invisibly. `dir`, Explorer, and most tools only show the default stream.
+
+**Detection and enumeration:**
+
+```bash
+# On a mounted NTFS volume (Linux):
+getfattr -R -n ntfs.streams.list /mnt/ntfs/     # List all streams on all files
+
+# Using Sleuth Kit on a raw NTFS image (best for forensics):
+fls -r ntfs_image.dd                              # Recursive file listing
+fls -r ntfs_image.dd | grep -i ":"                # ADS entries contain ":"
+# Output: r/r 66-128-4: Documents/credentials.txt:hidden_flag.jpg
+
+# Extract ADS by inode — find inode first:
+istat ntfs_image.dd 66                            # Show all attributes for inode 66
+# Look for $DATA attributes with names (e.g., $DATA "hidden_flag.jpg")
+
+icat ntfs_image.dd 66-128-4 > hidden_flag.jpg    # Extract ADS by full address
+
+# Using ntfsstreams (part of ntfs-3g):
+ntfs_streams_list /dev/sda1
+```
+
+**On Windows (live analysis):**
+
+```powershell
+# List ADS on a file
+Get-Item -Path C:\file.txt -Stream *
+
+# Read ADS content
+Get-Content -Path C:\file.txt -Stream hidden_data
+
+# dir /r shows ADS (Windows Vista+)
+dir /r C:\Users\suspect\Documents\
+
+# Common ADS names to check:
+# Zone.Identifier — marks files downloaded from the internet
+# (contains ZoneId, ReferrerUrl, HostUrl)
+Get-Content -Path C:\file.exe -Stream Zone.Identifier
+```
+
+**Python extraction from raw NTFS image:**
+
+```python
+# Using pytsk3 (Python bindings for Sleuth Kit)
+import pytsk3
+
+img = pytsk3.Img_Info("ntfs_image.dd")
+fs = pytsk3.FS_Info(img)
+
+# Walk all files and check for ADS
+for entry in fs.open_dir("/"):
+    for attr in entry:
+        if attr.info.type == pytsk3.TSK_FS_ATTR_TYPE_NTFS_DATA:
+            name = attr.info.name or "(default)"
+            if name != "(default)":
+                print(f"ADS found: {entry.info.name.name}/{name} "
+                      f"(size: {attr.info.size})")
+                # Read ADS content
+                data = entry.read_random(0, attr.info.size, attr.info.type, attr.info.id)
+```
+
+**Key insight:** ADS are invisible to `dir` (without `/r`), Explorer, and most forensic tools that only check default data streams. The Sleuth Kit's `fls` with the colon notation (`inode-type-id`) is the most reliable way to enumerate and extract ADS from images. Malware uses ADS to hide payloads; CTF challenges use them to hide flags. The `Zone.Identifier` stream is the most common ADS — it's automatically added by browsers and email clients to downloaded files.
+
+**When to recognize:** Challenge provides an NTFS image, mentions "hidden data", "hidden in plain sight", or "alternate streams". Credentials files or documents that seem too simple may have ADS attached. Always run `fls -r image.dd | grep ":"` on any NTFS forensics challenge.
+
+**References:** Google CTF 2019 "Home Computer", TCP1P CTF 2023 "hide and split", De1CTF 2019 "DeeplnReal"
 
 ---
 

@@ -1,5 +1,7 @@
 # CTF Crypto - Modern Cipher Attacks
 
+Block cipher attacks, MAC forgery, padding oracles, and hash-based attacks. For stream cipher attacks (LFSR, RC4, XOR), see [stream-ciphers.md](stream-ciphers.md).
+
 ## Table of Contents
 - [AES-CFB-8 Static IV State Forging](#aes-cfb-8-static-iv-state-forging)
 - [ECB Pattern Leakage on Images](#ecb-pattern-leakage-on-images)
@@ -15,19 +17,13 @@
 - [CBC Padding Oracle Attack](#cbc-padding-oracle-attack)
 - [Bleichenbacher / PKCS#1 v1.5 RSA Padding Oracle](#bleichenbacher--pkcs1-v15-rsa-padding-oracle)
 - [Birthday Attack / Meet-in-the-Middle](#birthday-attack--meet-in-the-middle)
-- [LFSR Stream Cipher Attacks](#lfsr-stream-cipher-attacks)
-  - [Berlekamp-Massey Algorithm](#berlekamp-massey-algorithm)
-  - [Correlation Attack](#correlation-attack)
-  - [Known-Plaintext on LFSR Keystream](#known-plaintext-on-lfsr-keystream)
-  - [Galois vs Fibonacci LFSR](#galois-vs-fibonacci-lfsr)
-  - [Common LFSR Lengths and Polynomials](#common-lfsr-lengths-and-polynomials)
 - [CRC32 Collision-Based Signature Forgery (iCTF 2013)](#crc32-collision-based-signature-forgery-ictf-2013)
 - [Blum-Goldwasser Bit-Extension Oracle (PlaidCTF 2013)](#blum-goldwasser-bit-extension-oracle-plaidctf-2013)
 - [Hash Length Extension Attack (PlaidCTF 2014)](#hash-length-extension-attack-plaidctf-2014)
 - [Compression Oracle / CRIME-Style Attack (BCTF 2015)](#compression-oracle--crime-style-attack-bctf-2015)
-- [RC4 Second-Byte Bias Distinguisher (Hackover CTF 2015)](#rc4-second-byte-bias-distinguisher-hackover-ctf-2015)
-- [XOR Consecutive Byte Correlation Attack (Defcamp 2015)](#xor-consecutive-byte-correlation-attack-defcamp-2015)
 - [Hash Function Time Reversal via Cycle Detection (BSidesSF 2025)](#hash-function-time-reversal-via-cycle-detection-bsidessf-2025)
+- [OFB Mode with Invertible RNG Backward Decryption (BSidesSF 2026)](#ofb-mode-with-invertible-rng-backward-decryption-bsidessf-2026)
+- [Weak Key Derivation via Public Key Hash XOR (BSidesSF 2026)](#weak-key-derivation-via-public-key-hash-xor-bsidessf-2026)
 
 ---
 
@@ -386,114 +382,6 @@ def meet_in_the_middle(encrypt_fn, decrypt_fn, plaintext, ciphertext, keyspace):
 
 ---
 
-## LFSR Stream Cipher Attacks
-
-Linear Feedback Shift Registers generate keystreams from an initial state and feedback polynomial. Common in CTF crypto challenges and lightweight/custom ciphers.
-
-**Detection:** Look for bit-level operations (XOR, shift, AND with tap mask), short repeating keystreams, or challenge descriptions mentioning "stream cipher", "LFSR", "shift register", or "linear recurrence".
-
-### Berlekamp-Massey Algorithm
-
-**Pattern:** Given a portion of known keystream (from known plaintext XOR), recover the minimal LFSR that generates it. Once you have the feedback polynomial and state, predict all future (and past) output.
-
-**Key insight:** Berlekamp-Massey finds the shortest LFSR producing a given sequence in O(n^2). If you have 2L consecutive keystream bits (where L is the LFSR length), you can fully recover the LFSR.
-
-```python
-from sage.all import *
-
-# Known keystream bits (from known plaintext XOR ciphertext)
-keystream = [1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 1]
-
-# Berlekamp-Massey in SageMath
-F = GF(2)
-seq = [F(b) for b in keystream]
-R = berlekamp_massey(seq)  # Returns the feedback polynomial
-print(f"LFSR polynomial: {R}")
-print(f"LFSR length: {R.degree()}")
-
-# Recover initial state from first L bits
-L = R.degree()
-state = keystream[:L]
-
-# Generate future keystream
-def lfsr_next(state, taps):
-    """taps = list of tap positions from polynomial"""
-    new_bit = 0
-    for t in taps:
-        new_bit ^= state[t]
-    return state[1:] + [new_bit]
-```
-
-### Correlation Attack
-
-**Pattern:** Combined LFSR generator (multiple LFSRs combined through a nonlinear function). If the combining function has correlation bias toward one LFSR's output, attack that LFSR independently.
-
-**Key insight:** If `P(output = LFSR_i output) > 0.5`, brute-force LFSR_i's initial state (2^L candidates for length-L LFSR) and check correlation with known keystream. Much faster than brute-forcing the full combined state.
-
-```python
-# Correlation attack on a single biased LFSR
-def correlation_attack(keystream_bits, lfsr_length, taps, threshold=0.6):
-    """Try all 2^L initial states, keep those with high correlation"""
-    best_corr, best_state = 0, None
-    for seed in range(2**lfsr_length):
-        state = [(seed >> i) & 1 for i in range(lfsr_length)]
-        matches = 0
-        s = state[:]
-        for i, bit in enumerate(keystream_bits):
-            if s[0] == bit:
-                matches += 1
-            s = lfsr_next(s, taps)
-        corr = matches / len(keystream_bits)
-        if corr > best_corr:
-            best_corr, best_state = corr, seed
-    return best_state, best_corr
-```
-
-### Known-Plaintext on LFSR Keystream
-
-**Pattern:** XOR known plaintext with ciphertext to get keystream. With >=2L keystream bits, solve the linear system directly.
-
-```python
-import numpy as np
-
-# Given 2L keystream bits, solve for L-bit state + L feedback taps
-# Keystream relation: k[i+L] = c[0]*k[i] + c[1]*k[i+1] + ... + c[L-1]*k[i+L-1] (mod 2)
-def solve_lfsr(keystream, L):
-    """Solve for LFSR feedback from 2L keystream bits over GF(2)"""
-    # Build matrix: each row is [k[i], k[i+1], ..., k[i+L-1]] = k[i+L]
-    A = []
-    b = []
-    for i in range(L):
-        A.append(keystream[i:i+L])
-        b.append(keystream[i+L])
-    # Solve over GF(2) using SageMath
-    from sage.all import matrix, vector, GF
-    M = matrix(GF(2), A)
-    v = vector(GF(2), b)
-    coeffs = M.solve_right(v)
-    return list(coeffs)
-```
-
-### Galois vs Fibonacci LFSR
-
-Two equivalent representations — same keystream, different wiring:
-- **Fibonacci:** feedback from multiple taps XOR'd into last position (most common in CTFs)
-- **Galois:** feedback distributed across the register (faster in hardware)
-
-Conversion: Galois polynomial is the reciprocal of Fibonacci polynomial. Most CTF tools assume Fibonacci form.
-
-### Common LFSR Lengths and Polynomials
-
-| Bits | Common primitive polynomial | Period |
-|------|---------------------------|--------|
-| 16 | x^16 + x^14 + x^13 + x^11 + 1 | 65535 |
-| 32 | x^32 + x^22 + x^2 + x + 1 | 2^32 - 1 |
-| 64 | x^64 + x^4 + x^3 + x + 1 | 2^64 - 1 |
-
-**Maximal-length LFSR:** Primitive polynomial -> period = 2^L - 1 (visits all nonzero states).
-
----
-
 ## CRC32 Collision-Based Signature Forgery (iCTF 2013)
 
 **Pattern:** CRC32 is linear — appending 4 carefully chosen bytes to any message produces a target CRC32 value, enabling signature forgery without knowing the secret key.
@@ -597,47 +485,6 @@ for pos in range(secret_length):
 
 ---
 
-## RC4 Second-Byte Bias Distinguisher (Hackover CTF 2015)
-
-**Pattern:** Distinguish RC4 output from true random data by exploiting RC4's second-byte bias. The second output byte of RC4 is biased toward `0x00` with probability 1/128 (vs expected 1/256).
-
-```python
-count_zero = 0
-for sample in all_samples:
-    if sample[1] == 0x00:  # second byte
-        count_zero += 1
-
-# Expected: random = N/256, RC4 = N/128 (2x more zeros)
-if count_zero > threshold:
-    print("RC4")
-else:
-    print("Random")
-```
-
-**Key insight:** RC4's key scheduling creates a well-known bias where `P(second_byte == 0) = 1/128` instead of `1/256`. With ~2048 samples, RC4 produces ~16 zero second-bytes vs ~8 for random. Other RC4 biases: bytes 3-255 show weaker biases; long-term biases exist at every 256th position.
-
----
-
-## XOR Consecutive Byte Correlation Attack (Defcamp 2015)
-
-When a cipher XORs consecutive ciphertext bytes, the relationship between two ciphertexts reveals plaintext differences without knowing the key:
-
-```python
-# Observation: xorct[i] = ct[i] ^ ct[i+1]
-# For two ciphertext/plaintext pairs:
-# plain2[i] ^ plain1[i] == xorct1[i] ^ xorct2[i]
-
-# With one known plaintext, decrypt the other:
-for i in range(len(ct2)):
-    xorct1 = ct1[i] ^ ct1[i+1]
-    xorct2 = ct2[i] ^ ct2[i+1]
-    plain2_char = xorct1 ^ xorct2 ^ plain1[i]
-```
-
-**Key insight:** XOR of consecutive bytes cancels key material, leaving only plaintext-dependent differences. One known plaintext breaks all subsequent messages.
-
----
-
 ## Hash Function Time Reversal via Cycle Detection (BSidesSF 2025)
 
 When a system uses iterated hashing as a "time" function (`state_t = H(state_{t-1})`), reverse time by exploiting the finite cycle structure:
@@ -684,3 +531,68 @@ for _ in range(forward_steps):
 ```
 
 **Key insight:** For truncated hashes (e.g., MD5 -> 64 bits), the expected cycle length is ~2^32, making cycle detection feasible. Going "backward" N steps is equivalent to going forward (cycle_length - N) steps. Assumes the target state is within the main cycle, not on a tail.
+
+---
+
+## OFB Mode with Invertible RNG Backward Decryption (BSidesSF 2026)
+
+**Pattern (randcrypt):** A custom block cipher uses OFB (Output Feedback) mode with a homemade RNG as the keystream generator. The last plaintext block is known (zero padding), leaking one RNG state. If the RNG's state transition function is invertible (bijective), all previous states can be recovered by running the RNG backwards, decrypting the entire ciphertext from the end to the beginning.
+
+```python
+def rng_forward(state):
+    """Custom RNG state transition (from challenge)."""
+    # Example: linear congruential or reversible mixing
+    return (state * A + B) % M
+
+def rng_inverse(state):
+    """Inverted RNG — recover previous state."""
+    return ((state - B) * pow(A, -1, M)) % M
+
+# Last block is zero-padded → ciphertext XOR 0 = keystream = RNG state
+leaked_state = int.from_bytes(ciphertext_blocks[-2], 'big')
+
+# Decrypt backwards
+state = leaked_state
+plaintext_blocks = []
+for i in range(len(ciphertext_blocks) - 3, -1, -1):
+    state = rng_inverse(state)
+    pt = xor_bytes(ciphertext_blocks[i], state.to_bytes(block_size, 'big'))
+    plaintext_blocks.insert(0, pt)
+```
+
+**Key insight:** OFB mode decouples encryption from the plaintext — the keystream is deterministic from the initial state. If ANY block's plaintext is known (padding, headers, magic bytes), the corresponding RNG state is leaked. An invertible RNG then reveals ALL states. Always check if the RNG transition function has a mathematical inverse.
+
+**When to recognize:** Custom OFB/CTR mode with a non-standard PRNG. Look for: (1) XOR-based encryption, (2) a state-update function that's bijective (no information loss), (3) predictable plaintext in any block position. Files with known padding (PKCS#7 zero-fill, null-terminated strings) are ideal leak points.
+
+---
+
+## Weak Key Derivation via Public Key Hash XOR (BSidesSF 2026)
+
+**Pattern (ran-somewhere):** Hybrid RSA+AES encryption where the AES key is derived as `SHA256(DER_encoded_public_key) XOR seed`, with the seed hardcoded or predictable. Since the public key is public, the AES key is fully recoverable without the RSA private key.
+
+```python
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import AES
+from hashlib import sha256
+
+# Public key is available
+pubkey = RSA.import_key(open("public.pem").read())
+der_bytes = pubkey.export_key("DER")
+
+# Seed from challenge (hardcoded/predictable)
+seed = b'BSidesSFCTF2026!'
+
+# Derive AES key the same way the encryptor did
+key_hash = sha256(der_bytes).digest()
+aes_key = bytes(a ^ b for a, b in zip(key_hash, seed.ljust(32, b'\x00')))
+
+# Decrypt
+ct = open("flag.enc", "rb").read()
+iv, ct_body = ct[:16], ct[16:]
+cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+plaintext = cipher.decrypt(ct_body)
+```
+
+**Key insight:** Key derivation that incorporates only public information (public keys, known constants) provides zero security regardless of the hash function used. The "hybrid" design creates a false sense of security — RSA protects nothing if the AES key doesn't depend on the RSA private key.
+
+**When to recognize:** Challenge provides both a public key AND an encrypted file, but no private key or ciphertext for RSA. Look for key derivation code that hashes the public key, uses the public key's modulus/exponent as seed material, or XORs with a constant.

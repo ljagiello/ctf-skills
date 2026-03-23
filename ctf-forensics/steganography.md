@@ -18,6 +18,7 @@ Non-image steganography techniques (PDF, SVG, terminal, text, compression, sprea
 - [ANSI Escape Sequence Steganography in Terminal Art (BSidesSF 2026)](#ansi-escape-sequence-steganography-in-terminal-art-bsidessf-2026)
 - [Autostereogram / Magic Eye Solving (BSidesSF 2026)](#autostereogram--magic-eye-solving-bsidessf-2026)
 - [Two-Layer Byte+Line Interleaving (BSidesSF 2026)](#two-layer-byteline-interleaving-bsidessf-2026)
+- [Multi-Stream Video Container Steganography (BSidesSF 2026)](#multi-stream-video-container-steganography-bsidessf-2026)
 
 ---
 
@@ -432,3 +433,32 @@ Image.fromarray(sub2).save('final_b.png')
 **Detection:** File has double-extension or unusual extension. `file` command may identify it as data or as one format. Even/odd byte extraction produces valid file headers (e.g., both halves start with PNG magic `89 50 4E 47`).
 
 **References:** BSidesSF 2026 "seeing-double"
+
+---
+
+### Multi-Stream Video Container Steganography (BSidesSF 2026)
+
+**Pattern (ads):** An MP4 video container holds multiple video streams. The default (stream 0:0) plays normally, but a second stream (0:1) contains the flag. Most video players only show the first/default stream. The secondary stream uses AV1 codec which has poor support in many tools, adding friction.
+
+```bash
+# Detect multiple streams
+ffprobe -hide_banner flag.mp4
+# Look for Stream #0:1 — a second video stream
+
+# Extract second stream to its own file
+ffmpeg -i flag.mp4 -map 0:1 -c copy second_stream.mp4
+
+# Or extract just the first frame from stream 1
+ffmpeg -i flag.mp4 -map 0:1 -frames:v 1 flag.jpg
+```
+
+**Key insight:** MP4/MKV containers can hold multiple video, audio, and subtitle tracks. Most players default to stream 0:0. Always run `ffprobe` or `mediainfo` to enumerate ALL streams. The `-map 0:N` flag in ffmpeg selects specific streams. VLC can also switch tracks via Video → Video Track menu.
+
+**When to recognize:** Challenge provides a video file where the visible content seems irrelevant or is a red herring. `ffprobe` shows multiple `Stream` entries. Check metadata fields like `handler_name` for hints (e.g., "CTF Trickery").
+
+**Detection checklist:**
+1. `ffprobe -hide_banner file.mp4` — count Stream lines
+2. `mediainfo file.mp4` — check track count
+3. VLC → Video → Video Track → try all tracks
+
+**References:** BSidesSF 2026 "ads"

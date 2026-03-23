@@ -11,6 +11,7 @@
 - [Z3 Constraint Solving](#z3-constraint-solving)
   - [YARA Rules with Z3](#yara-rules-with-z3)
   - [Type Systems as Constraints](#type-systems-as-constraints)
+  - [Z3 SAT Solving for Boolean Logic Gate Networks (BSidesSF 2026)](#z3-sat-solving-for-boolean-logic-gate-networks-bsidessf-2026)
 - [Kubernetes RBAC Bypass](#kubernetes-rbac-bypass)
   - [K8s Privilege Escalation Checklist](#k8s-privilege-escalation-checklist)
 - [Floating-Point Precision Exploitation](#floating-point-precision-exploitation)
@@ -204,6 +205,56 @@ from z3 import *
 matches = re.findall(r"\(\s*([^)]+)\s*\)\s*(\w+)_t", source)
 # Convert to Z3 constraints and solve
 ```
+
+### Z3 SAT Solving for Boolean Logic Gate Networks (BSidesSF 2026)
+
+**Pattern (flag-factory-pro):** A "product key" validation system is implemented as a network of 250 boolean logic gates (AND, OR, XOR, NOT) connected by wires. Given 125 boolean input bits and the gate truth values (all gates must output True), find a valid assignment of input bits. This is a classic satisfiability (SAT) problem solvable with Z3.
+
+```python
+from z3 import *
+import base64
+
+# Parse the gate network from challenge data
+data = base64.b64decode(registration_request)
+gates = parse_gates(data)  # List of (gate_type, input_wires, output_wire)
+
+# Create 125 boolean variables for input bits
+inputs = [Bool(f"x_{i}") for i in range(125)]
+
+# Map wire IDs to Z3 expressions
+wires = {i: inputs[i] for i in range(125)}
+
+solver = Solver()
+for gate_type, in1, in2, out in gates:
+    w1 = wires[in1]
+    w2 = wires[in2] if in2 is not None else None
+
+    if gate_type == "AND":
+        wires[out] = And(w1, w2)
+    elif gate_type == "OR":
+        wires[out] = Or(w1, w2)
+    elif gate_type == "XOR":
+        wires[out] = Xor(w1, w2)
+    elif gate_type == "NOT":
+        wires[out] = Not(w1)
+
+    # All gate outputs must be True
+    solver.add(wires[out] == True)
+
+if solver.check() == sat:
+    model = solver.model()
+    # Extract 125 bits, encode as base32 in 5-bit groups
+    bits = [1 if is_true(model[inputs[i]]) else 0 for i in range(125)]
+    # Convert to product key format
+    key = bits_to_base32(bits)
+    print(f"Product key: {key}")
+```
+
+**Key insight:** Boolean logic gate networks are directly expressible as Z3 constraints. Each gate becomes one constraint (`And`, `Or`, `Xor`, `Not`), and the requirement that all outputs are True constrains the solution space. Even with 125 input variables and 250 gates, Z3 solves this in milliseconds. Any "keygen" or "product key" challenge with observable validation logic can be modeled this way.
+
+**When to recognize:** Challenge involves product key validation, license key generation, circuit/gate diagrams, or registration code verification. If the validation logic is extractable (from binary, network capture, or provided spec), model it as a SAT/SMT problem. Z3 handles boolean, bitvector, integer, and real arithmetic constraints.
+
+**References:** BSidesSF 2026 "flag-factory-pro"
 
 ---
 

@@ -20,6 +20,7 @@
 - [Monumental Letters / Letreiro Identification (UTCTF 2026)](#monumental-letters--letreiro-identification-utctf-2026)
 - [Google Maps Crowd-Sourced Photo Verification (MidnightCTF 2026)](#google-maps-crowd-sourced-photo-verification-midnightctf-2026)
 - [Overpass Turbo Spatial Queries (LAB'OSINT 2025)](#overpass-turbo-spatial-queries-labosint-2025)
+- [Music-Themed Landmark Geolocation with Key Encoding (BSidesSF 2026)](#music-themed-landmark-geolocation-with-key-encoding-bsidessf-2026)
 
 ---
 
@@ -425,3 +426,39 @@ node(around:200,48.8566,2.3522)["tourism"="hotel"];
 | `railway` | `station`, `subway_entrance`, `halt` |
 
 **Key insight:** When a challenge image shows a business near a transit stop in a known city, Overpass Turbo can narrow candidates to a handful of locations by querying for the business type within a small radius of transit nodes. Verify each result with Google Street View. The `around` operator (proximity filter) is the most useful feature — it replaces hours of manual map browsing.
+
+---
+
+## Music-Themed Landmark Geolocation with Key Encoding (BSidesSF 2026)
+
+**Pattern (strike-a-coord):** 14 images of music-themed landmarks worldwide. For each location:
+1. Identify the landmark via visual clues (signage, architecture, flags, distinctive features)
+2. Each landmark has a musical connection (composer birthplace, concert hall, music museum)
+3. A visual element at each location maps to a specific piano key number
+4. The sequence of piano key numbers encodes the flag
+
+Geolocation techniques used:
+- **Signage/text:** Readable signs narrow to city/country (e.g., "BTHVN" = Beethoven birthplace in Bonn)
+- **Architecture style:** Building materials, roof shapes, window designs identify regions
+- **National flags/emblems:** Visible flags or government buildings identify country
+- **Google Lens/reverse image search:** Match distinctive building facades
+- **Street View confirmation:** Verify candidate locations via Google Street View
+
+```python
+# Piano key encoding: each landmark yields a key number (1-88)
+# Key numbers map to characters
+piano_keys = [35, 67, 42, ...]  # Recovered from each landmark
+
+# Common encodings: direct ASCII, MIDI note numbers, or custom mapping
+flag = ""
+for key in piano_keys:
+    # If keys map to ASCII: key + offset
+    flag += chr(key + 32)  # Example offset
+print(flag)
+```
+
+**Key insight:** Multi-location OSINT challenges combine traditional geolocation (landmark identification) with a secondary encoding layer. The "piano key" or "musical note" at each location extracts one character of the flag. Solve strategy: identify all locations first (the easier part), then determine the encoding scheme from the per-location data points.
+
+**When to recognize:** Challenge provides multiple images with a musical or thematic thread. Each image requires individual geolocation. The flag isn't at any single location — it's encoded across all of them.
+
+**References:** BSidesSF 2026 "strike-a-coord"

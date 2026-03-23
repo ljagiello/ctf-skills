@@ -3,6 +3,7 @@
 ## Table of Contents
 - [Elliptic Curve Isogenies](#elliptic-curve-isogenies)
 - [Pohlig-Hellman Attack (Weak ECC)](#pohlig-hellman-attack-weak-ecc)
+- [Baby-Step Giant-Step for General DLP](#baby-step-giant-step-for-general-dlp)
 - [LLL Algorithm for Approximate GCD](#lll-algorithm-for-approximate-gcd)
 - [Merkle-Hellman Knapsack Cryptosystem via LLL (ASIS 2014)](#merkle-hellman-knapsack-cryptosystem-via-lll-asis-2014)
 - [Coppersmith's Method (Close Private Keys)](#coppersmiths-method-close-private-keys)
@@ -91,6 +92,92 @@ moduli = [m for (_, m) in partial_logs]
 residues = [r for (r, _) in partial_logs]
 private_key, _ = crt(moduli, residues)
 ```
+
+## Baby-Step Giant-Step for General DLP
+
+**Pattern:** Compute discrete logarithm `x` where `g^x = h (mod p)` in O(sqrt(n)) time and space, where n is the group order. Works for any cyclic group — multiplicative groups mod p, elliptic curves, or abstract groups. Combined with Pohlig-Hellman for smooth-order groups, solves DLP when `p-1` (or group order) has only small prime factors.
+
+**Baby-step giant-step algorithm:**
+
+```python
+from math import isqrt
+
+def bsgs(g, h, p, order=None):
+    """Baby-step giant-step: find x such that g^x = h (mod p).
+
+    Time/space: O(sqrt(order)). For subgroups, pass the subgroup order.
+    """
+    if order is None:
+        order = p - 1
+    m = isqrt(order) + 1
+
+    # Baby step: build table of g^j for j in [0, m)
+    table = {}
+    power = 1
+    for j in range(m):
+        table[power] = j
+        power = (power * g) % p
+
+    # Giant step: compute g^(-m), then check h * (g^(-m))^i
+    factor = pow(g, -m, p)  # g^(-m) mod p
+    gamma = h
+    for i in range(m):
+        if gamma in table:
+            return i * m + table[gamma]
+        gamma = (gamma * factor) % p
+    return None  # No solution found (order was wrong)
+
+# Example: ElGamal with smooth p-1 (MMA CTF 2015 "Alicegame")
+# p-1 = 2 * 3^4 * 5 * 13 * 397 * 34703 * ... (all small factors)
+# Pohlig-Hellman: solve DLP in each prime-power subgroup, combine with CRT
+```
+
+**Full Pohlig-Hellman + BSGS pipeline:**
+
+```python
+from sympy.ntheory import factorint
+from sympy.ntheory.modular import crt
+
+def pohlig_hellman(g, h, p):
+    """Solve g^x = h (mod p) when p-1 is smooth."""
+    order = p - 1
+    factors = factorint(order)  # {prime: exponent}
+
+    residues = []
+    moduli = []
+    for prime, exp in factors.items():
+        pe = prime ** exp
+        # Project to subgroup of order prime^exp
+        cofactor = order // pe
+        gi = pow(g, cofactor, p)  # Generator of subgroup
+        hi = pow(h, cofactor, p)  # Target in subgroup
+
+        # Solve DLP in small subgroup via BSGS
+        xi = bsgs(gi, hi, p, order=pe)
+        if xi is None:
+            return None
+        residues.append(xi)
+        moduli.append(pe)
+
+    # Combine via CRT
+    x, _ = crt(moduli, residues)
+    assert pow(g, x, p) == h % p
+    return x
+```
+
+**Key insight:** BSGS runs in O(sqrt(q)) for a subgroup of order q. Pohlig-Hellman decomposes the full DLP into subgroup DLPs. If `p-1 = q1^e1 * q2^e2 * ...` where all qi are small, the total cost is O(sum(sqrt(qi^ei))). A 1024-bit prime with smooth `p-1` (all factors under ~40 bits) is solvable in seconds. Sage's `discrete_log()` automatically applies Pohlig-Hellman + BSGS.
+
+**When to recognize:**
+- ElGamal, DSA, or Diffie-Hellman with a randomly generated prime — check if `p-1` is smooth: `factor(p-1)` in Sage
+- ECC with smooth curve order — same approach, replace modular exponentiation with point multiplication
+- Challenge generates new parameters on each connection — retry until you get a smooth prime
+- Challenge description mentions "weak parameters" or uses suspiciously small primes
+
+**Sage one-liner:** `discrete_log(Mod(h, p), Mod(g, p))` handles everything automatically.
+
+**References:** MMA CTF 2015 "Alicegame", SEC-T CTF "Madlog", Crypto CTF 2021 "RoHaLd"
+
+---
 
 ## LLL Algorithm for Approximate GCD
 

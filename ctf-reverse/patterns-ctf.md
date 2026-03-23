@@ -17,6 +17,7 @@
 - [Backdoored Shared Library Detection via String Diffing (Hack.lu CTF 2012)](#backdoored-shared-library-detection-via-string-diffing-hacklu-ctf-2012)
 - [Custom binfmt Kernel Module with RC4 Flat Binaries (BSidesSF 2026)](#custom-binfmt-kernel-module-with-rc4-flat-binaries-bsidessf-2026)
 - [Hash-Resolved Imports / No-Import Ransomware (BSidesSF 2026)](#hash-resolved-imports--no-import-ransomware-bsidessf-2026)
+- [ELF Section Header Corruption for Anti-Analysis (BSidesSF 2026)](#elf-section-header-corruption-for-anti-analysis-bsidessf-2026)
 
 ---
 
@@ -588,6 +589,47 @@ print(pt.decode())
 **Safety:** Always run suspected ransomware in a Docker container or VM. Mount only copies of the encrypted files, never originals.
 
 **References:** BSidesSF 2026 "Ran Somewhere"
+
+---
+
+## ELF Section Header Corruption for Anti-Analysis (BSidesSF 2026)
+
+**Pattern (stubborn-elf):** An ELF binary has deliberately corrupted section header table entries, causing standard analysis tools (`readelf`, `objdump`, IDA, Ghidra) to crash or produce errors. However, the **program headers** (which the OS loader uses) are intact, so the binary executes normally. The flag is appended after the corrupted sections, marked with magic bytes.
+
+```python
+import sys
+
+# Standard tools fail on corrupted section headers
+# Manual parsing bypasses section headers entirely
+
+with open("stubborn_elf", "rb") as f:
+    data = f.read()
+
+# Search for magic marker appended after ELF sections
+magic = b"\xDE\xAD\xBE\xEF\xCA\xFE\xBA\xBE"
+idx = data.find(magic)
+if idx >= 0:
+    # Data after magic is XOR-encrypted
+    encrypted = data[idx + len(magic):]
+    decrypted = bytes(b ^ 0x42 for b in encrypted)
+    print(decrypted.decode(errors='ignore'))
+```
+
+**Key insight:** ELF execution requires **program headers** (PT_LOAD segments), NOT section headers. Section headers are metadata for debuggers and analysis tools — they're optional at runtime. Corrupting `e_shoff`, `e_shnum`, or `e_shstrndx` in the ELF header breaks tools but not execution. When tools fail, parse the binary manually or patch the ELF header to zero out section header references before loading in a disassembler.
+
+**Recovery approach:**
+```bash
+# Patch section header offset to 0 (removes section table)
+printf '\x00\x00\x00\x00\x00\x00\x00\x00' | dd of=binary bs=1 seek=40 conv=notrunc
+# Now Ghidra/IDA can load it using program headers only
+
+# Or use readelf -l (program headers only, ignores sections)
+readelf -l stubborn_elf
+```
+
+**When to recognize:** `readelf -S` crashes or shows garbage. `file` command identifies it as ELF. `readelf -l` (lowercase L, program headers) works fine. The binary runs normally despite tool failures.
+
+**References:** BSidesSF 2026 "stubborn-elf"
 
 ---
 

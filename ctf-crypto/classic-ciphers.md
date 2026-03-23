@@ -14,6 +14,8 @@
 - [OTP Key Reuse / Many-Time Pad XOR (BYPASS CTF 2025)](#otp-key-reuse--many-time-pad-xor-bypass-ctf-2025)
 - [Book Cipher](#book-cipher)
 - [Variable-Length Homophonic Substitution (ASIS CTF Finals 2013)](#variable-length-homophonic-substitution-asis-ctf-finals-2013)
+- [Grid Permutation Cipher Keyspace Reduction (BSidesSF 2026)](#grid-permutation-cipher-keyspace-reduction-bsidessf-2026)
+- [Image-Based Caesar Shift Ciphers (BSidesSF 2026)](#image-based-caesar-shift-ciphers-bsidessf-2026)
 
 ---
 
@@ -359,3 +361,91 @@ for p in permutations(ambiguous_chars):
 ```
 
 **Key insight:** Variable-length homophonic substitution hides letter frequencies by mapping common plaintext letters to longer codegroups. The attack reverses this: find n-grams that always appear as a unit (identical frequency for all sub-n-grams), replace them with single symbols, then solve the resulting monoalphabetic substitution. When the flag format provides a hash for verification, brute-force remaining ambiguous character permutations offline.
+
+---
+
+## Grid Permutation Cipher Keyspace Reduction (BSidesSF 2026)
+
+**Pattern (ghostcrypt):** A substitution cipher built on a 5x5 grid where the key permutes rows and columns independently. Row permutations and column permutations commute — applying all row swaps then all column swaps gives the same result regardless of order. This collapses the keyspace from potentially huge to just 5! x 5! = 14,400 combinations, making brute-force trivial.
+
+```python
+from itertools import permutations
+
+# 5x5 grid substitution cipher — brute force row+column permutations
+grid_size = 5
+ciphertext = "..."  # encrypted text
+wordlist = set(open("/usr/share/dict/words").read().split())
+
+for row_perm in permutations(range(grid_size)):
+    for col_perm in permutations(range(grid_size)):
+        # Apply inverse permutation to grid
+        decrypted = apply_grid_permutation(ciphertext, row_perm, col_perm)
+        words = decrypted.split()
+        if sum(1 for w in words if w.lower() in wordlist) > len(words) * 0.5:
+            print(f"Key: rows={row_perm}, cols={col_perm}")
+            print(decrypted)
+            break
+```
+
+**Key insight:** Row and column permutations on a grid are independent operations that commute. The total keyspace is the product of row permutations x column permutations (n!^2), NOT the factorial of total cells. For a 5x5 grid: 120 x 120 = 14,400 — brute-forceable in milliseconds.
+
+**When to recognize:** Challenge uses a grid-based cipher, mentions "row/column shuffling", or provides a substitution table that looks like a permuted matrix. Any grid cipher where rows and columns are shuffled independently has this n!^2 keyspace property.
+
+---
+
+## Image-Based Caesar Shift Ciphers (BSidesSF 2026)
+
+Two variants of applying Caesar cipher concepts to 2D image data:
+
+### Variant A — Vertical Strip Shift (caesar1)
+
+Each vertical strip of pixels is shifted downward by `(column / strip_width) * multiplier mod height`. The multiplier is a small integer (1-50), making it brute-forceable.
+
+```python
+from PIL import Image
+import sys
+
+img = Image.open("shifted.png")
+w, h = img.size
+pixels = img.load()
+strip_width = 10  # Determined by visual inspection
+
+for multiplier in range(1, 51):
+    out = Image.new("RGB", (w, h))
+    out_px = out.load()
+    for x in range(w):
+        shift = (x // strip_width) * multiplier % h
+        for y in range(h):
+            out_px[x, (y - shift) % h] = pixels[x, y]
+    out.save(f"attempt_{multiplier}.png")
+```
+
+### Variant B — Horizontal Shift with ASCII Encoding (caesar2)
+
+Each row is shifted horizontally by a different amount. The shift value for each strip directly encodes an ASCII character of the flag.
+
+```python
+from PIL import Image
+
+original = Image.open("original.png")
+shifted = Image.open("shifted.png")
+w, h = original.size
+
+flag = ""
+prev_shift = -1
+for y in range(h):
+    orig_row = [original.getpixel((x, y)) for x in range(w)]
+    shift_row = [shifted.getpixel((x, y)) for x in range(w)]
+    # Find shift by comparing rows
+    for offset in range(128):
+        if all(orig_row[(x + offset) % w] == shift_row[x] for x in range(min(20, w))):
+            if offset != prev_shift:
+                flag += chr(offset)
+                prev_shift = offset
+            break
+print(flag)
+```
+
+**Key insight:** Image pixel shifts are a visual form of Caesar cipher. When comparing an original and shifted image, the shift amount per row/column directly encodes hidden data. Always compare row-by-row or column-by-column when given two versions of the same image.
+
+**When to recognize:** Challenge provides one or two image files with visible horizontal or vertical "shearing" artifacts. If an original image is provided alongside a shifted version, compute per-row or per-column offsets and check if they decode as ASCII.

