@@ -13,6 +13,7 @@
 - [Apache Guacamole Connection Parameter Extraction (Barrier HTB)](#apache-guacamole-connection-parameter-extraction-barrier-htb)
 - [Login Page Poisoning for Credential Harvesting (Watcher HTB)](#login-page-poisoning-for-credential-harvesting-watcher-htb)
 - [TeamCity REST API RCE (Watcher HTB)](#teamcity-rest-api-rce-watcher-htb)
+- [Base64 Decode Leniency and Parameter Override for Signature Bypass (BCTF 2016)](#base64-decode-leniency-and-parameter-override-for-signature-bypass-bctf-2016)
 
 For JWT/JWE token attacks, see [auth-jwt.md](auth-jwt.md). For general auth bypass and access control, see [auth-and-access.md](auth-and-access.md).
 
@@ -237,3 +238,21 @@ curl 'http://HOST:8111/httpAuth/downloadBuildLog.html?buildId=ID' -u 'USER:PASS'
 ```
 
 **Key insight:** If build agent runs as root, all build steps execute as root. Check `ps aux` for build agent process ownership. TeamCity REST API provides full project/build management — admin credentials = RCE.
+
+---
+
+## Base64 Decode Leniency and Parameter Override for Signature Bypass (BCTF 2016)
+
+Server RSA-signs an order string, then parses `&`-separated parameters. Python's `b64decode()` silently ignores non-base64 characters. Appending `&price=0` after the base64 signature exploits both behaviors:
+
+```python
+# Original signed order: "item=widget&price=100"
+# Server returns: base64(RSA_sign(order)) as signature
+
+# Attack: append &price=0 after the signature
+# b64decode("VALID_SIG_BASE64&price=0") silently ignores "&price=0"
+# But the parameter parser sees: item=widget&price=100&price=0
+# Last value wins: price=0
+```
+
+**Key insight:** Gap between what is signed (pre-signature content) and what is parsed (full string including post-signature data), enabled by base64's tolerance for non-alphabet characters. Any system that concatenates signed data with unsigned parameters and uses lenient base64 decoding is vulnerable. Defense: validate signature over the exact bytes being parsed, not a subset.

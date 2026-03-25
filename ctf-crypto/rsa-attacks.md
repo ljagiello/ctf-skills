@@ -22,6 +22,7 @@
 - [Weak RSA Key Generation via Base Representation (Sharif CTF 2016)](#weak-rsa-key-generation-via-base-representation-sharif-ctf-2016)
 - [RSA with gcd(e, phi(n)) > 1 (CSAW 2015)](#rsa-with-gcde-phin--1-csaw-2015)
 - [Batch GCD for Shared Prime Factoring (BSidesSF 2025)](#batch-gcd-for-shared-prime-factoring-bsidessf-2025)
+- [RSA Partial Key Recovery from dp dq qinv (0CTF 2016)](#rsa-partial-key-recovery-from-dp-dq-qinv-0ctf-2016)
 
 ---
 
@@ -633,3 +634,22 @@ for n, (p, q) in shared.items():
 For keys with patterned primes (hardware RNG faults producing primes with fixed bit patterns), combine with Coppersmith's method to recover remaining random bits. See [advanced-math.md](advanced-math.md) for Coppersmith.
 
 **Key insight:** A single shared prime compromises both keys. Batch GCD runs in O(n log n) time via product/remainder trees, making it feasible for thousands of keys. Real-world incidents: Taiwanese citizen smartcards (2013), many IoT device certificates.
+
+---
+
+## RSA Partial Key Recovery from dp dq qinv (0CTF 2016)
+
+**Pattern:** Given only the CRT (Chinese Remainder Theorem) exponents (dp, dq, qinv) from a partial PEM (Privacy Enhanced Mail) key leak (e.g., bottom portion of private key file), recover the full key. Since `dp = d mod (p-1)`, iterate k and check if `p = (dp * e - 1) / k + 1` is prime.
+
+```python
+import gmpy2
+# dp, dq, qinv extracted from partial PEM; e is known (usually 65537)
+for k in range(3, e):
+    p_candidate = (dp * e - 1) // k + 1
+    if gmpy2.is_prime(p_candidate):
+        p = p_candidate
+        break
+# Similarly recover q from dq; verify qinv * q % p == 1
+```
+
+**Key insight:** Leaking just the CRT exponents from an RSA private key is sufficient to fully recover p and q. Recovery is O(e) -- essentially instant for e=65537.

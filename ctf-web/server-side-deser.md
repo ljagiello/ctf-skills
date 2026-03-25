@@ -8,6 +8,7 @@ For core injection attacks (SQLi, SSTI, SSRF, XXE, command injection), see [serv
 - [Race Conditions (TOCTOU)](#race-conditions-toctou)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013)
 - [Java XMLDecoder Deserialization RCE (HackIM 2016)](#java-xmldecoder-deserialization-rce-hackim-2016)
+- [PHP Serialization Length Manipulation via Filter Word Expansion (0CTF 2016)](#php-serialization-length-manipulation-via-filter-word-expansion-0ctf-2016)
 
 ---
 
@@ -177,5 +178,27 @@ Java's `XMLDecoder` automatically instantiates classes and invokes methods from 
 ```
 
 **Key insight:** Unlike binary Java deserialization, XMLDecoder provides a text-based gadget-free path to RCE — no gadget chain needed.
+
+---
+
+## PHP Serialization Length Manipulation via Filter Word Expansion (0CTF 2016)
+
+**Pattern:** A post-serialization string filter replaces "where" (5 chars) with "hacker" (6 chars), creating a length mismatch in the serialized string. The serialized length field says N bytes, but after expansion the actual string is longer, causing the PHP deserializer to read past the intended boundary and parse attacker-controlled data as serialized fields.
+
+```php
+// The target payload to inject as a serialized field:
+$payload = '";}s:5:"photo";s:10:"config.php";}';
+// Repeat "where" enough times so the expansion (5->6 per word) overflows
+// by exactly strlen($payload) bytes:
+$_POST['nickname[]'] = str_repeat("where", strlen($payload)) . $payload;
+```
+
+**How it works:**
+1. Application serializes user input into `s:170:"wherewhere...PAYLOAD";`
+2. Filter replaces each "where" (5) with "hacker" (6), adding 1 byte per occurrence
+3. After replacement, actual string is longer than the serialized length field
+4. PHP deserializer reads exactly `s:170:` bytes, stops mid-string, and finds the injected `";}s:5:"photo";s:10:"config.php";}` as the next serialized field
+
+**Key insight:** Any post-serialization string expansion or contraction creates exploitable length mismatches for object injection. Look for word filters, censorship, or sanitization applied after `serialize()` but before storage/`unserialize()`.
 
 ---

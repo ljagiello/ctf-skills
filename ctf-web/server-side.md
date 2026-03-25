@@ -13,6 +13,7 @@
   - [MySQL information_schema.processList Trick](#mysql-information_schemaprocesslist-trick)
   - [WAF Bypass via XML Entity Encoding (Crypto-Cat)](#waf-bypass-via-xml-entity-encoding-crypto-cat)
   - [SQLi via EXIF Metadata Injection (29c3 CTF 2012)](#sqli-via-exif-metadata-injection-29c3-ctf-2012)
+  - [Shift-JIS Encoding SQL Injection (Boston Key Party 2016)](#shift-jis-encoding-sql-injection-boston-key-party-2016)
 - [SSTI (Server-Side Template Injection)](#ssti-server-side-template-injection)
   - [Jinja2 RCE](#jinja2-rce)
   - [Go Template Injection](#go-template-injection)
@@ -28,6 +29,7 @@
 - [XXE (XML External Entity)](#xxe-xml-external-entity)
   - [Basic XXE](#basic-xxe)
   - [OOB XXE with External DTD](#oob-xxe-with-external-dtd)
+- [XML Injection via X-Forwarded-For Header (Pwn2Win 2016)](#xml-injection-via-x-forwarded-for-header-pwn2win-2016)
 - [Command Injection](#command-injection)
   - [Newline Bypass](#newline-bypass)
   - [Incomplete Blocklist Bypass](#incomplete-blocklist-bypass)
@@ -262,6 +264,16 @@ exiftool -XMP-dc:Description="' UNION SELECT 1,2,3--" image.jpg
 
 **Detection:** Upload endpoint that displays metadata (camera model, description, location) after upload. Check if special characters in EXIF fields cause SQL errors in the response.
 
+### Shift-JIS Encoding SQL Injection (Boston Key Party 2016)
+
+Multi-byte encoding mismatch bypasses escape functions. The yen sign (`\u00a5`) maps to backslash `0x5c` in Shift-JIS. A custom escape function adds backslash after yen, but in Shift-JIS context `\u00a5\` becomes `\\`, leaving the quote unescaped:
+
+```javascript
+socket.send('{"type":"get_answer","answer":"\\u00a5\\" OR 1=1 -- "}')
+```
+
+**Key insight:** Charset mismatch between escaping layer (Unicode) and database layer (Shift-JIS) defeats custom escape routines. Look for applications using non-UTF-8 character encodings (Shift-JIS, EUC-JP, GBK) where multi-byte characters contain `0x5c` (backslash) as a trailing byte.
+
 ---
 
 ## SSTI (Server-Side Template Injection)
@@ -442,6 +454,20 @@ Host evil.dtd:
 
 ---
 
+## XML Injection via X-Forwarded-For Header (Pwn2Win 2016)
+
+Application builds XML from HTTP headers (e.g., `X-Forwarded-For`) without sanitization. First-tag-wins XML parsing allows injecting arbitrary elements:
+
+```http
+X-Forwarded-For: 1.2.3.4</ip><admin>true</admin><ip>4.3.2.1
+```
+
+Produces: `<session><ip>1.2.3.4</ip><admin>true</admin><ip>4.3.2.1</ip><admin>false</admin></session>` -- the XML parser takes the first `<admin>true</admin>`, ignoring the legitimate `<admin>false</admin>` that follows.
+
+**Key insight:** XML injection via HTTP headers when server builds XML from header values without escaping. First-match semantics exploit duplicate tags. Check any header that appears in server responses or logs as structured data (`X-Forwarded-For`, `User-Agent`, `Referer`).
+
+---
+
 ## Command Injection
 
 ### Newline Bypass
@@ -478,7 +504,7 @@ When a service processes images containing barcodes (via zbar/zxing), multiple b
 
 1. **Create valid barcode:** Generate UPC/EAN-13 barcode that passes type validation
 2. **Create injection barcode:** Generate Code128 barcode containing shell metacharacters:
-   ```
+   ```text
    test", "node": "hi'; cat /flag > /tmp/out; #
    ```
 3. **Combine into single image:** `montage valid.png malicious.png -tile 2x1 combined.png`
@@ -530,4 +556,4 @@ puts response.body
 
 ---
 
-*See also: [server-side-exec.md](server-side-exec.md) for code execution attacks (Ruby/Perl/JS/LaTeX/Prolog injection, PHP preg_replace /e, ReDoS, file upload to RCE, PHP deserialization, XPath injection, Thymeleaf SpEL SSTI, SQLi keyword fragmentation, SQL WHERE bypass, SQL via DNS, and more).*
+*See also: [server-side-exec.md](server-side-exec.md) for code execution attacks (Ruby/Perl/JS/LaTeX/Prolog/Common Lisp injection, PHP preg_replace /e, ReDoS, file upload to RCE, PHP deserialization, XPath injection, Thymeleaf SpEL SSTI, SQLi keyword fragmentation, SQL WHERE bypass, SQL via DNS, bash brace expansion, and more).*

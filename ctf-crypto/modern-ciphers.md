@@ -12,6 +12,7 @@ Block cipher attacks, MAC forgery, padding oracles, and hash-based attacks. For 
 - [Weak Hash Functions / GF(2) Gaussian Elimination](#weak-hash-functions--gf2-gaussian-elimination)
 - [Affine Cipher over Composite Modulus (Nullcon 2026)](#affine-cipher-over-composite-modulus-nullcon-2026)
 - [AES-GCM with Derived Keys (EHAX 2026)](#aes-gcm-with-derived-keys-ehax-2026)
+- [AES-GCM Nonce Reuse / Forbidden Attack](#aes-gcm-nonce-reuse--forbidden-attack)
 - [Ascon-like Reduced-Round Differential Cryptanalysis (srdnlenCTF 2026)](#ascon-like-reduced-round-differential-cryptanalysis-srdnlenctf-2026)
 - [Custom Linear MAC Forgery (Nullcon 2026)](#custom-linear-mac-forgery-nullcon-2026)
 - [CBC Padding Oracle Attack](#cbc-padding-oracle-attack)
@@ -24,6 +25,9 @@ Block cipher attacks, MAC forgery, padding oracles, and hash-based attacks. For 
 - [Hash Function Time Reversal via Cycle Detection (BSidesSF 2025)](#hash-function-time-reversal-via-cycle-detection-bsidessf-2025)
 - [OFB Mode with Invertible RNG Backward Decryption (BSidesSF 2026)](#ofb-mode-with-invertible-rng-backward-decryption-bsidessf-2026)
 - [Weak Key Derivation via Public Key Hash XOR (BSidesSF 2026)](#weak-key-derivation-via-public-key-hash-xor-bsidessf-2026)
+- [HMAC-CRC Linearity Attack (Boston Key Party 2016)](#hmac-crc-linearity-attack-boston-key-party-2016)
+- [DES Weak Keys in OFB Mode (Boston Key Party 2016)](#des-weak-keys-in-ofb-mode-boston-key-party-2016)
+- [Square Attack on Reduced-Round AES (0CTF 2016)](#square-attack-on-reduced-round-aes-0ctf-2016)
 
 ---
 
@@ -75,6 +79,8 @@ new_sig = known_sig XOR block2_of_P1 XOR block2_of_P2
 
 **Important:** Don't forget PKCS#7 padding in calculations! Small bruteforce space? Just try all combinations (e.g., 100 for 2 unknown digits).
 
+**Key insight:** OFB-MAC generates a keystream independent of the plaintext, so knowing one (message, MAC) pair lets you forge MACs for arbitrary messages by XORing the known plaintext blocks out and XORing the new ones in. CBC-MAC does not have this weakness because each block's encryption depends on the previous ciphertext block.
+
 ---
 
 ## Non-Permutation S-box Collision Attack
@@ -110,6 +116,8 @@ for low in range(2**32):
         print(f"Full state: {state}")
 ```
 
+**Key insight:** LCG output truncation (modulo or upper bits only) hides part of the state, but consecutive outputs constrain it. When output is `state mod N`, iterate candidates by N through the modulus. When only upper bits are visible, brute-force the hidden lower bits and validate against the next output.
+
 ---
 
 ## Weak Hash Functions / GF(2) Gaussian Elimination
@@ -137,6 +145,8 @@ def solve_gf2(A, b):
         x[c] = Aug[r, -1] ^ sum(Aug[r, c2] * x[c2] for c2 in range(c+1, n)) % 2
     return x
 ```
+
+**Key insight:** Hash functions built from only XOR and rotations (no S-boxes or modular addition) are linear over GF(2). Build the transformation as a binary matrix, then invert it with Gaussian elimination to recover the preimage directly. This breaks any "custom hash" that avoids non-linear operations.
 
 ---
 
@@ -169,6 +179,42 @@ def decrypt_with_derived_key(s_bytes, wrapped_nonce, ciphertext, aes_nonce, tag,
 ```
 
 **Key insight:** When AES-GCM authentication fails (`ValueError: MAC check failed`), the derived key is wrong — usually means the upstream secret recovery was incorrect or endianness is swapped.
+
+---
+
+## AES-GCM Nonce Reuse / Forbidden Attack
+
+AES-GCM (Galois/Counter Mode) combines AES-CTR encryption with a GHASH polynomial authentication tag. Reusing a nonce with the same key is catastrophic -- it enables both plaintext recovery AND authentication key recovery.
+
+**CTR keystream reuse:** Same nonce = same keystream. XOR two ciphertexts to cancel the keystream: `C1 XOR C2 = P1 XOR P2`. With known plaintext in one message, recover the other.
+
+**GHASH authentication key recovery:** The authentication tag is a polynomial evaluation over GF(2^128). Two messages with the same nonce produce two equations in the same authentication key H. XOR the tag polynomials and factor over GF(2^128) to recover H. With H, forge valid tags for arbitrary messages.
+
+```python
+from Crypto.Cipher import AES
+from sage.all import GF, PolynomialRing
+
+# Given: two (ciphertext, tag, nonce) pairs with same nonce
+# Step 1: Recover plaintext via CTR keystream reuse
+keystream = xor(known_plaintext, ciphertext1)
+plaintext2 = xor(keystream, ciphertext2)
+
+# Step 2: Recover GHASH auth key H
+# Construct tag difference polynomial in GF(2^128)
+F = GF(2**128, 'x', modulus=...)  # GCM polynomial
+# T1 XOR T2 = P(H) where P is polynomial from ciphertext difference
+# Factor P(H) = 0 to find H candidates
+# Verify H against known tags
+
+# Step 3: Forge tags for arbitrary messages
+# GHASH(H, aad, ciphertext) computed with recovered H
+```
+
+**Tool:** [nonce-disrespect](https://github.com/nonce-disrespect/nonce-disrespect) automates GHASH key recovery and tag forgery from nonce-reused GCM ciphertexts.
+
+**Short nonce brute-force:** When GCM uses a short nonce (1-4 bytes), brute-force all nonce values if the key is known. AES-GCM with 1-byte nonce = only 256 candidates.
+
+**Key insight:** AES-GCM is a "one-time nonce" scheme -- a single nonce reuse breaks both confidentiality (CTR keystream reuse) AND authenticity (GHASH key recovery). Always check for repeated nonces in GCM challenge traffic.
 
 ---
 
@@ -596,3 +642,51 @@ plaintext = cipher.decrypt(ct_body)
 **Key insight:** Key derivation that incorporates only public information (public keys, known constants) provides zero security regardless of the hash function used. The "hybrid" design creates a false sense of security — RSA protects nothing if the AES key doesn't depend on the RSA private key.
 
 **When to recognize:** Challenge provides both a public key AND an encrypted file, but no private key or ciphertext for RSA. Look for key derivation code that hashes the public key, uses the public key's modulus/exponent as seed material, or XORs with a constant.
+
+---
+
+## HMAC-CRC Linearity Attack (Boston Key Party 2016)
+
+**Pattern:** HMAC constructed with CRC as the hash function is completely broken because CRC is linear over GF(2). The key is directly recoverable from a single message-MAC pair via polynomial arithmetic over GF(2^64).
+
+```python
+# CRC is linear: CRC(a XOR b) = CRC(a) XOR CRC(b)
+# HMAC-CRC(key, msg) = CRC(key_opad || CRC(key_ipad || msg))
+# Rewrite as polynomial in GF(2): K = known_terms * inverse(x^(128+M) + x^128) mod CRC_POLY
+```
+
+**Key insight:** CRC's linearity over GF(2) means HMAC-CRC provides zero security. Always verify the underlying hash function is non-linear before trusting HMAC.
+
+---
+
+## DES Weak Keys in OFB Mode (Boston Key Party 2016)
+
+**Pattern:** DES has 4 weak keys where `E(E(P,K),K) = P` (encryption is self-inverse). In OFB (Output Feedback) mode this causes the keystream to cycle with period 2: even blocks XOR with IV, odd blocks with E(IV,K). Reduces to a 16-byte repeating XOR key.
+
+```python
+# DES weak keys: 0x0000000000000000, 0xFFFFFFFFFFFFFFFF,
+#                0xE1E1E1E1F0F0F0F0, 0x1E1E1E1E0F0F0F0F
+# OFB with weak key: keystream = [IV, E(IV,K), IV, E(IV,K), ...]
+# Recovery: try all 4 weak keys; or treat as 16-byte repeating XOR
+```
+
+**Key insight:** DES weak keys cause OFB keystream to cycle with period 2. When you see DES+OFB, always try the 4 weak keys first.
+
+---
+
+## Square Attack on Reduced-Round AES (0CTF 2016)
+
+**Pattern:** 4-round AES is vulnerable to the square (integral) attack. Choose 256 plaintexts differing in one byte (a "lambda set"). After 3 rounds, the XOR sum at any byte position equals 0. Guess one byte of the last round key and partially decrypt -- if XOR sum is 0, the guess is correct.
+
+```python
+# For each byte position in the last round key:
+for candidate in range(256):
+    xor_sum = 0
+    for ct in ciphertexts:
+        xor_sum ^= inv_sub_bytes(ct[pos] ^ candidate)
+    if xor_sum == 0:
+        key_byte = candidate  # correct guess
+# Reduces 2^128 key recovery to ~16 * 256 = 4096 operations
+```
+
+**Key insight:** Integral cryptanalysis exploits the "balanced" property (XOR-sum = 0) that propagates through AES rounds. Effective against 4-round AES; 5+ rounds require more sophisticated variants.

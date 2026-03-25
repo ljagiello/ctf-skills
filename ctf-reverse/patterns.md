@@ -20,7 +20,7 @@
 - [Known-Plaintext XOR (Flag Prefix)](#known-plaintext-xor-flag-prefix)
   - [Variant: XOR with Position Index](#variant-xor-with-position-index)
 - [Mixed-Mode (x86-64 / x86) Stagers](#mixed-mode-x86-64--x86-stagers)
-- [LLVM Obfuscation (Control Flow Flattening)](#llvm-obfuscation-control-flow-flattening)
+- [LLVM (Low Level Virtual Machine) Obfuscation (Control Flow Flattening)](#llvm-low-level-virtual-machine-obfuscation-control-flow-flattening)
   - [Pattern](#pattern)
   - [De-obfuscation](#de-obfuscation)
 - [S-Box / Keystream Generation](#s-box--keystream-generation)
@@ -47,6 +47,8 @@
 - [Multi-Stage Shellcode Loaders](#multi-stage-shellcode-loaders)
 - [Timing Side-Channel Attack](#timing-side-channel-attack)
 - [Multi-Thread Anti-Debug with Decoy + Signal Handler MBA (ApoorvCTF 2026)](#multi-thread-anti-debug-with-decoy--signal-handler-mba-apoorvctf-2026)
+- [INT3 Patch + Coredump Brute-Force Oracle (Pwn2Win 2016)](#int3-patch--coredump-brute-force-oracle-pwn2win-2016)
+- [Signal Handler Chain + LD_PRELOAD Oracle (Nuit du Hack 2016)](#signal-handler-chain--ld_preload-oracle-nuit-du-hack-2016)
 
 ---
 
@@ -95,6 +97,8 @@ while (!agenda.isEmpty()) {
 }
 ```
 
+**Key insight:** Custom VMs appear when the challenge bundles a bytecode blob alongside a dispatcher loop. Reverse the opcode switch table first, then write a disassembler to lift the bytecode before attempting to understand the algorithm.
+
 ---
 
 ## Anti-Debugging Techniques
@@ -136,6 +140,8 @@ long int ptrace(enum __ptrace_request req, ...) {
 Compile: `gcc -shared -fPIC -ldl hook.c -o hook.so`
 Run: `LD_PRELOAD=./hook.so ./binary`
 
+**Key insight:** Anti-debugging checks are the first obstacle in most reversing challenges. Look for `ptrace`, `IsDebuggerPresent`, or timing checks early in `main()` and patch or hook them before attempting deeper analysis.
+
 ### pwntools Binary Patching (Crypto-Cat)
 Patch out anti-debug calls directly using pwntools — replaces function with `ret` instruction:
 ```python
@@ -174,6 +180,8 @@ elf.asm(addr, 'mov eax, 1; ret')      # Return 1 (force success)
 3. Map EAX values to operations
 4. Log operations to reconstruct algorithm
 
+**Key insight:** Nanomites hide the real computation inside signal/exception handlers that only fire under a debugger parent. If the binary forks and the child calls `ptrace(TRACEME)`, the parent is the real CPU -- log its POKE operations to reconstruct the algorithm.
+
 ---
 
 ## Self-Modifying Code
@@ -191,6 +199,8 @@ jmp     rax              ; Execute decrypted
 ```
 
 **Solution:** Known opcode at block start reveals XOR key (flag char).
+
+**Key insight:** Self-modifying code decrypts the next block using each input character as a key. A known-good opcode at the start of each decrypted block (e.g., function prologue) reveals the correct key byte, recovering the flag one character at a time.
 
 ---
 
@@ -280,7 +290,7 @@ for klen in range(2, 33):
 
 ---
 
-## LLVM Obfuscation (Control Flow Flattening)
+## LLVM (Low Level Virtual Machine) Obfuscation (Control Flow Flattening)
 
 ### Pattern
 ```c
@@ -296,6 +306,8 @@ while (1) {
 2. Log state variable values
 3. Map state transitions
 4. Reconstruct true control flow
+
+**Key insight:** Control flow flattening replaces structured if/else/loops with a single dispatcher switch. The state variable is the key -- trace its values at runtime to reconstruct the original control flow graph without fighting the obfuscation statically.
 
 ---
 
@@ -335,6 +347,8 @@ def gen_keystream():
 - Xorshift64*: shifts 12, 25, 27, then multiply by `0x2545f4914f6cdd1d`
 - Other common constant: `0x9e3779b97f4a7c15` (golden ratio)
 
+**Key insight:** Recognize S-box generation by the Fisher-Yates shuffle pattern (loop counting down from 255, swap with PRNG-chosen index) and keystream generators by the xorshift constants. Once the PRNG family is identified, the algorithm is fully determined by its seed.
+
 ---
 
 ## SECCOMP/BPF Filter Analysis
@@ -359,6 +373,8 @@ if s.check() == sat:
     print(''.join(chr(m[c].as_long()) for c in flag))
 ```
 
+**Key insight:** SECCOMP (Secure Computing Mode) filters encode flag validation as BPF bytecode operating on syscall arguments. Dump the filter with `seccomp-tools`, translate the comparisons and memory operations into z3 constraints, and solve for the flag without ever running the binary.
+
 ---
 
 ## Exception Handler Obfuscation
@@ -372,6 +388,8 @@ if s.check() == sat:
 - `AddVectoredExceptionHandler` installs handler
 - Handler decrypts code at exception address
 - Step through, dump decrypted code
+
+**Key insight:** Exception-handler-based obfuscation hides the real control flow inside SEH/VEH handlers that trigger on deliberate faults. Set breakpoints inside the exception handlers rather than on the faulting instructions to follow the actual execution path.
 
 ---
 
@@ -388,6 +406,8 @@ prologue = bytes([0xf3, 0x0f, 0x1e, 0xfa, 0x55, 0x48, 0x89, 0xe5])
 encrypted = data[func_offset:func_offset+8]
 partial_key = bytes(a ^ b for a, b in zip(encrypted, prologue))
 ```
+
+**Key insight:** When a binary reads `/proc/self/mem` or `/proc/self/maps`, it is dumping its own memory -- possibly after encrypting it. Use known function prologues (`endbr64; push rbp; mov rbp, rsp`) as known plaintext to recover the XOR key from the encrypted dump.
 
 ---
 
@@ -434,6 +454,8 @@ loop_middle:
     jne  loop_top
 ```
 
+**Key insight:** Decompilers often get x86-64 sign extension and loop boundary state updates wrong. Always verify decompiled output against the raw assembly for operations involving `movsx`/`cdqe`, and check whether loop variables update before or after their use in each iteration.
+
 ---
 
 ## Custom Mangle Function Reversing
@@ -445,6 +467,8 @@ loop_middle:
 2. Understand mangle: processes pairs with running state value
 3. Write inverse function (process in reverse, undo each operation)
 4. Feed target bytes through inverse → recovers flag
+
+**Key insight:** When a binary mangles input in pairs with running state and compares to a static target, extract the target from `.rodata` and write the inverse function. Process the target bytes in reverse order, undoing each operation, to recover the original input.
 
 ---
 
@@ -637,3 +661,39 @@ print(''.join(flag))
 - `ud2` instruction (deliberate illegal instruction)
 - `rdtsc` instructions for timing checks
 - SHA-256 constants (0x6a09e667...) used as lookup tables, not for hashing
+
+---
+
+## INT3 Patch + Coredump Brute-Force Oracle (Pwn2Win 2016)
+
+Instead of reversing complex transformation logic, patch a byte to `0xCC` (INT3) after the transform, enable core dumps, brute-force each character by running the binary and extracting the transformed result from the coredump via `strings`.
+
+```bash
+# Patch byte at transform output point to 0xCC
+printf '\xcc' | dd of=binary bs=1 seek=$((0x400ebb)) conv=notrunc
+ulimit -c unlimited
+# Brute-force each position:
+for c in $(seq 32 126); do
+    echo -ne "$(printf '\\x%02x' $c)$known_suffix" | ./binary 2>/dev/null
+    strings core | grep -q "$expected" && echo "Found: $c"
+done
+```
+
+**Key insight:** Use INT3/SIGTRAP as a breakpoint oracle -- the coredump captures computed state at the crash point. Avoids full reverse engineering of the transformation.
+
+---
+
+## Signal Handler Chain + LD_PRELOAD Oracle (Nuit du Hack 2016)
+
+Binary uses Unix signals for flow control: `main()` sends SIGINT to itself 1024 times, each handler checks one password character, then calls `signal()` to install the next handler. Bypass: LD_PRELOAD a custom `signal()` that logs when it's called (indicating correct character), brute-force each position.
+
+```c
+// LD_PRELOAD library:
+#include <signal.h>
+sighandler_t signal(int sig, sighandler_t handler) {
+    write(2, "CORRECT\n", 8);  // signal() called = char was correct
+    return SIG_DFL;
+}
+```
+
+**Key insight:** Signal-handler-chain anti-reversing can be defeated by hooking `signal()` via LD_PRELOAD. The call to `signal()` (to install the next handler) acts as a side-channel confirming the current character.

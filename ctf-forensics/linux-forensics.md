@@ -18,6 +18,7 @@
   - [Chrome/Chromium](#chromechromium)
   - [Firefox](#firefox)
 - [Corrupted Git Blob Repair via Byte Brute-Force (CSAW CTF 2015)](#corrupted-git-blob-repair-via-byte-brute-force-csaw-ctf-2015)
+- [VBA Macro Forensics - Excel Cell Data to ELF Binary (Sharif CTF 2016)](#vba-macro-forensics---excel-cell-data-to-elf-binary-sharif-ctf-2016)
 
 ---
 
@@ -412,3 +413,22 @@ def repair_blob(filepath, target_hash):
 5. Verify with `git hash-object` matching the expected hash
 
 **Key insight:** Git's content-addressable storage means the expected SHA-1 hash is known from the commit tree, even when the blob is corrupted. Single-byte corruption is brute-forceable in seconds. For multi-byte corruption, combine with contextual knowledge (e.g., source code must compile, numeric constants must be valid).
+
+---
+
+## VBA Macro Forensics - Excel Cell Data to ELF Binary (Sharif CTF 2016)
+
+Excel spreadsheet hides an entire executable as numeric cell values. A VBA (Visual Basic for Applications) macro transforms each cell via `CByte((cell_value - 78) / 3)` and writes bytes to produce an ELF (Executable and Linkable Format) binary. Safe analysis: export to CSV, reimplement transform in Python.
+
+```python
+import csv
+with open('data.csv') as f, open('binary', 'wb') as out:
+    for row in csv.reader(f):
+        for cell in row:
+            if cell.strip():
+                out.write(bytes([int((int(cell) - 78) / 3)]))
+```
+
+**Key insight:** Malware delivery via spreadsheet cell values with arithmetic transformation. Always reimplement VBA macro logic in Python rather than executing the macro. Check for `olevba` output to extract the transformation formula.
+
+**Detection:** Excel file with large numbers in cells, VBA macro with `CByte`/`Chr`/`Write` operations.

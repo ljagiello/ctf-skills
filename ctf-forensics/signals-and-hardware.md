@@ -10,6 +10,7 @@
 - [Flipper Zero .sub File (0xFun 2026)](#flipper-zero-sub-file-0xfun-2026)
 - [Keyboard Acoustic Side-Channel (ApoorvCTF 2026)](#keyboard-acoustic-side-channel-apoorvctf-2026)
 - [CD Audio Disc Image Steganography (BSidesSF 2026)](#cd-audio-disc-image-steganography-bsidessf-2026)
+- [Linux input_event Keylogger Dump Parsing (Pwn2Win 2016)](#linux-input_event-keylogger-dump-parsing-pwn2win-2016)
 
 ---
 
@@ -258,6 +259,8 @@ def uart_decode(transitions, sample_rate=1_000_000, baud=115200):
 
 RAW_Data binary -> filter noise bytes (0x80-0xFF) -> expand batch variable references -> XOR with hint text.
 
+**Key insight:** Flipper Zero `.sub` files contain raw RF signal data. The RAW_Data field encodes binary as pulse timings. Filter out noise bytes (0x80-0xFF), expand any batch variable references, and XOR with hint text from the challenge to recover the flag.
+
 ---
 
 ## Keyboard Acoustic Side-Channel (ApoorvCTF 2026)
@@ -422,3 +425,22 @@ img.save('disc_output.png')
 **Calibration workflow:** The challenge provides `calibrate_img.cdda` with a known output (`calibrate_img.png` showing "Calibrate: 0123456789abc..."). Use this pair to verify geometry parameters (tr0, dtr, r0, scale) before decoding the flag file.
 
 **Detection:** Challenge mentions "album", "CD rip", "CDDA", or provides large (~800MB) files with only 2 unique byte values. The `file` command reports "ISO-8859 text with CR line terminators" because `0x0d` (CR) is one of the two values.
+
+---
+
+## Linux input_event Keylogger Dump Parsing (Pwn2Win 2016)
+
+Raw binary dump with 24-byte repeating structure matching Linux's `struct input_event` (`struct timeval` + `__u16 type` + `__u16 code` + `__s32 value`). Filter for `type == EV_KEY (1)` and `value == 1` (key press), map keycodes via Linux kernel's `input-event-codes.h`.
+
+```python
+import struct
+with open('dump.bin', 'rb') as f:
+    while data := f.read(24):
+        tv_sec, tv_usec, type_, code, value = struct.unpack('<QQHHi', data)
+        if type_ == 1 and value == 1:  # EV_KEY, key press
+            print(f"Key code: {code}")  # Map via input-event-codes.h
+```
+
+**Key insight:** `/dev/input/event*` captures have a fixed 24-byte `struct input_event` format. Filter EV_KEY type with value=1 for key presses. Map codes using Linux kernel header `input-event-codes.h`.
+
+**Detection:** Binary file size divisible by 24. Challenge mentions keylogger, keyboard, or input device.

@@ -134,6 +134,8 @@ SELECT pg_read_file('/etc/passwd');
 SELECT pg_read_file('/var/lib/postgresql/user.txt');
 ```
 
+**Key insight:** PostgreSQL superuser access is equivalent to OS command execution. `COPY TO PROGRAM` runs shell commands as the `postgres` user, and `pg_read_file()` reads arbitrary files on the filesystem without needing shell access.
+
 ---
 
 ## PostgreSQL Backup Credential Extraction (Slonik HTB)
@@ -147,6 +149,8 @@ showmount -e TARGET && mount -t nfs TARGET:/var/backups /mnt
 # Restore backup: docker run -v /path/to/backup:/var/lib/postgresql/data postgres:14
 # Connect and dump user tables for credentials
 ```
+
+**Key insight:** PostgreSQL backups (`pg_basebackup`) contain `global/1260` which holds `pg_authid` -- the table with all password hashes. SCRAM-SHA-256 hashes can be cracked offline, and restoring the full backup in Docker gives access to all database contents including application credentials.
 
 ---
 
@@ -177,6 +181,8 @@ mount -t nfs TARGET:/var/backups /mnt/backups
 mount -t nfs TARGET:/home /mnt/home
 # Check for: database backups, SSH keys, config files with credentials
 ```
+
+**Key insight:** NFS shares exported with `(everyone)` access require no authentication. Always check `showmount -e` early in enumeration -- exposed `/home` directories often contain SSH keys, and `/var/backups` frequently holds database dumps with credentials.
 
 ---
 
@@ -211,6 +217,8 @@ curl -x http://TARGET:3128 http://127.0.0.1:8080/
 export http_proxy=http://TARGET:3128
 ```
 
+**Key insight:** Squid proxies on port 3128 are a pivot point to internal services bound to 127.0.0.1. Set `http_proxy` globally and access internal admin panels, databases, and APIs that are invisible from external scans.
+
 ---
 
 ## Zabbix Admin Password Reset via MySQL (Watcher HTB)
@@ -221,6 +229,8 @@ With MySQL access to the Zabbix database, reset the admin password directly:
 UPDATE users SET passwd = '$2a$10$ZXIvHAEP2ZM.dLXTm6uPHOMVlARXX7cqjbhM6Fn0cANzkCQBWpMrS' WHERE username = 'Admin';
 -- Note: username is case-sensitive ("Admin" not "admin")
 ```
+
+**Key insight:** With direct MySQL access to a Zabbix database, update the `users` table to set a known bcrypt hash as the admin password. The username is case-sensitive (`Admin` not `admin`), which is a common gotcha.
 
 ---
 

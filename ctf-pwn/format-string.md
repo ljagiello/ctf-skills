@@ -11,6 +11,7 @@
 - [Format String for Game State Manipulation (UTCTF 2026)](#format-string-for-game-state-manipulation-utctf-2026)
 - [Format String Saved EBP Overwrite for .bss Pivot (PlaidCTF 2015)](#format-string-saved-ebp-overwrite-for-bss-pivot-plaidctf-2015)
 - [argv[0] Overwrite for Stack Smash Info Leak (HITCON CTF 2015)](#argv0-overwrite-for-stack-smash-info-leak-hitcon-ctf-2015)
+- [Format String .fini_array Loop for Multi-Stage Exploitation (Codegate 2016)](#format-string-fini_array-loop-for-multi-stage-exploitation-codegate-2016)
 
 ---
 
@@ -82,6 +83,8 @@ payload = test + p64(0xDEADBEEF)
 - Target functions called AFTER the format string vulnerability
 - Check call order in disassembly to pick best target
 
+**Key insight:** Format string vulnerabilities are identified by sending `%p.%p.%p` as input -- if hex addresses appear in the output, the program passes user input directly as the format argument to `printf`/`sprintf`. This gives both arbitrary read (`%s` with a target address) and arbitrary write (`%n` family) primitives.
+
 ## Argument Retargeting (Non-Positional %n Trick)
 
 Use this when you cannot embed addresses (input filtering, newline issues) but can still use `%n` and a stack pointer is available as an argument.
@@ -151,6 +154,8 @@ stack_chk_addr = arb_read(pie_base + got_stack_chk_offset)
 - https://libc.blukat.me/
 - https://libc.rip/
 - Input multiple function addresses to identify exact libc version
+
+**Key insight:** Blind pwn without a binary requires systematic discovery: leak stack values to find canary/PIE/libc pointers, use arbitrary read to dump GOT entries, cross-reference leaked addresses against libc databases to identify the exact version, then compute offsets for one_gadget or system().
 
 **6. Calculate libc base:**
 ```python
@@ -247,6 +252,8 @@ STDOUT_STVAL_HI = 0x4004ea  # .dynsym[11].st_value high halfword
 
 **When GOT has bad bytes but .rela.plt/.dynsym don't:** This technique bypasses all GOT byte restrictions since you never write to GOT directly.
 
+**Key insight:** When GOT addresses contain bad bytes (e.g., `0x0a` with `fgets`), avoid writing to GOT directly. Instead, patch `.rela.plt` to redirect the relocation to a different `.dynsym` entry, then overwrite that symbol's `st_value` with the target address. The dynamic linker follows the patched chain on the next call.
+
 ---
 
 ## Format String for Game State Manipulation (UTCTF 2026)
@@ -329,3 +336,25 @@ payload += p64(password_addr)      # overwrite argv[0] -> password string
 ```
 
 **Key insight:** A "failed" exploit that triggers `__stack_chk_fail` becomes an information leak when `argv[0]` is overwritten. This is useful as a first stage: leak a secret (password, canary, address), then use it in a second connection for the real exploit. Works because `argv` is stored on the stack above local variables.
+
+---
+
+## Format String .fini_array Loop for Multi-Stage Exploitation (Codegate 2016)
+
+**Pattern:** When no GOT function is called after `printf()`, chain multiple format string writes across re-executions by overwriting `.fini_array` with `main()`:
+
+1. **Stage 1:** Overwrite `.fini_array[0]` with `main()`, leak libc + stack pointers
+2. **Stage 2:** Overwrite `printf@GOT` with `system()`, overwrite `__stack_chk_fail@GOT` with `main()`
+3. **Stage 3:** Deliberately corrupt stack canary so `__stack_chk_fail` re-enters `main()`. Now `printf(input)` is `system(input)` -- send `/bin/sh`
+
+```python
+# Stage 1: loop back via .fini_array, leak addresses
+payload = fmtstr_payload(offset, {fini_array: main_addr})
+# Stage 2: redirect printf to system, set up canary fail re-entry
+payload = fmtstr_payload(offset, {printf_got: system, stack_chk_got: main_addr})
+# Stage 3: corrupt canary -> __stack_chk_fail -> main -> system(input)
+```
+
+**Key insight:** `.fini_array` entries are called when `main()` returns. Overwriting with `main()` creates an execution loop for multi-stage format string attacks. Deliberately corrupting the canary triggers `__stack_chk_fail` as a controlled re-entry vector when that GOT entry has been redirected.
+
+**References:** Codegate 2016

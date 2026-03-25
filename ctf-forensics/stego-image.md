@@ -14,6 +14,7 @@ Techniques specific to hiding data in image formats (JPEG, PNG, BMP, GIF). For n
 - [Conditional LSB Extraction — Near-Black Pixel Filter (BaltCTF 2013)](#conditional-lsb-extraction--near-black-pixel-filter-baltctf-2013)
 - [JPEG Slack Space Steganography (BSidesSF 2025)](#jpeg-slack-space-steganography-bsidessf-2025)
 - [Nearest-Neighbor Interpolation Steganography (BSidesSF 2025)](#nearest-neighbor-interpolation-steganography-bsidessf-2025)
+- [RGB Parity Steganography (Break In 2016)](#rgb-parity-steganography-break-in-2016)
 
 ---
 
@@ -431,3 +432,24 @@ magick flag.webp -interpolate nearest-neighbor -interpolative-resize 256x192 fla
 **Key insight:** Nearest-neighbor interpolation selects exact pixel values (no blending), preserving the hidden data. Bilinear or bicubic interpolation would average surrounding pixels, destroying the message. The challenge name or description often hints at the interpolation method.
 
 **Detection:** Open in image viewer and zoom to see repeating pixel patterns at regular intervals. Calculate GCD of image dimensions and suspected grid spacing.
+
+---
+
+## RGB Parity Steganography (Break In 2016)
+
+Hidden image encoded in the parity of pixel RGB sums. Sum R+G+B per pixel -- even sum = white, odd sum = black. Renders a binary bitmap containing the hidden message.
+
+```python
+from PIL import Image
+img = Image.open('image.png')
+out = Image.new('1', img.size)
+for x in range(img.width):
+    for y in range(img.height):
+        r, g, b = img.getpixel((x, y))[:3]
+        out.putpixel((x, y), (r + g + b) % 2)
+out.save('hidden.png')
+```
+
+**Key insight:** Unlike LSB (Least Significant Bit) stego (single channel, single bit), parity stego uses the combined sum of all channels. Look for challenge hints about "pairs", "couples", or "adding colors".
+
+**Detection:** Image appears normal but pixel RGB sums show non-random parity distribution.

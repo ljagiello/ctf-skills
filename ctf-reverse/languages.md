@@ -21,6 +21,7 @@
 - [Functional Language Reversing (OPAL)](#functional-language-reversing-opal)
 - [Python Version-Specific Bytecode (VuwCTF 2025)](#python-version-specific-bytecode-vuwctf-2025)
 - [Non-Bijective Substitution Cipher Reversing](#non-bijective-substitution-cipher-reversing)
+- [FRACTRAN Program Inversion (Boston Key Party 2016)](#fractran-program-inversion-boston-key-party-2016)
 
 For platform/framework-specific techniques (Android, Roblox, Godot, Electron, Node.js, Verilog, Ruby/Perl polyglot, etc.), see [languages-platforms.md](languages-platforms.md).
 For Go and Rust binary reversing, see [languages-compiled.md](languages-compiled.md).
@@ -53,6 +54,8 @@ print(''.join(flag))
 - Loop structure: `FOR_ITER` + `BINARY_SUBSCR` = iterating over flag chars
 - `CALL_FUNCTION` on `ord` = character-to-int conversion
 
+**Key insight:** Python bytecode challenges give you the algorithm in explicit stack operations. Focus on `LOAD_CONST` values (expected outputs), `BINARY_XOR`/`BINARY_ADD` (the transform), and `BUILD_TUPLE` (the target array) to reconstruct the validation logic without running the bytecode.
+
 ---
 
 ## Python Opcode Remapping
@@ -68,6 +71,8 @@ Decompiler fails with opcode errors.
 5. Decompile normally
 
 **Shortcut (Hack.lu CTF 2013):** If the challenge bundles its own modified Python interpreter (e.g., a custom `./py` binary), install `uncompyle2`/`uncompyle6` into that interpreter's environment and decompile using the challenge's own runtime. The modified interpreter understands its own opcode mapping, so standard decompilation tools work without manual opcode recovery.
+
+**Key insight:** Opcode remapping breaks all standard decompilers. The fastest fix is to find the modified `opcode.pyc` in the PyInstaller bundle, diff it against the stock Python opcodes, and patch the target `.pyc` back to standard opcodes before decompiling.
 
 ---
 
@@ -99,6 +104,8 @@ Notes:
 - `oneshot/pyarmor-1shot` executable must exist before running `shot.py`.
 - PyInstaller bundles or archives should be unpacked first, then processed with 1shot.
 
+**Key insight:** Pyarmor 8/9 wraps scripts with runtime decryption. The 1shot tool statically unpacks without execution by directly processing the armored bytecode and `pyarmor_runtime` library. Treat the disassembly output as ground truth when the experimental decompiled source looks inconsistent.
+
 ---
 
 ## DOS Stub Analysis
@@ -108,6 +115,8 @@ PE files can hide code in DOS stub:
 2. Run in DOSBox
 3. Load in IDA as 16-bit DOS
 4. Look for `int 16h` (keyboard input)
+
+**Key insight:** PE files can embed a fully functional 16-bit DOS program in the DOS stub (before the PE header). If the stub is unusually large, load it in IDA as 16-bit DOS or run it in DOSBox -- the challenge logic may live entirely in the stub.
 
 ---
 
@@ -120,6 +129,8 @@ PE files can hide code in DOS stub:
 - Decrypt server responses with derived key
 
 Please note most of that the executable file for the PC platform is GameAssembly.dll or *Assembly.dll, for the Android is libil2cpp.so.
+
+**Key insight:** IL2CPP compiles C# to native code, but Il2CppDumper recovers method names and offsets. If the dumper fails, the `global-metadata.dat` is likely encrypted -- trace the metadata loading path in the native binary to find the custom decryption before dumping.
 
 ---
 
@@ -171,6 +182,8 @@ Standard workflow:
 2. Inspect key business files in output (for example `pages/Index.java`)
 3. If cleaner output is needed, retry with `-m auto` or `-m restructure`
 4. If some methods still fail, keep the `simple` output and continue logic analysis via alternate paths
+
+**Key insight:** HarmonyOS `.hap` packages are ZIP archives containing `.abc` bytecode. Use the abc-decompiler's CLI mode (`jadx.cli.JadxCLI`) with `-m simple` for the most reliable decompilation -- GUI mode may launch instead of processing files.
 
 ---
 
@@ -325,6 +338,8 @@ file extracted/* | grep "PE32+"
 - Custom VM protects decryption
 - Lift VM bytecode to C
 
+**Key insight:** UEFI binaries are PE32+ executables. Extract the firmware with `7z`, identify PE files with `file`, and load them in Ghidra/IDA. Bootkits replace the boot loader, so focus on DXE drivers and boot services protocols for the challenge logic.
+
 ---
 
 ## Transpilation to C
@@ -339,6 +354,8 @@ for opcode, args in instructions:
 ```
 
 Compile with `-O3` for constant folding.
+
+**Key insight:** Transpiling obfuscated VM bytecode to C and compiling with `-O3` lets the compiler's constant folding and dead code elimination simplify the algorithm automatically. This is faster than manual deobfuscation for complex instruction sets.
 
 ---
 
@@ -470,3 +487,26 @@ for i, v in enumerate(sbox):
 2. Side-channel data (code coverage, timing) eliminates impossible candidates
 3. Printable ASCII constraint (32-126) reduces candidate space
 4. Re-encrypt candidates and verify against known ciphertext
+
+---
+
+## FRACTRAN Program Inversion (Boston Key Party 2016)
+
+FRACTRAN: an esoteric language where computation is iterated multiplication by a fraction table. Input is encoded as prime factorization (ASCII values as exponents of sequential primes). To invert: swap each fraction's numerator and denominator, run the "success" output backward through the inverted program.
+
+```python
+# Original: for each step, find first fraction where n*frac is integer
+def fractran_step(n, fractions):
+    for num, den in fractions:
+        if (n * num) % den == 0:
+            return (n * num) // den
+    return None  # Halt
+
+# Inversion: swap num/denom in fraction table
+inverted = [(d, n) for n, d in fraction_table]
+# Run target output through inverted program to recover input
+```
+
+**Key insight:** FRACTRAN programs can be inverted by swapping numerators and denominators. The prime factorization encoding is the key to understanding I/O -- factor the result to extract exponents of sequential primes, map to ASCII.
+
+**Detection:** Challenge mentions fractions, prime factorization, or provides a list of rational numbers.

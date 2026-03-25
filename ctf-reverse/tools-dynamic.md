@@ -33,6 +33,7 @@
   - [Input Fuzzing with Qiling](#input-fuzzing-with-qiling)
 - [Triton (Dynamic Symbolic Execution)](#triton-dynamic-symbolic-execution)
 - [Intel Pin Instruction-Counting Side Channel (Hackover CTF 2015)](#intel-pin-instruction-counting-side-channel-hackover-ctf-2015)
+- [Opcode-Only Trace Reconstruction (0CTF 2016)](#opcode-only-trace-reconstruction-0ctf-2016)
 
 ---
 
@@ -571,6 +572,8 @@ for ch in string.printable:
 - Scriptable with Python (faster iteration than GDB)
 - Snapshot/restore for brute-forcing
 
+**Key insight:** Qiling emulates the entire OS layer (syscalls, filesystem, registry), not just the CPU. This means anti-debug checks like `ptrace(TRACEME)` naturally return success without patching, and you can analyze ARM/MIPS binaries on an x86 host without QEMU or real hardware.
+
 **When to use:** Foreign architecture binaries, IoT firmware, heavy anti-debug, automated testing of many inputs.
 
 ---
@@ -593,6 +596,8 @@ for i in range(32):
 model = ctx.getModel(ctx.getPathConstraintsAst())
 flag = ''.join(chr(v.getValue()) for _, v in sorted(model.items()))
 ```
+
+**Key insight:** Triton excels at single-path DSE (Dynamic Symbolic Execution) where angr's path explosion is a problem. Feed it a concrete execution trace, symbolize specific inputs, and solve for constraints at comparison points. Faster than angr for linear code paths with known execution flow.
 
 **Best for:** Single-path symbolic execution, deobfuscation, taint analysis. Faster than angr for linear code paths.
 
@@ -626,3 +631,17 @@ while True:
 ```
 
 **Key insight:** Movfuscated binaries (compiled with `movfuscator`) expand every instruction into sequences of `mov` operations, making static analysis impractical. However, character-by-character comparison still creates measurable instruction count differences. Pin's `inscount0.so` counts total executed instructions — the correct character at each position causes ~1000+ more instructions (proceeding further in the comparison). Also works for obfuscated binaries with sequential input checks.
+
+---
+
+## Opcode-Only Trace Reconstruction (0CTF 2016)
+
+Given an execution trace with only opcodes (no register/memory values), reconstruct the program: sort/dedup trace by address, split into basic blocks, annotate functions. Sorting algorithms are particularly vulnerable -- branch decisions leak element ordering.
+
+**Approach:**
+1. Sort trace entries by address, deduplicate to recover code layout
+2. Identify basic block boundaries (jumps, calls, returns)
+3. Map branch taken/not-taken decisions from trace order
+4. For sorting algorithms, partition comparisons reveal relative ordering of all input elements
+
+**Key insight:** Execution traces without data values still leak information through branch decisions. Quicksort partition comparisons reveal which element is greater/lesser at each step, enabling full recovery of the sorted input from branch direction alone.

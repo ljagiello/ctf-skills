@@ -14,6 +14,7 @@
 - [Heap Exploitation](#heap-exploitation)
   - [Heap Grooming via Application Operations (Codegate 2013)](#heap-grooming-via-application-operations-codegate-2013)
 - [Custom Allocator Exploitation](#custom-allocator-exploitation)
+  - [talloc Pool Header Forgery for Arbitrary Read/Write (Boston Key Party 2016)](#talloc-pool-header-forgery-for-arbitrary-readwrite-boston-key-party-2016)
 - [JIT Compilation Exploits](#jit-compilation-exploits)
 - [Esoteric Language GOT Overwrite](#esoteric-language-got-overwrite)
 - [Heap Overlap via Base Conversion](#heap-overlap-via-base-conversion)
@@ -336,6 +337,28 @@ payload = flat({
     0x1010+0x50: [HEAP + OFF + 0x800]      # Cleanup handler ptr
 }, length=0x1200)
 ```
+
+### talloc Pool Header Forgery for Arbitrary Read/Write (Boston Key Party 2016)
+
+**Pattern:** talloc is a hierarchical memory allocator (used in Samba, CUPS, etc.). Forge fake pool headers with controlled fields to redirect allocations to arbitrary addresses.
+
+```c
+// talloc pool header fields: end, object_count, hdr_fill
+// followed by talloc_chunk: next, prev, parent, child, refs, name, size, flags, pool
+// Set pool boundaries to span target address
+// Next allocation returns attacker-controlled address
+// Read GOT for libc leak, write __free_hook with system()
+```
+
+**Exploitation steps:**
+1. Leak heap address through application data
+2. Forge talloc pool header with `end` pointing past target address
+3. Next `talloc()` call returns memory at attacker-chosen location
+4. Use arbitrary read (GOT) for libc leak, arbitrary write for hook overwrite
+
+**Key insight:** Custom allocator pool metadata controls where future allocations land. When applications use talloc, pool header forgery provides arbitrary memory placement. The hierarchical parent/child structure means corrupting one header cascades through the allocation tree.
+
+**References:** Boston Key Party 2016
 
 ## JIT Compilation Exploits
 

