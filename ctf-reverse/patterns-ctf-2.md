@@ -16,6 +16,7 @@
 - [VM Sequential Key-Chain Brute-Force (Midnight Flag 2026)](#vm-sequential-key-chain-brute-force-midnight-flag-2026)
 - [Syscall Side-Effect Memory Corruption (Hack.lu 2015)](#syscall-side-effect-memory-corruption-hacklu-2015)
 - [MFC Dialog Event Handler Location (WhiteHat 2015)](#mfc-dialog-event-handler-location-whitehat-2015)
+- [ROP Chain Obfuscation in Modified Binary (PlaidCTF 2016)](#rop-chain-obfuscation-in-modified-binary-plaidctf-2016)
 
 ---
 
@@ -633,5 +634,57 @@ int solve_block(uint32_t old_key, uint32_t expected_key, unsigned char *out) {
 **Key insight:** When a transformation is intentionally non-invertible (iterated hash-like function), brute-force is the intended solution. OpenMP parallelization is critical — 287 blocks x 16.7M candidates each takes minutes parallelized vs hours single-threaded. The sequential key dependency means blocks must be solved in order, but each individual block search is embarrassingly parallel.
 
 ---
+
+---
+
+## ROP Chain Obfuscation in Modified Binary (PlaidCTF 2016)
+
+**Pattern (quite quixotic quest):** Modified `curl` binary with a custom `--pctfkey KEY` option. Key validation replaces `esp` with a buffer address and returns into a ~250KB ROP chain stored in a `magic_buf` symbol. The ROP chain validates the key through XOR, MD5, and constant comparisons.
+
+**Analysis approach:**
+
+1. **Detect the ROP dispatch:** Look for `mov esp, eax; ret` or similar stack pivot — this redirects execution into the ROP chain
+2. **Dump the ROP chain:** Script GDB to disassemble instructions after each return address in the chain:
+```python
+# GDB script to trace ROP gadgets
+import gdb
+
+magic_buf = 0x080b0000  # symbol address
+buf_size = 0x40000       # quarter megabyte
+offset = 0
+
+while offset < buf_size:
+    addr = int.from_bytes(gdb.selected_inferior().read_memory(magic_buf + offset, 4), 'little')
+    gdb.execute(f'x/3i {addr}')
+    # Advance past the gadget (typically 4 bytes per return address)
+    offset += 4
+```
+
+3. **Identify patterns in the chain:** Look for unrolled loops (repeated gadget sequences), `pop` instructions that skip data, and `ret imm16` that skip large blocks
+4. **Reconstruct the algorithm:** The chain typically performs:
+   - Key length check (compare with constant)
+   - Character-level operations (sum ASCII values, XOR with constants)
+   - Hash computation (MD5 of derived value)
+   - Hash prefix comparison
+   - XOR of input with hash as keystream
+   - Comparison with embedded constants
+
+5. **Extract and solve:** Dump the embedded constants, brute-force any intermediate values (e.g., character sum → MD5 with matching prefix), then XOR to recover the key:
+```python
+import hashlib
+
+# Brute-force the sum that produces correct MD5 prefix
+target_prefix = 0xc0050bdd  # extracted from ROP chain
+for s in range(128 * 0x35):  # max sum of printable chars * key_length
+    h = hashlib.md5(str(s ^ xor_constant).encode()).hexdigest()
+    if int(h[:8], 16) == target_prefix:
+        md5_key = bytes.fromhex(h)
+        break
+
+# XOR embedded values with MD5 keystream to get flag
+flag = bytes(v ^ md5_key[i % 16] for i, v in enumerate(embedded_values))
+```
+
+**Key insight:** ROP chain obfuscation ("ROPfuscation") hides algorithms in chains of return-oriented gadgets. The chain looks incomprehensible as raw addresses but becomes analyzable when you: (a) dump each gadget's disassembly, (b) filter repetitions and skip regions, (c) annotate register effects. The chain is functionally equivalent to normal code — it just uses `ret` instead of sequential execution. Large chains (100K+ gadgets) often contain unrolled loops that compress to ~1000 lines of pseudocode.
 
 See also: [patterns-ctf.md](patterns-ctf.md) for Part 1 (hidden emulator opcodes, SPN static extraction, image XOR smoothness, byte-at-a-time cipher, mathematical convergence bitmap, Windows PE XOR bitmap OCR, two-stage RC4+VM loaders, GBA ROM meet-in-the-middle, Sprague-Grundy game theory, kernel module maze solving, multi-threaded VM channels).

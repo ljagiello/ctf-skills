@@ -18,6 +18,7 @@ Non-image steganography techniques (PDF, SVG, terminal, text, compression, sprea
 - [ANSI Escape Sequence Steganography in Terminal Art (BSidesSF 2026)](#ansi-escape-sequence-steganography-in-terminal-art-bsidessf-2026)
 - [Autostereogram / Magic Eye Solving (BSidesSF 2026)](#autostereogram--magic-eye-solving-bsidessf-2026)
 - [Two-Layer Byte+Line Interleaving (BSidesSF 2026)](#two-layer-byteline-interleaving-bsidessf-2026)
+- [Progressive PNG Layered XOR Decryption (OpenCTF 2016)](#progressive-png-layered-xor-decryption-openctf-2016)
 - [Multi-Stream Video Container Steganography (BSidesSF 2026)](#multi-stream-video-container-steganography-bsidessf-2026)
 
 ---
@@ -462,3 +463,43 @@ ffmpeg -i flag.mp4 -map 0:1 -frames:v 1 flag.jpg
 3. VLC → Video → Video Track → try all tracks
 
 **References:** BSidesSF 2026 "ads"
+
+---
+
+## Progressive PNG Layered XOR Decryption (OpenCTF 2016)
+
+**Pattern (Progressive Encryption):** PNG contains standard `IDAT` chunk (coarse first scan) plus custom `scRT` chunks. Each `scRT` chunk is XOR-encrypted with a multi-byte key. Decrypting reveals another `IDAT` chunk plus another `scRT`, forming nested layers.
+
+1. Extract the custom `scRT` chunk data from the PNG
+2. Use xortool to guess the XOR key (expected most frequent byte: `\xFF` for image data):
+```bash
+# Extract scRT chunk contents
+python3 -c "
+import struct
+with open('image.png', 'rb') as f:
+    data = f.read()
+# Parse PNG chunks, find scRT
+pos = 8  # skip PNG signature
+while pos < len(data):
+    length = struct.unpack('>I', data[pos:pos+4])[0]
+    chunk_type = data[pos+4:pos+8]
+    if chunk_type == b'scRT':
+        with open('layer.bin', 'wb') as out:
+            out.write(data[pos+8:pos+8+length])
+    pos += 12 + length
+"
+
+# Guess XOR key
+xortool -c ff layer.bin
+# Output: key = 'nacho'
+```
+
+3. Decrypt and split: the decrypted data contains a valid `IDAT` chunk followed by another `scRT`
+4. Repeat for each layer until all `scRT` chunks are decrypted
+5. Reassemble: concatenate PNG header + all decrypted `IDAT` chunks + `IEND`
+
+**Layer keys in this challenge:** `nacho`, `savages`, `president`, `kilobits`, `monkey`, `butler`
+
+**Shortcut:** Open the raw PNG bytes as a raw image in GraphBitStreamer (32 bpp, width matching original). Weak XOR encryption preserves visual patterns (like ECB-encrypted images), making the flag readable without full decryption.
+
+**Key insight:** Custom PNG chunks (non-standard 4-letter types) often contain hidden data. The PNG spec allows arbitrary ancillary chunks — parsers ignore unknown types. When multiple layers use different XOR keys, each must be cracked independently using frequency analysis. The shortcut works because XOR with a short repeating key preserves large-scale pixel patterns, similar to ECB mode's visual leakage.

