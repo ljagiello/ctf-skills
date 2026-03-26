@@ -25,6 +25,7 @@
   - [Checking CONFIG_STATIC_USERMODEHELPER](#checking-config_static_usermodehelper)
 - [core_pattern Overwrite](#core_pattern-overwrite)
 - [Kernel Heap Overflow via kmalloc Size Mismatch (PlaidCTF 2013)](#kernel-heap-overflow-via-kmalloc-size-mismatch-plaidctf-2013)
+- [eBPF Verifier Bypass Exploitation (UIUCTF 2021, D^3CTF 2022)](#ebpf-verifier-bypass-exploitation-uiuctf-2021-d3ctf-2022)
 For tty_struct kROP (kernel Return-Oriented Programming), userfaultfd race stabilization, SLUB internals, cross-cache attacks, and DiceCTF 2026 kernel patterns, see [kernel-techniques.md](kernel-techniques.md).
 
 For protection bypass techniques (KASLR, FGKASLR, KPTI, SMEP, SMAP), GDB debugging, initramfs workflow, and exploit templates, see [kernel-bypass.md](kernel-bypass.md).
@@ -504,3 +505,51 @@ memcpy(buf + 0x40, body, content_length); // Overflow!
 5. **Hijack write handler:** `f_op->write` now points to attacker-controlled address → `commit_creds(prepare_kernel_cred(0))`
 
 **Key insight:** `struct file` is in kmalloc-256 and contains `f_op` (function pointer table). Corrupting `f_op` to a fake vtable gives control over any file operation (`read`, `write`, `ioctl`). The attacker triggers the hijacked operation via the corrupted file descriptor.
+
+---
+
+## eBPF Verifier Bypass Exploitation (UIUCTF 2021, D^3CTF 2022)
+
+Exploit mismatches between the eBPF verifier's static analysis and runtime behavior to achieve arbitrary kernel read/write.
+
+```c
+// Pattern: Verifier tracks register states differently from hardware
+// Example: Right-shift desynchronization (D^3CTF 2022)
+// Verifier thinks: shr reg, 64 -> reg = 0
+// Hardware does:   shr reg, 64 -> reg = original_value (shift >= width = undefined)
+
+// Step 1: Create desynchronized register
+BPF_ALU64_IMM(BPF_RSH, BPF_REG_7, 64),  // verifier: R7=0, runtime: R7=1
+
+// Step 2: Use desync to bypass ALU sanitizer
+BPF_ALU64_IMM(BPF_MUL, BPF_REG_7, offset),  // verifier: 0*offset=0, runtime: 1*offset=offset
+
+// Step 3: Add to map pointer for OOB access
+BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_7),  // verifier allows (adding 0)
+// Runtime: map_ptr + offset -> arbitrary kernel memory access
+
+// Step 4: Read/write kernel memory, overwrite modprobe_path or cred struct
+```
+
+```bash
+# eBPF exploitation workflow:
+# 1. Find verifier vs runtime mismatch (RSH, bounds tracking, helper params)
+# 2. Create register with verifier_value != runtime_value
+# 3. Use desync register to bypass pointer arithmetic checks
+# 4. Achieve arbitrary read via map value OOB
+# 5. Leak kernel base from adjacent slab objects
+# 6. Arbitrary write to modprobe_path or current->cred
+
+# Helper function overflow variant (d3bpf-v2):
+# bpf_skb_load_bytes(skb, offset, stack_buf, len)
+# Verifier checks len <= 512, but desync makes runtime len huge
+# Stack buffer overflow -> ROP to commit_creds(init_cred)
+
+# KASLR bypass via eBPF:
+# Trigger controlled oops -> dmesg leaks kernel addresses
+# Or: read adjacent slab objects containing kernel pointers
+```
+
+**Key insight:** eBPF verifier bugs create a "type confusion" between static analysis and runtime. The pattern is always: (1) find operation where verifier prediction differs from hardware, (2) multiply the difference to create useful offsets, (3) add to map pointer for kernel memory access. Check kernel changelogs for eBPF verifier patches -- each patch implies a prior exploitable bug.
+
+See also: [kernel-techniques.md](kernel-techniques.md) for additional kernel exploitation techniques.

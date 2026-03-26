@@ -10,6 +10,8 @@
 - [ECDSA Nonce Reuse (BearCatCTF 2026)](#ecdsa-nonce-reuse-bearcatctf-2026)
 - [Ed25519 Torsion Side Channel (BearCatCTF 2026)](#ed25519-torsion-side-channel-bearcatctf-2026)
 - [DSA Nonce Reuse for Private Key Recovery (VolgaCTF 2016)](#dsa-nonce-reuse-for-private-key-recovery-volgactf-2016)
+- [DSA Limited k-Value Brute Force (ASIS CTF Finals 2016)](#dsa-limited-k-value-brute-force-asis-ctf-finals-2016)
+- [ECC Shared Prime Factor via GCD (ASIS CTF Finals 2016)](#ecc-shared-prime-factor-via-gcd-asis-ctf-finals-2016)
 
 ---
 
@@ -222,3 +224,59 @@ x = ((s1 * k - H_m1) * pow(r, -1, q)) % q  # private key
 ```
 
 **Key insight:** DSA nonce reuse is identical in principle to ECDSA nonce reuse. Look for repeated r values in any DSA/ECDSA signature set. The same recovery formula applies to both.
+
+---
+
+## DSA Limited k-Value Brute Force (ASIS CTF Finals 2016)
+
+DSA implementation generates k from a restricted space (e.g., only 1024 possibilities). Given multiple signatures, brute-force k values and solve for the private key.
+
+```python
+from Crypto.Util.number import inverse
+
+def recover_dsa_key(signatures, q, g, p):
+    """Recover DSA private key when k has limited possible values"""
+    (r1, s1, h1), (r2, s2, h2) = signatures[0], signatures[1]
+
+    for k1 in range(1, 1024):
+        for k2 in range(1, 1024):
+            # From DSA: s = k^-1 * (h + x*r) mod q
+            # With two signatures: x = (s2*k2*h1 - s1*k1*h2) / (s1*k1*r2 - s2*k2*r1) mod q
+            num = (s2 * k2 * h1 - s1 * k1 * h2) % q
+            den = (s1 * k1 * r2 - s2 * k2 * r1) % q
+            if den == 0:
+                continue
+            x = (num * inverse(den, q)) % q
+            # Verify: check if r1 == (g^k1 mod p) mod q
+            if pow(g, k1, p) % q == r1:
+                return x
+    return None
+```
+
+**Key insight:** Standard DSA nonce reuse attacks require k1 == k2. When k values are drawn from a small space (e.g., 1024 values), brute-force all (k1, k2) pairs across two signatures to solve the linear system for private key x.
+
+---
+
+## ECC Shared Prime Factor via GCD (ASIS CTF Finals 2016)
+
+Multiple ECC public keys generated with a flawed prime generator that filters `prime % 3 == 2`, reducing the keyspace enough for shared factors to appear.
+
+```python
+from math import gcd
+from Crypto.Util.number import inverse
+
+# Collect moduli from multiple ECC public keys
+moduli = [key.n for key in public_keys]
+
+# Find shared factors via pairwise GCD
+for i in range(len(moduli)):
+    for j in range(i + 1, len(moduli)):
+        g = gcd(moduli[i], moduli[j])
+        if 1 < g < moduli[i]:
+            p = g
+            q = moduli[i] // p
+            print(f"Key {i} factored: p={p}, q={q}")
+            # Now decrypt using recovered factors
+```
+
+**Key insight:** When a prime generator excludes primes based on modular conditions (e.g., `p % 3 == 2`), the reduced keyspace makes GCD collisions between independently generated keys much more likely. Always try pairwise GCD across multiple public keys.

@@ -11,6 +11,8 @@
 - [Keyboard Acoustic Side-Channel (ApoorvCTF 2026)](#keyboard-acoustic-side-channel-apoorvctf-2026)
 - [CD Audio Disc Image Steganography (BSidesSF 2026)](#cd-audio-disc-image-steganography-bsidessf-2026)
 - [Linux input_event Keylogger Dump Parsing (Pwn2Win 2016)](#linux-input_event-keylogger-dump-parsing-pwn2win-2016)
+- [I2C Bus Protocol Decoding (EKOPARTY CTF 2016)](#i2c-bus-protocol-decoding-ekoparty-ctf-2016)
+- [IBM-29 Punched Card OCR (EKOPARTY CTF 2016)](#ibm-29-punched-card-ocr-ekoparty-ctf-2016)
 
 ---
 
@@ -444,3 +446,105 @@ with open('dump.bin', 'rb') as f:
 **Key insight:** `/dev/input/event*` captures have a fixed 24-byte `struct input_event` format. Filter EV_KEY type with value=1 for key presses. Map codes using Linux kernel header `input-event-codes.h`.
 
 **Detection:** Binary file size divisible by 24. Challenge mentions keylogger, keyboard, or input device.
+
+---
+
+## I2C Bus Protocol Decoding (EKOPARTY CTF 2016)
+
+Logic analyzer captures of I2C (Inter-Integrated Circuit) bus communications. Decode SDA (data) and SCL (clock) signals to extract transmitted bytes.
+
+```python
+def decode_i2c(sda_signal, scl_signal):
+    """Decode I2C protocol from logic analyzer capture
+    Channel 0 = SDA (data), Channel 1 = SCL (clock)
+
+    I2C framing:
+    - START: SDA falls while SCL is high
+    - STOP: SDA rises while SCL is high
+    - Data: SDA sampled on SCL rising edge
+    - ACK: 9th bit (low = ACK, high = NACK)
+    """
+    bytes_out = []
+    current_byte = 0
+    bit_count = 0
+    in_frame = False
+
+    for i in range(len(scl_signal) - 1):
+        # Detect START condition
+        if sda_signal[i] == 1 and sda_signal[i+1] == 0 and scl_signal[i] == 1:
+            in_frame = True
+            bit_count = 0
+            current_byte = 0
+            continue
+
+        # Detect STOP condition
+        if sda_signal[i] == 0 and sda_signal[i+1] == 1 and scl_signal[i] == 1:
+            in_frame = False
+            continue
+
+        # Sample data on SCL rising edge
+        if in_frame and scl_signal[i] == 0 and scl_signal[i+1] == 1:
+            if bit_count < 8:
+                current_byte = (current_byte << 1) | sda_signal[i+1]
+                bit_count += 1
+            elif bit_count == 8:
+                bytes_out.append(current_byte)
+                bit_count = 0
+                current_byte = 0
+
+    return bytes_out
+
+# Tools: Saleae Logic 2, sigrok/PulseView, OLS (Open Logic Sniffer)
+# Import: File > Open Logic Sniffer capture
+# Decode: Analyzers > I2C > Set SDA/SCL channels
+```
+
+**Key insight:** I2C uses only 2 wires (SDA + SCL). START/STOP conditions occur when SDA changes while SCL is high. Data bits are sampled on SCL rising edges. Every 9th bit is an ACK. Use logic analyzer software (Saleae, sigrok) for automated decoding.
+
+---
+
+## IBM-29 Punched Card OCR (EKOPARTY CTF 2016)
+
+Decode IBM-29 keypunch card images by detecting hole positions in a standard 80-column x 12-row grid.
+
+```python
+from PIL import Image
+
+# IBM-29 character encoding: column punch pattern -> character
+IBM_029_MAP = {
+    (12,): 'A', (12,1): 'A', (12,2): 'B', (12,3): 'C',  # etc.
+    (11,): '-', (11,1): 'J', (11,2): 'K',  # etc.
+    (0,): '0', (1,): '1', (2,): '2',  # zone 0 + digit
+    # Full mapping: http://www.columbia.edu/cu/computinghistory/029.html
+}
+
+def decode_punched_card(image_path, cols=80, rows=12,
+                        x_spacing=7, y_spacing=20, x_offset=10, y_offset=10):
+    """Detect punches in card image and decode to text"""
+    img = Image.open(image_path).convert('L')
+    text = ""
+
+    for col in range(cols):
+        punches = []
+        for row in range(rows):
+            x = x_offset + col * x_spacing
+            y = y_offset + row * y_spacing
+            pixel = img.getpixel((x, y))
+            if pixel > 200:  # white = punched hole
+                punches.append(row)
+
+        if punches:
+            key = tuple(punches)
+            text += IBM_029_MAP.get(key, '?')
+        else:
+            text += ' '
+
+    return text
+
+# Process multiple card images
+for i in range(14):
+    card_text = decode_punched_card(f'card_{i:02d}.png')
+    print(f"Card {i}: {card_text}")
+```
+
+**Key insight:** IBM punched cards use a 12-row x 80-column grid. Each character is encoded by 1-3 holes in a column. The grid spacing varies by card reader/scanner resolution -- calibrate by measuring the distance between known reference holes. White/light pixels indicate punched holes.

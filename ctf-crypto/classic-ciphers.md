@@ -3,6 +3,7 @@
 ## Table of Contents
 - [Vigenere Cipher](#vigenere-cipher)
 - [Atbash Cipher](#atbash-cipher)
+- [Polybius Square Cipher (Qiwi-Infosec 2016)](#polybius-square-cipher-qiwi-infosec-2016)
 - [Substitution Cipher with Rotating Wheel](#substitution-cipher-with-rotating-wheel)
 - [Kasiski Examination for Key Length](#kasiski-examination-for-key-length)
 - [XOR Variants](#xor-variants)
@@ -129,6 +130,34 @@ def atbash(text):
 ```
 
 **Identification:** Challenge name hints ("Abashed" = Atbash), preserves spaces/punctuation, 1-to-1 substitution.
+
+---
+
+## Polybius Square Cipher (Qiwi-Infosec 2016)
+
+5x5 grid cipher where each letter maps to a two-digit coordinate (row, column). I/J typically share a cell.
+
+```python
+import string
+
+def polybius_decrypt(ciphertext, key="ABCDEFGHIKLMNOPQRSTUVWXYZ"):
+    """Decrypt Polybius square cipher (pairs of digits 1-5)"""
+    grid = {}
+    for i, ch in enumerate(key):
+        row, col = i // 5 + 1, i % 5 + 1
+        grid[(row, col)] = ch
+
+    digits = [int(d) for d in ciphertext if d.isdigit()]
+    plaintext = ""
+    for i in range(0, len(digits), 2):
+        plaintext += grid.get((digits[i], digits[i+1]), '?')
+    return plaintext
+
+# Example: "5211251521531412" -> pairs (5,2)(1,1)(2,5)(1,5)(2,1)(5,3)(1,4)(1,2)
+print(polybius_decrypt("5211251521531412"))
+```
+
+**Key insight:** Polybius ciphers produce digit-only ciphertext with values 1-5. The 5x5 grid merges I/J into one cell. Custom key alphabets change the grid layout but the two-digit coordinate structure remains constant.
 
 ---
 

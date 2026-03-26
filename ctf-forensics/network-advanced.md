@@ -13,6 +13,7 @@
 - [Timeroasting / MS-SNTP Hash Extraction (Midnight 2026)](#timeroasting--ms-sntp-hash-extraction-midnight-2026)
 - [ICMP Payload Steganography with Byte Rotation (HackIM 2016)](#icmp-payload-steganography-with-byte-rotation-hackim-2016)
 - [Packet Reconstruction via Checksum Validation (Break In 2016)](#packet-reconstruction-via-checksum-validation-break-in-2016)
+- [USB HID Keyboard Capture Decoding (EKOPARTY CTF 2016)](#usb-hid-keyboard-capture-decoding-ekoparty-ctf-2016)
 
 ---
 
@@ -503,6 +504,62 @@ for candidate in range(256):
 ```
 
 **Key insight:** Protocol checksums constrain missing data. For single missing bytes, brute-force is instant. For multiple missing bytes, use TCP sequence numbers and MAC/IP header structure to reduce the search space.
+
+---
+
+## USB HID Keyboard Capture Decoding (EKOPARTY CTF 2016)
+
+USB keyboard captures contain HID scan codes that map to keystrokes. Decode the capture to reconstruct typed text.
+
+```python
+# USB HID keyboard report format:
+# Byte 0: Modifier keys (Shift, Ctrl, Alt)
+# Byte 1: Reserved (0x00)
+# Bytes 2-7: Up to 6 simultaneous key codes
+
+# HID scan code to character mapping (partial)
+HID_MAP = {
+    0x04: 'a', 0x05: 'b', 0x06: 'c', 0x07: 'd', 0x08: 'e',
+    0x09: 'f', 0x0a: 'g', 0x0b: 'h', 0x0c: 'i', 0x0d: 'j',
+    0x0e: 'k', 0x0f: 'l', 0x10: 'm', 0x11: 'n', 0x12: 'o',
+    0x13: 'p', 0x14: 'q', 0x15: 'r', 0x16: 's', 0x17: 't',
+    0x18: 'u', 0x19: 'v', 0x1a: 'w', 0x1b: 'x', 0x1c: 'y',
+    0x1d: 'z', 0x1e: '1', 0x1f: '2', 0x20: '3', 0x21: '4',
+    0x22: '5', 0x23: '6', 0x24: '7', 0x25: '8', 0x26: '9',
+    0x27: '0', 0x28: '\n', 0x2c: ' ', 0x2d: '-', 0x2e: '=',
+    0x2f: '[', 0x30: ']', 0x33: ';', 0x34: "'", 0x36: ',',
+    0x37: '.', 0x38: '/',
+}
+
+SHIFT_MAP = {
+    'a': 'A', 'b': 'B', '1': '!', '2': '@', '3': '#', '4': '$',
+    '5': '%', '6': '^', '7': '&', '8': '*', '9': '(', '0': ')',
+    '-': '_', '=': '+', '[': '{', ']': '}', ';': ':', "'": '"',
+    ',': '<', '.': '>', '/': '?',
+}
+
+def decode_hid_keyboard(capture_data):
+    """Decode USB HID keyboard capture to text"""
+    text = ""
+    for report in capture_data:
+        modifier = report[0]
+        keycode = report[2]  # first key in report
+
+        if keycode == 0:
+            continue
+
+        char = HID_MAP.get(keycode, '')
+        if modifier & 0x22:  # Left or Right Shift
+            char = SHIFT_MAP.get(char, char.upper())
+
+        text += char
+    return text
+
+# Extract from Wireshark: tshark -r capture.pcapng -T fields -e usb.capdata
+# Or from text dump: parse +XX/-XX format (+ = keydown, - = keyup)
+```
+
+**Key insight:** USB HID keyboards send 8-byte reports where byte 0 is modifiers (Shift/Ctrl/Alt) and bytes 2-7 are active key scan codes. In Wireshark, filter with `usb.transfer_type == 1` and extract `usb.capdata`. Ignore reports where byte 2 is 0x00 (key release).
 
 ---
 

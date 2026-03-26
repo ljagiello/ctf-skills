@@ -15,6 +15,8 @@ Techniques specific to hiding data in image formats (JPEG, PNG, BMP, GIF). For n
 - [JPEG Slack Space Steganography (BSidesSF 2025)](#jpeg-slack-space-steganography-bsidessf-2025)
 - [Nearest-Neighbor Interpolation Steganography (BSidesSF 2025)](#nearest-neighbor-interpolation-steganography-bsidessf-2025)
 - [RGB Parity Steganography (Break In 2016)](#rgb-parity-steganography-break-in-2016)
+- [Pixel Coordinate Chain Steganography (H4ckIT CTF 2016)](#pixel-coordinate-chain-steganography-h4ckit-ctf-2016)
+- [AVI Frame Differential Pixel Steganography (H4ckIT CTF 2016)](#avi-frame-differential-pixel-steganography-h4ckit-ctf-2016)
 
 ---
 
@@ -453,3 +455,83 @@ out.save('hidden.png')
 **Key insight:** Unlike LSB (Least Significant Bit) stego (single channel, single bit), parity stego uses the combined sum of all channels. Look for challenge hints about "pairs", "couples", or "adding colors".
 
 **Detection:** Image appears normal but pixel RGB sums show non-random parity distribution.
+
+---
+
+## Pixel Coordinate Chain Steganography (H4ckIT CTF 2016)
+
+Each pixel encodes a data byte in the red channel and the coordinates of the next pixel to read in the green and blue channels, forming a linked-list traversal through the image.
+
+```python
+from PIL import Image
+
+def extract_coordinate_chain(image_path, start_x=0, start_y=0):
+    """Follow coordinate chain: R=data, G=next_x, B=next_y"""
+    img = Image.open(image_path)
+    flag = ""
+    x, y = start_x, start_y
+    visited = set()
+
+    while (x, y) not in visited:
+        visited.add((x, y))
+        r, g, b = img.getpixel((x, y))[:3]
+
+        if r == 0:  # null terminator
+            break
+
+        flag += chr(r)
+        x, y = g, b  # next pixel coordinates from green and blue channels
+
+    return flag
+
+# Variants:
+# - (R,G) = coordinates, B = data byte
+# - Coordinates stored as (G*256+B) for images wider than 256px
+# - Starting pixel indicated by metadata or known offset
+```
+
+**Key insight:** Linked-list pixel traversal hides both the message and the reading order. Standard LSB analysis misses this because only specific pixels carry data. Look for images where green/blue channels have suspiciously structured values (small numbers that could be coordinates).
+
+---
+
+## AVI Frame Differential Pixel Steganography (H4ckIT CTF 2016)
+
+Compare consecutive video frames pixel-by-pixel. Pixels that increment by exactly 1 encode a "1" bit; unchanged pixels encode "0". Collect bits to form a Brainfuck program or binary message.
+
+```python
+from PIL import Image
+import subprocess
+
+def extract_frame_differential(frame_dir, num_frames):
+    """Compare consecutive frames: incremented pixel = 1, same = 0"""
+    bits = ""
+
+    for i in range(num_frames - 1):
+        img1 = Image.open(f"{frame_dir}/frame_{i:04d}.png")
+        img2 = Image.open(f"{frame_dir}/frame_{i+1:04d}.png")
+
+        pixels1 = list(img1.getdata())
+        pixels2 = list(img2.getdata())
+
+        for p1, p2 in zip(pixels1, pixels2):
+            if p1 != p2:
+                # Pixel changed (incremented by 1) = bit "1"
+                bits += "1"
+            else:
+                bits += "0"
+
+    # Convert bits to ASCII or interpret as Brainfuck
+    message = ""
+    for i in range(0, len(bits), 8):
+        byte = int(bits[i:i+8], 2)
+        if 32 <= byte < 127:
+            message += chr(byte)
+
+    return message
+
+# Extract frames from AVI first:
+# binwalk video.avi  (extracts embedded PNG/BMP frames)
+# or: ffmpeg -i video.avi frame_%04d.png
+```
+
+**Key insight:** Frame differential steganography hides data in the temporal domain rather than spatial. Standard image stego tools analyze single frames and miss inter-frame changes. Extract all frames, then diff consecutive pairs looking for single-pixel-value increments.

@@ -1,0 +1,386 @@
+# CTF Reverse - Competition-Specific Patterns (Part 3)
+
+## Table of Contents
+- [Z3 for Single-Line Python Boolean Circuit (BearCatCTF 2026)](#z3-for-single-line-python-boolean-circuit-bearcatctf-2026)
+- [Sliding Window Popcount Differential Propagation (BearCatCTF 2026)](#sliding-window-popcount-differential-propagation-bearcatctf-2026)
+- [Morse Code from Keyboard LEDs via ioctl (PlaidCTF 2013)](#morse-code-from-keyboard-leds-via-ioctl-plaidctf-2013)
+- [C++ Destructor-Hidden Validation (Defcamp 2015)](#c-destructor-hidden-validation-defcamp-2015)
+- [Syscall Side-Effect Memory Corruption (Hack.lu 2015)](#syscall-side-effect-memory-corruption-hacklu-2015)
+- [MFC Dialog Event Handler Location (WhiteHat 2015)](#mfc-dialog-event-handler-location-whitehat-2015)
+- [VM Sequential Key-Chain Brute-Force (Midnight Flag 2026)](#vm-sequential-key-chain-brute-force-midnight-flag-2026)
+- [Burrows-Wheeler Transform Inversion without Terminator (ASIS CTF Finals 2016)](#burrows-wheeler-transform-inversion-without-terminator-asis-ctf-finals-2016)
+- [OpenType Font Ligature Exploitation for Hidden Messages (Hack The Vote 2016)](#opentype-font-ligature-exploitation-for-hidden-messages-hack-the-vote-2016)
+- [GLSL Shader VM with Self-Modifying Code (ApoorvCTF 2026)](#glsl-shader-vm-with-self-modifying-code-apoorvctf-2026)
+
+---
+
+## Z3 for Single-Line Python Boolean Circuit (BearCatCTF 2026)
+
+**Pattern (Captain Morgan):** Single-line Python (2000+ semicolons) validates flag via walrus operator chains decomposing input as a big-endian integer, with bitwise operations producing a boolean circuit.
+
+**Identification:**
+- Single-line Python with semicolons separating statements
+- Walrus operator `:=` chains: `(x := expr)`
+- Obfuscated XOR: `(x | i) & ~(x & i)` instead of `x ^ i`
+- Input treated as a single large integer, decomposed via bit-shifting
+
+**Z3 solution:**
+```python
+from z3 import *
+
+n_bytes = 29  # Flag length
+ari = BitVec('ari', n_bytes * 8)
+
+# Parse semicolon-separated statements
+# Model walrus chains as LShR(ari, shift_amount)
+# Evaluate boolean expressions symbolically
+# Final assertion: result_var == 0
+
+s = Solver()
+s.add(bfu == 0)  # Final validation variable
+if s.check() == sat:
+    m = s.model()
+    val = m[ari].as_long()
+    flag = val.to_bytes(n_bytes, 'big').decode('ascii')
+```
+
+**Key insight:** Single-line Python obfuscation creates a boolean circuit over input bits. The walrus operator chains are just variable assignments — split on semicolons and translate each to Z3 symbolically. Obfuscated XOR `(a | b) & ~(a & b)` is just `a ^ b`. Z3 solves these circuits in under a second. Look for `__builtins__` access or `ord()`/`chr()` calls to identify the input→integer conversion.
+
+**Detection:** Single-line Python with 1000+ semicolons, walrus operators, bitwise operations, and a final comparison to 0 or True.
+
+---
+
+## Sliding Window Popcount Differential Propagation (BearCatCTF 2026)
+
+**Pattern (Treasure Hunt 4):** Binary validates input via expected popcount (number of set bits) for each position of a 16-bit sliding window over the input bits.
+
+**Differential propagation:**
+When the window slides by 1 bit:
+```text
+popcount(window[i+1]) - popcount(window[i]) = bit[i+16] - bit[i]
+```
+So: `bit[i+16] = bit[i] + (data[i+1] - data[i])`
+
+```python
+expected = [...]  # 337 expected popcount values
+total_bits = 337 + 15  # = 352
+
+# Brute-force the initial 16-bit window (must have popcount = expected[0])
+for start_val in range(0x10000):
+    if bin(start_val).count('1') != expected[0]:
+        continue
+
+    bits = [0] * total_bits
+    for j in range(16):
+        bits[j] = (start_val >> (15 - j)) & 1
+
+    valid = True
+    for i in range(len(expected) - 1):
+        new_bit = bits[i] + (expected[i + 1] - expected[i])
+        if new_bit not in (0, 1):
+            valid = False
+            break
+        bits[i + 16] = new_bit
+
+    if valid:
+        # Convert bits to bytes
+        flag_bytes = bytes(int(''.join(map(str, bits[i:i+8])), 2)
+                          for i in range(0, total_bits, 8))
+        if b'BCCTF' in flag_bytes or flag_bytes[:5].isascii():
+            print(flag_bytes.decode(errors='replace'))
+            break
+```
+
+**Key insight:** Sliding window popcount differences create a recurrence relation: each new bit is determined by the bit 16 positions back plus the popcount delta. Only the first 16 bits are free (constrained by initial popcount). Brute-force the ~4000-8000 valid initial windows — for each, the entire bit sequence is deterministic. Runs in under a second.
+
+**Detection:** Binary computing popcount/hamming weight on fixed-size windows. Expected value array with length ≈ input_bits - window_size + 1. Values in array are small integers (0 to window_size).
+
+---
+
+---
+
+## Morse Code from Keyboard LEDs via ioctl (PlaidCTF 2013)
+
+**Pattern:** Binary uses `ioctl(fd, KDSETLED, value)` to blink keyboard LEDs (Num/Caps/Scroll Lock). Timing patterns encode Morse code.
+
+```bash
+# Step 1: Bypass ptrace anti-debug
+# Patch ptrace call at offset with NOP (0x90)
+python3 -c "
+data = open('binary','rb').read()
+data = data[:0x72b] + b'\x90'*5 + data[:0x730]  # NOP the ptrace call
+open('patched','wb').write(data)
+"
+
+# Step 2: Run under strace, capture ioctl calls
+strace -e ioctl ./patched 2>&1 | grep KDSETLED > leds.txt
+
+# Step 3: Decode timing patterns
+# Short blink (250ms) = dit (.), long blink (750ms) = dah (-)
+# Inter-character pause = 3x, inter-word pause = 7x
+```
+
+```python
+# Parse strace output to extract Morse
+import re
+morse_map = {'.-':'A', '-...':'B', '-.-.':'C', '-..':'D', '.':'E',
+             '..-.':'F', '--.':'G', '....':'H', '..':'I', '.---':'J',
+             '-.-':'K', '.-..':'L', '--':'M', '-.':'N', '---':'O',
+             '.--.':'P', '--.-':'Q', '.-.':'R', '...':'S', '-':'T',
+             '..-':'U', '...-':'V', '.--':'W', '-..-':'X', '-.--':'Y',
+             '--..':'Z', '-----':'0', '.----':'1'}
+# Map LED on-durations to dots/dashes, group by pauses
+```
+
+**Key insight:** `KDSETLED` controls physical keyboard LEDs on Linux (`/dev/console`). The binary must run with console access. Use `strace -e ioctl` to capture all LED state changes without needing physical observation. Timing between calls determines dot vs dash.
+
+---
+
+## C++ Destructor-Hidden Validation (Defcamp 2015)
+
+Validation logic may hide in C++ destructors that execute after `main()` returns. The `__cxa_atexit` mechanism registers destructor callbacks:
+
+1. **Locate destructors:** Search for `__cxa_atexit` calls in `.init_array`/constructor sections
+2. **Static analysis:** Identify global objects whose destructors perform flag checking
+3. **Dynamic verification:** Set breakpoints on `__cxa_finalize` to trace post-main execution
+
+```asm
+# In IDA/Ghidra: look for atexit registrations
+__cxa_atexit(destructor_func, object_ptr, dso_handle);
+
+# Destructor contains actual validation:
+# - Regex pattern matching on 4-byte blocks (8 sequential checks)
+# - Arithmetic: v2 += -3 * s[i] + 36 + (s[i] ^ 0x2FCFBA)
+# - Modular verification of accumulated sum
+```
+
+**Key insight:** When `main()` appears trivial or incomplete, check destructors of global/static C++ objects. The `.fini_array` section and `__cxa_atexit` registrations reveal hidden post-main logic.
+
+---
+
+## Syscall Side-Effect Memory Corruption (Hack.lu 2015)
+
+The `rt_sigprocmask` syscall writes a `sigset_t` structure to its output pointer. When input parsing passes a pointer near a security-critical variable:
+
+1. Certain input characters (e.g., `:` to `@` range, values 0x3A-0x40) trigger `rt_sigprocmask` as a side effect
+2. The syscall zeros out bytes at the output address, which may overlap adjacent variables
+3. In little-endian layout, zeroing the MSB of an adjacent integer variable effectively sets it to a small value
+
+```c
+// Memory layout (no ASLR):
+// 0x603390: input_buffer[4]
+// 0x603394: security_check_var
+
+// Input ':' triggers: rt_sigprocmask(SIG_BLOCK, NULL, (sigset_t*)0x603397, ...)
+// This zeros bytes at 0x603397+, corrupting security_check_var's high bytes
+```
+
+**Key insight:** Audit how input validation functions interact with syscalls. Character-to-syscall mappings in hex conversion routines can produce unintended memory writes via kernel-space operations.
+
+---
+
+## MFC Dialog Event Handler Location (WhiteHat 2015)
+
+To find event handlers in MFC (Microsoft Foundation Class) applications:
+
+1. **Break on SendMessageW:** Set breakpoint on `user32!SendMessageW` to intercept dialog messages
+2. **Filter for WM_COMMAND:** Message ID 0x111 indicates button clicks and control events
+3. **Trace message map:** Follow the MFC message dispatch from `CWnd::OnWndMsg` → `CCmdTarget::OnCmdMsg` → handler function
+4. **OnInitDialog:** Often contains decryption or validation setup; triggered by WM_INITDIALOG (0x110)
+
+```asm
+# WinDbg/x64dbg:
+bp user32!SendMessageW ".if (poi(@esp+8)==0x111) {} .else {gc}"
+# Or in IDA: find cross-references to AFX_MSGMAP_ENTRY structures
+```
+
+**Key insight:** MFC applications route messages through dispatch tables. Identify the `AFX_MSGMAP` structure to enumerate all handled messages without runtime analysis.
+
+---
+
+## VM Sequential Key-Chain Brute-Force (Midnight Flag 2026)
+
+**Pattern (67):** Custom VM validates input in N-byte blocks. Each block's output key feeds as input to the next block, preventing parallel solving. Per-block search space is small enough to brute-force (2^24 for 3-byte blocks).
+
+**Recognition signs:**
+- Bytecode with XOR-obfuscated opcodes (all bytes XOR'd with a constant, producing ASCII-looking bytecode)
+- Iterative transformation loop (xorshift + multiply, repeated 1000+ times) making algebraic inversion impractical
+- CHECK opcodes comparing accumulated state against embedded constants
+- Large `.data` section with repetitive bytecode patterns
+
+**Solving approach:**
+1. Parse bytecode to extract CHECK values (expected key after each block)
+2. For each block sequentially, brute-force the input bytes that produce the expected key
+3. Use the CHECK value as the key for the next block
+
+```c
+// OpenMP-parallelized per-block brute-force
+uint32_t process(uint32_t val) {
+    for (int i = 0; i < 1000; i++) {
+        val ^= (val << 13);
+        val ^= (val >> 17);
+        val ^= (val << 5);
+        val *= 0x2545f491;
+    }
+    return val;
+}
+
+int solve_block(uint32_t old_key, uint32_t expected_key, unsigned char *out) {
+    int found = 0;
+    #pragma omp parallel for shared(found)
+    for (int v = 0; v < 0x1000000; v++) {
+        if (found) continue;
+        uint32_t input_val = ((v >> 16) << 16) | (v & 0xFF) | ((v >> 8 & 0xFF) << 8);
+        uint32_t saved = input_val ^ old_key;
+        uint32_t final_val = process(saved);
+        if ((final_val ^ saved) == expected_key) {
+            #pragma omp critical
+            { if (!found) { out[0]=v>>16; out[1]=(v>>8)&0xFF; out[2]=v&0xFF; found=1; } }
+        }
+    }
+    return found;
+}
+// Compile: gcc -O3 -march=native -fopenmp -o solve solve.c
+```
+
+**Key insight:** When a transformation is intentionally non-invertible (iterated hash-like function), brute-force is the intended solution. OpenMP parallelization is critical — 287 blocks x 16.7M candidates each takes minutes parallelized vs hours single-threaded. The sequential key dependency means blocks must be solved in order, but each individual block search is embarrassingly parallel.
+
+---
+
+## Burrows-Wheeler Transform Inversion without Terminator (ASIS CTF Finals 2016)
+
+BWT applied to binary representation without a standard terminating character. Requires brute-force inversion by trying all possible original strings.
+
+```python
+def bwt_inverse_bruteforce(bwt_string):
+    """Invert BWT when no terminating character is present.
+    Standard BWT inverse needs the terminator position.
+    Without it, try all n possible rotations."""
+    n = len(bwt_string)
+
+    # Standard BWT inverse produces a table
+    table = [''] * n
+    for _ in range(n):
+        table = sorted([bwt_string[i] + table[i] for i in range(n)])
+
+    # Without terminator, all n rows are valid candidates
+    # Filter by known constraints (e.g., starts with '1' for binary, matches XOR pattern)
+    candidates = []
+    for row in table:
+        # Apply challenge-specific validation
+        if is_valid_plaintext(row):
+            candidates.append(row)
+
+    return candidates
+
+def bwt_with_xor_rounds(encrypted_hex, num_rounds):
+    """Multi-round BWT with XOR key derived from round index"""
+    data = bytes.fromhex(encrypted_hex)
+    for round_idx in range(num_rounds - 1, -1, -1):
+        # Each round: BWT on binary representation, then XOR with round-based key
+        binary_str = ''.join(format(b, '08b') for b in data)
+        candidates = bwt_inverse_bruteforce(binary_str)
+        # Select candidate matching constraints (leading '1', trailing bit rule)
+        data = select_valid_candidate(candidates, round_idx)
+    return data
+```
+
+**Key insight:** Standard BWT uses a terminating character (like '$') to mark the original string's position. Without it, BWT inversion produces n candidates (one per rotation). Use domain-specific constraints (binary format, XOR round structure, flag prefix) to identify the correct candidate.
+
+---
+
+## OpenType Font Ligature Exploitation for Hidden Messages (Hack The Vote 2016)
+
+Font files with custom OpenType ligatures map visible characters to hidden glyphs. The GSUB (Glyph Substitution) table defines these mappings.
+
+```python
+from fontTools.ttLib import TTFont
+
+def decode_font_ligatures(font_path, encoded_text):
+    """Extract ligature substitution table and decode message"""
+    font = TTFont(font_path)
+
+    # Extract GSUB table for ligature substitutions
+    gsub = font['GSUB']
+
+    # Navigate to ligature lookup
+    ligature_map = {}
+    for lookup in gsub.table.LookupList.Lookup:
+        for subtable in lookup.SubTable:
+            if hasattr(subtable, 'ligatures'):
+                for glyph_name, ligatures in subtable.ligatures.items():
+                    for lig in ligatures:
+                        # Map: input sequence -> output glyph
+                        input_seq = [glyph_name] + lig.Component
+                        output = lig.LigGlyph
+                        ligature_map[tuple(input_seq)] = output
+
+    print("Ligature mappings found:")
+    for inp, out in ligature_map.items():
+        print(f"  {inp} -> {out}")
+
+    # Alternative: convert TTF to XML for manual analysis
+    # font.saveXML('font_dump.xml')
+    # Search for <LigatureSubst> entries
+
+# Command-line approach:
+# pip install fonttools
+# ttx font.otf  # converts to XML
+# grep -A5 'LigatureSubst' font.ttx
+```
+
+**Key insight:** Custom fonts with GSUB ligature tables create a cipher where displayed characters differ from their glyph mappings. The `fonttools` library's `ttx` command dumps the font to XML, making ligature substitution tables easily readable. Each ligature maps an input character sequence to a different output glyph.
+
+---
+
+## GLSL Shader VM with Self-Modifying Code (ApoorvCTF 2026)
+
+**Pattern (Draw Me):** A WebGL2 fragment shader implements a Turing-complete VM on a 256x256 RGBA texture. The texture is both program memory and display output.
+
+**Texture layout:**
+- **Row 0:** Registers (pixel 0 = instruction pointer, pixels 1-32 = general purpose)
+- **Rows 1-127:** Program memory (RGBA = opcode, arg1, arg2, arg3)
+- **Rows 128-255:** VRAM (display output)
+
+**Opcodes:** NOP(0), SET(1), ADD(2), SUB(3), XOR(4), JMP(5), JNZ(6), VRAM-write(7), STORE(8), LOAD(9). 16 steps per frame.
+
+**Self-modifying code:** Phase 1 (decryption) uses STORE opcode to XOR-patch program memory that Phase 2 (drawing) then executes. The decryption overwrites SET instructions with correct pixel color values before the drawing code runs.
+
+**Why GPU rendering fails:** The GPU runs all pixels in parallel per frame, but the shader tracks only ONE write target per pixel per frame. With multiple VRAM writes per frame, only the last survives — losing 75%+ of pixels. Similarly, STORE patches conflict during parallel decryption.
+
+**Solve via sequential emulation:**
+```python
+from PIL import Image
+import numpy as np
+
+img = Image.open('program.png').convert('RGBA')
+state = np.array(img, dtype=np.int32).copy()
+regs = [0] * 33
+
+# Phase 1: Trace decryption — apply all STORE patches sequentially
+x, y = start_x, start_y
+while True:
+    r, g, b, a = state[y][x]
+    opcode = int(r)
+    if opcode == 1: regs[g] = b & 255           # SET
+    elif opcode == 4: regs[g] = regs[b] ^ regs[a]  # XOR
+    elif opcode == 8:                              # STORE — patches program memory
+        tx, ty = regs[g], regs[b]
+        state[ty][tx] = [regs[a], regs[a+1], regs[a+2], regs[a+3]]
+    elif opcode == 5: break                        # JMP to drawing phase
+    x += 1
+    if x > 255: x, y = 0, y + 1
+
+# Phase 2: Execute drawing code — all VRAM writes preserved
+vram = np.zeros((128, 256), dtype=np.uint8)
+# ... trace with opcode 7 writing to vram[ty][tx] = color
+Image.fromarray(vram, mode='L').save('output.png')
+```
+
+**Key insight:** GLSL shaders are Turing-complete but GPU parallelism causes write conflicts. Self-modifying code (STORE patches) compounds the problem — patches from parallel executions overwrite each other. Sequential emulation in Python recovers the full output. The program.png file IS the bytecode.
+
+**Detection:** WebGL/shader challenge with a PNG "program" file, challenge says "nothing renders" or output is garbled. Look for custom opcode tables in GLSL source.
+
+---
+
+See also: [patterns-ctf.md](patterns-ctf.md) for Part 1, [patterns-ctf-2.md](patterns-ctf-2.md) for Part 2 (multi-layer self-decrypting binary, embedded ZIP+XOR license, stack string deobfuscation, prefix hash brute-force, CVP/LLL lattice, decision tree obfuscation, GF(2^8) Gaussian elimination).

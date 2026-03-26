@@ -124,6 +124,14 @@ See [geolocation-and-media.md](geolocation-and-media.md).
 
 No auth needed. Endpoints: `public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=...`, `app.bsky.actor.searchActors`, `app.bsky.feed.getAuthorFeed`. Check all replies to official posts. See [social-media.md](social-media.md#unicode-homoglyph-steganography-on-bluesky-metactf-2026).
 
+## Shodan SSH Fingerprint Lookup
+
+Search Shodan by SSH host key fingerprint to identify servers: `shodan search "fingerprint:AA:BB:CC:..."`. See [web-and-dns.md](web-and-dns.md#shodan-ssh-fingerprint-lookup-ekoparty-ctf-2016).
+
+## Gaming Platform OSINT
+
+Lookup usernames across gaming platforms (Steam, Xbox, PSN, MMOs) for character profiles, activity, and linked accounts. See [social-media.md](social-media.md#gaming-platform-osint--mmo-character-lookup-csaw-ctf-2016).
+
 ## Resources
 
 - **Shodan** - Internet-connected devices

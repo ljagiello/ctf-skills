@@ -17,6 +17,9 @@
 - [HTTP File Upload Exfiltration in PCAP (MetaCTF 2026)](#http-file-upload-exfiltration-in-pcap-metactf-2026)
 - [TLS Master Key Extraction from Coredump (PlaidCTF 2014)](#tls-master-key-extraction-from-coredump-plaidctf-2014)
 - [Split Archive Reassembly from HTTP Transfers (ASIS CTF Finals 2013)](#split-archive-reassembly-from-http-transfers-asis-ctf-finals-2013)
+- [WPA/WEP WiFi Decryption from PCAP (DefCamp CTF 2016)](#wpawep-wifi-decryption-from-pcap-defcamp-ctf-2016)
+- [Corrupted PCAP Repair with pcapfix (CSAW CTF 2016)](#corrupted-pcap-repair-with-pcapfix-csaw-ctf-2016)
+- [SAP Dialog Protocol Decryption from PCAP (GreHack CTF 2016)](#sap-dialog-protocol-decryption-from-pcap-grehack-ctf-2016)
 
 ---
 
@@ -472,6 +475,117 @@ tshark -r capture.pcap -q -z "follow,tcp,ascii,0"
 ```
 
 **Key insight:** When PCAP contains many same-sized file transfers, suspect a split archive. The fragment order is not the download order — look for an Apache/nginx directory listing page in the PCAP whose modification timestamps provide the correct reassembly sequence. The smallest file is the trailing fragment.
+
+---
+
+## WPA/WEP WiFi Decryption from PCAP (DefCamp CTF 2016)
+
+Captured WiFi traffic in pcapng format can be decrypted if the WEP/WPA key is recovered through brute force or is known.
+
+```bash
+# Step 1: Identify encrypted WiFi networks in capture
+aircrack-ng capture.pcapng
+
+# Step 2: Crack WEP key (PTW attack or brute force)
+aircrack-ng -a 1 capture.pcapng                    # PTW attack (fast)
+aircrack-ng -a 1 -w wordlist.txt capture.pcapng     # dictionary attack
+
+# Step 3: Crack WPA/WPA2 key
+aircrack-ng -a 2 -w rockyou.txt capture.pcapng
+
+# Step 4: Decrypt traffic with recovered key
+airdecap-ng -w "recovered_key" capture.pcapng       # WEP
+airdecap-ng -p "passphrase" -e "SSID" capture.pcapng # WPA
+
+# Step 5: Analyze decrypted traffic
+# Output: capture-dec.pcapng (decrypted packets)
+wireshark capture-dec.pcapng
+
+# Alternative: decrypt directly in Wireshark
+# Edit > Preferences > Protocols > IEEE 802.11
+# Add decryption key (WEP/WPA-PWD/WPA-PSK)
+
+# Look for: HTTP traffic, IPP (printing), FTP, unencrypted protocols
+# Multiple password changes may require multiple decryption passes
+```
+
+**Key insight:** WiFi CTF challenges often have multiple encryption key changes throughout the capture. Decrypt, look for hints to the next password in the decrypted traffic, then decrypt the next segment. Check Internet Printing Protocol (IPP) streams for job-name fields containing flags.
+
+---
+
+## Corrupted PCAP Repair with pcapfix (CSAW CTF 2016)
+
+Corrupted packet capture files can be repaired to make them openable in Wireshark.
+
+```bash
+# Install pcapfix
+# apt install pcapfix  (or brew install pcapfix)
+
+# Repair corrupted pcap/pcapng file
+pcapfix -d corrupted.pcap        # basic repair with verbose output
+pcapfix -d corrupted.pcapng      # also handles pcapng format
+
+# Output: fixed_corrupted.pcap (repaired file)
+
+# Common corruption types pcapfix handles:
+# - Broken file header (magic bytes)
+# - Truncated packets
+# - Invalid packet lengths
+# - Missing packet headers
+# - Wrong byte order
+# - Damaged section headers (pcapng)
+
+# If pcapfix fails, try manual repair:
+python3 -c "
+import struct
+with open('corrupted.pcap', 'rb') as f:
+    data = bytearray(f.read())
+
+# Fix pcap magic bytes (0xa1b2c3d4 for microsecond, 0xa1b23c4d for nanosecond)
+data[0:4] = struct.pack('<I', 0xa1b2c3d4)
+
+# Fix version (2.4)
+data[4:6] = struct.pack('<H', 2)
+data[6:8] = struct.pack('<H', 4)
+
+with open('fixed.pcap', 'wb') as f:
+    f.write(data)
+"
+
+# Then open in Wireshark
+wireshark fixed_corrupted.pcap
+```
+
+**Key insight:** Damaged PCAPs are common in forensics CTF challenges. Always try `pcapfix` first -- it handles most corruption automatically. For manual repair, the pcap header is 24 bytes: magic(4) + version(4) + timezone(4) + sigfigs(4) + snaplen(4) + linktype(4).
+
+---
+
+## SAP Dialog Protocol Decryption from PCAP (GreHack CTF 2016)
+
+SAP Dialog frames in network captures can be decrypted using Cain and Abel on Windows.
+
+```bash
+# SAP Dialog protocol uses weak obfuscation (not true encryption)
+# Step 1: Open PCAP in Wireshark to identify SAP traffic
+# Filter: sap or tcp.port == 3200
+
+# Step 2: Use Cain and Abel (Windows tool) for decryption
+# - Import PCAP into Cain's Sniffer tab
+# - Select SAP Dialog entries
+# - Right-click > View to decrypt frames
+# - Search with Ctrl+F for keywords (flag, key, password)
+
+# Alternative: Use SAP Dissector plugin for Wireshark
+# - Install: apt install wireshark-plugin-sap (if available)
+# - Or: https://github.com/SecureAuthCorp/SAP-Dissection-plug-in-for-Wireshark
+
+# Manual approach using pysap:
+# pip install pysap
+from pysap import SAPDiag
+# Parse SAP Dialog packets from PCAP
+```
+
+**Key insight:** SAP Dialog protocol's "encryption" is simple obfuscation easily reversed. Cain and Abel (Windows) has built-in SAP Dialog decryption. For Linux, use pysap or SAP Wireshark dissector plugins.
 
 ---
 

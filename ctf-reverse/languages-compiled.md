@@ -18,6 +18,7 @@
 - [Kotlin / JVM Binary Reversing](#kotlin--jvm-binary-reversing)
   - [JVM Bytecode (Android/Server)](#jvm-bytecode-androidserver)
   - [Kotlin/Native](#kotlinnative)
+- [D Language Binary Reversing (CSAW CTF 2016)](#d-language-binary-reversing-csaw-ctf-2016)
 - [C++ Binary Reversing (Quick Reference)](#c-binary-reversing-quick-reference)
   - [vtable Reconstruction](#vtable-reconstruction)
   - [RTTI (Run-Time Type Information)](#rtti-run-time-type-information)
@@ -400,6 +401,45 @@ strings binary | grep "konan"
 ```
 
 **Detection:** `kotlin.Metadata` annotations (JVM), `konan` strings (Native), `kotlin/` package paths.
+
+---
+
+## D Language Binary Reversing (CSAW CTF 2016)
+
+D language binaries have unique symbol mangling different from C++. Template instantiation at compile-time produces many function variants.
+
+```bash
+# Recognition: D binaries use different mangling than C++
+# Symbols contain "_D" prefix and numeric length-prefixed names
+# Example: _D4mainQaFNaNbNfZv
+
+# Symbol demangling:
+# GDB: set language d
+# Radare2: export names show demangled D symbols
+# Online: dlang.org/phobos/core_demangle.html
+
+# Common D binary patterns:
+# - Templates instantiated at compile-time: enc!("111"), enc!("222"), ...
+# - Garbage collector references (GC.malloc, GC.free)
+# - Phobos standard library functions (_D3std...)
+# - String processing: std.string, std.conv.to
+
+# Reversing a D cipher (XOR with cycling key):
+def reverse_d_cipher(encrypted, num_functions=500):
+    """D binaries may chain multiple transformation functions.
+    Each function XORs with key character, then XORs with key length.
+    Process in reverse order."""
+    result = encrypted[:]
+    for i in range(num_functions - 1, -1, -1):
+        key = str(i) * 3  # e.g., "499499499" for function enc!("499")
+        key_len = len(key)
+        for j in range(len(result)):
+            result[j] ^= key_len
+            result[j] ^= ord(key[j % key_len])
+    return bytes(result)
+```
+
+**Key insight:** D binaries are rare in CTFs but identifiable by `_D` symbol prefixes and Phobos library references. The compile-time template system means D functions may be duplicated hundreds of times with different parameters — look for patterns like `enc!("N")` where N varies.
 
 ---
 
