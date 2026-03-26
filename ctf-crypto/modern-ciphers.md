@@ -1,6 +1,6 @@
 # CTF Crypto - Modern Cipher Attacks
 
-Block cipher attacks, MAC forgery, padding oracles, and hash-based attacks. For stream cipher attacks (LFSR, RC4, XOR), see [stream-ciphers.md](stream-ciphers.md).
+Block cipher attacks, MAC forgery, padding oracles, and authenticated encryption. For hash/signature attacks (hash extension, PBKDF2, MD5 collision, Rabin, ECB oracles), see [modern-ciphers-2.md](modern-ciphers-2.md). For stream cipher attacks (LFSR, RC4, XOR), see [stream-ciphers.md](stream-ciphers.md).
 
 ## Table of Contents
 - [AES-CFB-8 Static IV State Forging](#aes-cfb-8-static-iv-state-forging)
@@ -18,8 +18,9 @@ Block cipher attacks, MAC forgery, padding oracles, and hash-based attacks. For 
 - [CBC Padding Oracle Attack](#cbc-padding-oracle-attack)
 - [Bleichenbacher / PKCS#1 v1.5 RSA Padding Oracle](#bleichenbacher--pkcs1-v15-rsa-padding-oracle)
 - [Birthday Attack / Meet-in-the-Middle](#birthday-attack--meet-in-the-middle)
+- [CRC32 Collision-Based Signature Forgery (iCTF 2013)](#crc32-collision-based-signature-forgery-ictf-2013)
 
-See also [modern-ciphers-2.md](modern-ciphers-2.md) for CRC32 forgery, Blum-Goldwasser, hash length extension, compression oracle, hash time reversal, OFB invertible RNG, weak key derivation, HMAC-CRC, DES weak keys, SRP bypass, modified AES S-Box, and square attack.
+See also [modern-ciphers-2.md](modern-ciphers-2.md) for CRC32 forgery, Blum-Goldwasser, hash length extension, compression oracle, hash time reversal, OFB invertible RNG, weak key derivation, HMAC-CRC, DES weak keys, SRP bypass, modified AES S-Box, square attack, AES-ECB byte-at-a-time, AES-ECB cut-and-paste, AES-CBC IV bit-flip, Rabin LSB parity oracle, PBKDF2 pre-hash bypass, MD5 multi-collision, custom hash state reversal, and CRC32 brute-force.
 
 ---
 
@@ -417,3 +418,30 @@ def meet_in_the_middle(encrypt_fn, decrypt_fn, plaintext, ciphertext, keyspace):
 ```
 
 **Key insight:** Birthday attack: n-bit hash needs ~2^(n/2) queries for 50% collision probability. 32-bit hash -> ~65K, 64-bit -> ~4 billion. Meet-in-the-middle reduces double encryption from O(2^(2k)) to O(2^k) time + O(2^k) space — this is why 2DES provides only 1 extra bit of security over DES.
+
+---
+
+## CRC32 Collision-Based Signature Forgery (iCTF 2013)
+
+**Pattern:** CRC32 is linear — appending 4 carefully chosen bytes to any message produces a target CRC32 value, enabling signature forgery without knowing the secret key.
+
+**Key insight:** `CRC32(msg || secret)` is not a secure MAC. Given any signed response `(msg, sig)`, compute 4 suffix bytes that force `CRC32(forged_msg || suffix || secret) == target_sig`. The linearity of CRC32 means the suffix computation is deterministic and instant.
+
+```python
+import struct, binascii
+
+def crc32_forge(data, target_crc):
+    """Append 4 bytes to data so CRC32(data + suffix) == target_crc"""
+    current = binascii.crc32(data) & 0xFFFFFFFF
+    # CRC32 polynomial table lookup to find suffix bytes
+    # that transform current CRC into target_crc
+    suffix = b''
+    crc = target_crc ^ 0xFFFFFFFF
+    for _ in range(4):
+        byte = (crc & 0xFF)
+        crc = (crc >> 8)
+        suffix = bytes([byte]) + suffix
+    return data + suffix  # Simplified — full implementation requires polynomial division
+```
+
+**When to use:** Any protocol using CRC32 as a message authentication code (MAC). CRC32 is a checksum, not a cryptographic hash — it provides no integrity guarantees against adversarial modification.

@@ -1,6 +1,6 @@
 # CTF Crypto - Modern Cipher Attacks (Continued)
 
-Hash-based attacks, protocol-level exploits, and specialized cipher weaknesses. For core AES/CBC/padding oracle techniques, see [modern-ciphers.md](modern-ciphers.md). For stream cipher attacks (LFSR, RC4, XOR), see [stream-ciphers.md](stream-ciphers.md).
+Hash-based attacks, protocol-level exploits, ECB oracles, Rabin/RSA parity attacks, and specialized cipher weaknesses. For core AES/CBC/padding oracle techniques, see [modern-ciphers.md](modern-ciphers.md). For stream cipher attacks (LFSR, RC4, XOR), see [stream-ciphers.md](stream-ciphers.md).
 
 ## Table of Contents
 - [CRC32 Collision-Based Signature Forgery (iCTF 2013)](#crc32-collision-based-signature-forgery-ictf-2013)
@@ -15,6 +15,14 @@ Hash-based attacks, protocol-level exploits, and specialized cipher weaknesses. 
 - [SRP (Secure Remote Password) Protocol Bypass via Modular Arithmetic (ASIS CTF Finals 2016)](#srp-secure-remote-password-protocol-bypass-via-modular-arithmetic-asis-ctf-finals-2016)
 - [Modified AES S-Box Brute-Force Recovery (H4ckIT CTF 2016)](#modified-aes-s-box-brute-force-recovery-h4ckit-ctf-2016)
 - [Square Attack on Reduced-Round AES (0CTF 2016)](#square-attack-on-reduced-round-aes-0ctf-2016)
+- [AES-ECB Byte-at-a-Time Chosen Plaintext (ABCTF 2016)](#aes-ecb-byte-at-a-time-chosen-plaintext-abctf-2016)
+- [AES-ECB Cut-and-Paste Block Manipulation (NDH Quals 2016)](#aes-ecb-cut-and-paste-block-manipulation-ndh-quals-2016)
+- [AES-CBC IV Bit-Flip Authentication Bypass (Google CTF 2016)](#aes-cbc-iv-bit-flip-authentication-bypass-google-ctf-2016)
+- [Rabin Cryptosystem LSB Parity Oracle (PlaidCTF 2016)](#rabin-cryptosystem-lsb-parity-oracle-plaidctf-2016)
+- [PBKDF2 Pre-Hash Bypass for Long Passwords (BackdoorCTF 2016)](#pbkdf2-pre-hash-bypass-for-long-passwords-backdoorctf-2016)
+- [MD5 Multi-Collision via Fastcol (BackdoorCTF 2016)](#md5-multi-collision-via-fastcol-backdoorctf-2016)
+- [Custom Hash State Reversal via Known Intermediates (BackdoorCTF 2016)](#custom-hash-state-reversal-via-known-intermediates-backdoorctf-2016)
+- [CRC32 Brute-Force for Small Payloads (BackdoorCTF 2016)](#crc32-brute-force-for-small-payloads-backdoorctf-2016)
 
 ---
 
@@ -264,6 +272,25 @@ plaintext = cipher.decrypt(ct_body)
 
 ---
 
+## Square Attack on Reduced-Round AES (0CTF 2016)
+
+**Pattern:** 4-round AES is vulnerable to the square (integral) attack. Choose 256 plaintexts differing in one byte (a "lambda set"). After 3 rounds, the XOR sum at any byte position equals 0. Guess one byte of the last round key and partially decrypt -- if XOR sum is 0, the guess is correct.
+
+```python
+# For each byte position in the last round key:
+for candidate in range(256):
+    xor_sum = 0
+    for ct in ciphertexts:
+        xor_sum ^= inv_sub_bytes(ct[pos] ^ candidate)
+    if xor_sum == 0:
+        key_byte = candidate  # correct guess
+# Reduces 2^128 key recovery to ~16 * 256 = 4096 operations
+```
+
+**Key insight:** Integral cryptanalysis exploits the "balanced" property (XOR-sum = 0) that propagates through AES rounds. Effective against 4-round AES; 5+ rounds require more sophisticated variants.
+
+---
+
 ## SRP (Secure Remote Password) Protocol Bypass via Modular Arithmetic (ASIS CTF Finals 2016)
 
 SRP implementations that only check `A != 0` and `A != N` can be bypassed by sending `A = 2*N`, causing the server to compute a zero session key.
@@ -321,19 +348,237 @@ void bruteforce_sbox(uint8_t ciphertext[], uint8_t key[], int ct_len) {
 
 ---
 
-## Square Attack on Reduced-Round AES (0CTF 2016)
+## AES-ECB Byte-at-a-Time Chosen Plaintext (ABCTF 2016)
 
-**Pattern:** 4-round AES is vulnerable to the square (integral) attack. Choose 256 plaintexts differing in one byte (a "lambda set"). After 3 rounds, the XOR sum at any byte position equals 0. Guess one byte of the last round key and partially decrypt -- if XOR sum is 0, the guess is correct.
+**Pattern (Encryption Service):** Server encrypts `user_input || secret_suffix` under AES-ECB. Recover the secret suffix one byte at a time by controlling the input length.
+
+1. Send inputs of decreasing length to push one unknown byte into a known block position
+2. For each position, try all 256 byte values and compare the encrypted block:
 
 ```python
-# For each byte position in the last round key:
-for candidate in range(256):
-    xor_sum = 0
-    for ct in ciphertexts:
-        xor_sum ^= inv_sub_bytes(ct[pos] ^ candidate)
-    if xor_sum == 0:
-        key_byte = candidate  # correct guess
-# Reduces 2^128 key recovery to ~16 * 256 = 4096 operations
+from pwn import *
+import cryptanalib as ca  # FeatherDuster's cryptanalib
+
+def oracle(pt):
+    """Send plaintext, receive ECB-encrypted ciphertext."""
+    r = remote('target', 7765)
+    r.recvuntil('Send me some hex-encoded data to encrypt:\n')
+    r.sendline(pt.hex())
+    r.recvuntil('Here you go:')
+    ct = bytes.fromhex(r.recvline().strip().decode())
+    r.close()
+    return ct
+
+# Automated byte-at-a-time recovery
+flag = ca.ecb_cpa_decrypt(oracle, block_size=16, verbose=True)
+print(flag)
 ```
 
-**Key insight:** Integral cryptanalysis exploits the "balanced" property (XOR-sum = 0) that propagates through AES rounds. Effective against 4-round AES; 5+ rounds require more sophisticated variants.
+**Manual approach without library:**
+```python
+block_size = 16
+known = b''
+
+for i in range(len(secret)):
+    # Pad so next unknown byte is at end of a block
+    pad_len = block_size - 1 - (len(known) % block_size)
+    pad = b'A' * pad_len
+
+    # Get target block
+    target_ct = oracle(pad)
+    target_block_idx = (pad_len + len(known)) // block_size
+    target_block = target_ct[target_block_idx*16:(target_block_idx+1)*16]
+
+    # Try all 256 byte values
+    for byte_val in range(256):
+        test = pad + known + bytes([byte_val])
+        test_ct = oracle(test)
+        if test_ct[target_block_idx*16:(target_block_idx+1)*16] == target_block:
+            known += bytes([byte_val])
+            break
+```
+
+**Key insight:** ECB mode encrypts identical plaintext blocks to identical ciphertext blocks. By controlling the prefix length, the attacker shifts one unknown byte at a time to a position where it completes a known block prefix. Comparing the target ciphertext block against all 256 possibilities recovers each byte in at most 256 queries. Total queries: ~256 * secret_length. Tool: FeatherDuster's `cryptanalib.ecb_cpa_decrypt()` automates this completely.
+
+---
+
+## AES-ECB Cut-and-Paste Block Manipulation (NDH Quals 2016)
+
+**Pattern (Toil33t):** Server encrypts JSON session data in AES-ECB mode. Fields like `is_admin: false` span predictable block boundaries. Construct chosen plaintext blocks via registration, then splice ciphertext blocks to change `false` to `true`.
+
+1. Detect ECB mode: register with repeating username (e.g., 'A' * 64), look for identical ciphertext blocks
+2. Map block boundaries by varying username length until block count changes
+3. Determine field ordering by independently varying username and email lengths
+4. Craft target block containing `true` by aligning it at a block boundary via padding:
+
+```python
+# Align "true" at start of a block using space padding (JSON ignores whitespace)
+# Original:  {"username": "AA", "is_admin": false, "email": ""}
+# Target:    {"username": "AA", "is_admin":            true, "email": ""}
+#                                              ^-- 16-byte block boundary
+
+# Get the "            true" block from:
+username = "AAA" + " " * 12 + "true"
+# Extract block 2 of the resulting ciphertext
+
+# Get prefix blocks from a short username
+# Get suffix block from a padded username
+# Concatenate: prefix_blocks + true_block + suffix_block
+```
+
+**Key insight:** AES-ECB encrypts each 16-byte block independently with no chaining. Identical plaintext blocks produce identical ciphertext blocks, allowing block-level cut-and-paste. JSON's tolerance for extra whitespace enables block alignment without breaking parsing. The attack requires: (a) detecting ECB via repeated blocks, (b) mapping field layout via length probing, (c) crafting and splicing blocks.
+
+---
+
+## AES-CBC IV Bit-Flip Authentication Bypass (Google CTF 2016)
+
+**Pattern (Eucalypt Forest):** Server encrypts JSON session blob under AES-CBC and returns both IV and ciphertext as a cookie. No integrity check (no MAC/HMAC). Flip bits in the IV to change the first plaintext block.
+
+1. Register with username one bit away from target (e.g., `` `dmin `` instead of `admin` — flip LSB of 'a')
+2. Identify the IV byte position corresponding to the target character in the first block
+3. Flip the same bit in the IV byte — XOR propagates directly to the plaintext:
+
+```python
+import binascii
+cookie = binascii.unhexlify(auth_cookie)
+iv = bytearray(cookie[:16])
+ciphertext = cookie[16:]
+
+# Flip LSB of byte at position where 'a'/'`' appears in first block
+# Position depends on JSON structure: {"username":"`dmin"}
+# 'a' (0x61) vs '`' (0x60) differ only in bit 0
+target_pos = 13  # position of first char of username in block
+iv[target_pos] ^= 0x01
+
+forged = binascii.hexlify(bytes(iv) + ciphertext)
+```
+
+**Key insight:** AES-CBC decryption XORs the previous ciphertext block (or IV for block 0) with the AES-decrypted block. Flipping bit `i` in the IV flips bit `i` in the first plaintext block with no other side effects. This only works when the server performs no integrity verification (no HMAC, AEAD, or authenticated encryption).
+
+---
+
+## Rabin Cryptosystem LSB Parity Oracle (PlaidCTF 2016)
+
+**Pattern (rabit):** Server encrypts flag with the Rabin cryptosystem (`c = m^2 mod n`) and provides an LSB oracle — for any ciphertext, it returns the least significant bit of the decrypted plaintext. Binary search recovers the full plaintext in `log2(n)` queries.
+
+```python
+from Crypto.Util.number import long_to_bytes
+
+def lsb_oracle_attack(enc_flag, N, oracle_fn):
+    """Recover plaintext from Rabin/RSA LSB oracle via binary search."""
+    lower = 0
+    upper = N
+    C = enc_flag
+    # Rabin: encrypt(2,N) = 4; multiplying ciphertext by 4 doubles plaintext
+    e2 = pow(2, 2, N)  # For Rabin; use pow(2, e, N) for RSA
+
+    for i in range(N.bit_length()):
+        C = (e2 * C) % N  # Multiply plaintext by 2
+        lsb = oracle_fn(C)
+        if lsb == 1:
+            # 2*m > N (odd remainder after mod), increase lower bound
+            lower = (upper + lower) // 2
+        else:
+            # 2*m < N (even remainder), decrease upper bound
+            upper = (upper + lower) // 2
+        # Progressive decryption visible:
+        print(long_to_bytes(upper))
+    return upper
+```
+
+**Key insight:** Rabin (and textbook RSA) are multiplicatively homomorphic: multiplying ciphertext by `2^e mod N` doubles the plaintext mod N. Since N is odd, doubling causes a modular wraparound iff the plaintext exceeds `N/2`, which changes the LSB parity. This creates a binary search: each oracle query halves the candidate range, recovering the full plaintext in exactly `log2(N)` queries (~1024 for RSA-1024).
+
+---
+
+## PBKDF2 Pre-Hash Bypass for Long Passwords (BackdoorCTF 2016)
+
+**Pattern (Mindblown):** PBKDF2 (and HMAC generally) pre-hashes passwords longer than the hash block size (64 bytes for SHA-1/SHA-256). If the target password exceeds 64 bytes, `PBKDF2(password)` equals `PBKDF2(SHA1(password))`, enabling authentication with the hash instead of the original password.
+
+```python
+import hashlib
+
+original_password = "complexPasswordWhichContainsManyCharactersWithRandomSuffixeghjrjg"
+# len > 64, so HMAC pre-hashes it
+equivalent = hashlib.sha1(original_password.encode()).digest()
+# Login with equivalent — PBKDF2 produces the same derived key
+```
+
+**Key insight:** HMAC's inner construction is `H((K XOR ipad) || message)`. When the key (password) exceeds the hash block size, HMAC first reduces it via `K = H(password)`. This means `HMAC(long_password, ...)` equals `HMAC(H(long_password), ...)`. Any system using PBKDF2/HMAC with a `!==` identity check after hash comparison is vulnerable when passwords exceed 64 bytes. This is a HMAC specification behavior, not an implementation bug.
+
+---
+
+## MD5 Multi-Collision via Fastcol (BackdoorCTF 2016)
+
+**Pattern (Forge):** Generate 2^k files with identical MD5 hashes by chaining `fastcol` (Marc Stevens' tool). Each run produces two suffixes (A, B) that when appended yield the same MD5. Chain 3 runs to produce 8 collisions:
+
+```text
+[prefix][suffix1A][suffix2A][suffix3A]  \
+[prefix][suffix1A][suffix2A][suffix3B]   |
+[prefix][suffix1A][suffix2B][suffix3A]   |-- all have same MD5
+[prefix][suffix1A][suffix2B][suffix3B]   |
+[prefix][suffix1B][suffix2A][suffix3A]   |
+[prefix][suffix1B][suffix2B][suffix3B]  /
+```
+
+```bash
+# Install: git clone https://github.com/cr-marcstevens/hashclash
+# Generate one collision pair (~minutes on modern CPU):
+./fastcol -o suffix1A.bin suffix1B.bin < prefix.bin
+# Chain: append suffix1A to prefix, run fastcol again for suffix2A/2B, etc.
+```
+
+**Key insight:** MD5 collision generation is practical with `fastcol` (~minutes per pair). Because MD5 uses Merkle-Damgard construction, collisions compose: if `H(A||X) == H(A||Y)`, then `H(A||X||Z) == H(A||Y||Z)` for any suffix Z. Chaining k collision pairs produces 2^k files with identical MD5. For CRC32 collisions, append bytes after PNG IEND chunk (parsers ignore trailing data) and brute-force the 4-byte CRC adjustment.
+
+---
+
+## Custom Hash State Reversal via Known Intermediates (BackdoorCTF 2016)
+
+**Pattern (Collision Course):** Custom hash processes 4-byte blocks, updating state with XOR and rotations. If intermediate states are printed, reverse each block's hash by computing `hash(block) = s(i) XOR ROL(s(i+1), 7)`. Then brute-force 4-byte printable inputs matching each hash value.
+
+```python
+def reverse_hash_states(states):
+    """Given intermediate hash states, recover per-block hash values."""
+    blocks = []
+    for i in range(len(states) - 1):
+        # state_update: s(i+1) = ROR(s(i) ^ hash(block), 7)
+        # Therefore:    hash(block) = s(i) ^ ROL(s(i+1), 7)
+        h = states[i] ^ rol32(states[i+1], 7)
+        blocks.append(h)
+    return blocks
+
+def rol32(val, n):
+    return ((val << n) | (val >> (32 - n))) & 0xFFFFFFFF
+
+# Brute-force printable 4-byte blocks matching each hash
+import itertools, string
+for target_hash in block_hashes:
+    for chars in itertools.product(string.printable, repeat=4):
+        block = bytes(ord(c) for c in chars)
+        if custom_hash(block) == target_hash:
+            print(f"Found: {block}")
+            break
+```
+
+**Key insight:** When a custom hash function leaks intermediate states (after each block), each block becomes an independent 4-byte brute-force problem (~2^32 worst case, reduced to ~10^8 for printable ASCII). Inverting the state update equation isolates per-block targets. This pattern appears whenever iterative hashes expose partial state.
+
+---
+
+## CRC32 Brute-Force for Small Payloads (BackdoorCTF 2016)
+
+**Pattern (CRC):** Encrypted ZIP files store CRC32 of uncompressed contents. For very small files (5 bytes), brute-force all printable 5-character strings, compute CRC32, and match against the stored value. Multiple matches are common but context resolves ambiguity.
+
+```python
+import binascii, itertools, string, zipfile
+
+# Extract CRC from ZIP without decrypting
+with zipfile.ZipFile('encrypted.zip') as z:
+    crc = z.infolist()[0].CRC
+
+# Brute-force 5-byte printable content
+for chars in itertools.product(string.printable[:95], repeat=5):
+    candidate = ''.join(chars).encode()
+    if binascii.crc32(candidate) & 0xFFFFFFFF == crc:
+        print(f"Match: {candidate}")
+```
+
+**Key insight:** CRC32 stored in ZIP headers is not encrypted — it's always accessible even for password-protected ZIPs. For small files (≤ 6 bytes of printable ASCII), the search space is feasible. A C implementation is ~100x faster than Python. Multiple CRC collisions are expected for 5+ byte payloads; combine with language analysis or cross-reference multiple encrypted files to disambiguate.
