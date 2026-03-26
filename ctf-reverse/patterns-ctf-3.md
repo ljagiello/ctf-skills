@@ -11,6 +11,7 @@
 - [Burrows-Wheeler Transform Inversion without Terminator (ASIS CTF Finals 2016)](#burrows-wheeler-transform-inversion-without-terminator-asis-ctf-finals-2016)
 - [OpenType Font Ligature Exploitation for Hidden Messages (Hack The Vote 2016)](#opentype-font-ligature-exploitation-for-hidden-messages-hack-the-vote-2016)
 - [GLSL Shader VM with Self-Modifying Code (ApoorvCTF 2026)](#glsl-shader-vm-with-self-modifying-code-apoorvctf-2026)
+- [Instruction Counter as Cryptographic State (MetaCTF Flash 2026)](#instruction-counter-as-cryptographic-state-metactf-flash-2026)
 
 ---
 
@@ -382,5 +383,69 @@ Image.fromarray(vram, mode='L').save('output.png')
 **Detection:** WebGL/shader challenge with a PNG "program" file, challenge says "nothing renders" or output is garbled. Look for custom opcode tables in GLSL source.
 
 ---
+
+## Instruction Counter as Cryptographic State (MetaCTF Flash 2026)
+
+**Pattern (Who's Counting?):** Hand-written assembly binary uses a dedicated register (e.g., `r12`) as an instruction counter that increments after nearly every instruction. The counter value feeds into XOR, ROL, and multiply transformations on each input byte, making the entire transformation path-dependent on the number of instructions executed before reaching each byte.
+
+**Identification:**
+- Hand-written assembly (no compiler patterns, unusual register usage)
+- A register that only increments (`inc r12` or `add r12, 1`) appearing after most instructions
+- Transformations that reference this counter register (`xor rax, r12`, `rol al, cl` where `cl` derives from counter)
+- Sequential byte processing loop where state carries forward
+
+**Solving approach:**
+```python
+# Byte-by-byte brute force with emulation
+# Since each byte's transformation depends on the counter (which depends
+# on all prior instructions), state is path-dependent.
+
+from unicorn import *
+from unicorn.x86_const import *
+
+def try_byte(known_prefix, candidate_byte):
+    """Emulate binary with known prefix + candidate, check output."""
+    uc = Uc(UC_ARCH_X86, UC_MODE_64)
+    # Map code, stack, data segments
+    uc.mem_map(CODE_BASE, 0x10000)
+    uc.mem_write(CODE_BASE, binary_code)
+    uc.mem_map(STACK_BASE, 0x10000)
+    uc.mem_map(DATA_BASE, 0x10000)
+
+    # Write input: known_prefix + candidate
+    test_input = known_prefix + bytes([candidate_byte])
+    uc.mem_write(DATA_BASE, test_input + b'\x00' * (64 - len(test_input)))
+
+    # Set up registers (rsp, rdi pointing to input, r12 = 0)
+    uc.reg_write(UC_X86_REG_RSP, STACK_BASE + 0x8000)
+    uc.reg_write(UC_X86_REG_R12, 0)  # instruction counter starts at 0
+
+    try:
+        uc.emu_start(CODE_BASE + ENTRY_OFFSET, CODE_BASE + EXIT_OFFSET)
+        # Read transformed output, compare against expected
+        output = uc.mem_read(OUTPUT_ADDR, len(test_input))
+        return output[:len(test_input)] == expected[:len(test_input)]
+    except:
+        return False
+
+# Recover flag byte by byte
+flag = b''
+for pos in range(FLAG_LEN):
+    for b in range(256):
+        if try_byte(flag, b):
+            flag += bytes([b])
+            print(f"Position {pos}: {chr(b)} -> {flag}")
+            break
+```
+
+**Key insight:** When a register acts as an instruction counter feeding into byte transformations, the transformation of byte N depends on the exact number of instructions executed while processing bytes 0 through N-1. This makes analytical inversion impractical because the counter value at each byte position depends on the execution path through all prior bytes. Byte-by-byte brute force with full emulation (Unicorn or GDB scripting) is the most reliable approach -- try all 256 values for each position, keeping the state from the correct prefix.
+
+**When to recognize:** Binary has no standard library calls, uses unusual registers consistently, and shows a register that only increments. The transformation per byte involves operations (XOR, rotate, multiply) that reference this counter. Challenge name hints at "counting" or "instructions".
+
+**Alternative approaches:**
+- GDB scripting: set breakpoint after each byte's transformation, compare output
+- Static analysis: count instructions manually to compute counter values, then invert transforms algebraically (error-prone due to counter accumulation)
+
+**References:** MetaCTF Flash CTF 2026 "Who's Counting?"
 
 See also: [patterns-ctf.md](patterns-ctf.md) for Part 1, [patterns-ctf-2.md](patterns-ctf-2.md) for Part 2 (multi-layer self-decrypting binary, embedded ZIP+XOR license, stack string deobfuscation, prefix hash brute-force, CVP/LLL lattice, decision tree obfuscation, GF(2^8) Gaussian elimination).

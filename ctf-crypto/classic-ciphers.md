@@ -17,6 +17,7 @@
 - [Variable-Length Homophonic Substitution (ASIS CTF Finals 2013)](#variable-length-homophonic-substitution-asis-ctf-finals-2013)
 - [Grid Permutation Cipher Keyspace Reduction (BSidesSF 2026)](#grid-permutation-cipher-keyspace-reduction-bsidessf-2026)
 - [Image-Based Caesar Shift Ciphers (BSidesSF 2026)](#image-based-caesar-shift-ciphers-bsidessf-2026)
+- [XOR Key Recovery via File Format Headers (MetaCTF Flash 2026)](#xor-key-recovery-via-file-format-headers-metactf-flash-2026)
 
 ---
 
@@ -478,3 +479,62 @@ print(flag)
 **Key insight:** Image pixel shifts are a visual form of Caesar cipher. When comparing an original and shifted image, the shift amount per row/column directly encodes hidden data. Always compare row-by-row or column-by-column when given two versions of the same image.
 
 **When to recognize:** Challenge provides one or two image files with visible horizontal or vertical "shearing" artifacts. If an original image is provided alongside a shifted version, compute per-row or per-column offsets and check if they decode as ASCII.
+
+---
+
+## XOR Key Recovery via File Format Headers (MetaCTF Flash 2026)
+
+**Pattern (In The Door):** A file claims to be a known format (e.g., PDF, PNG, ZIP) but `file` reports it as "data". The file has been XOR-encrypted with a repeating key. Recover the key by XOR-ing the encrypted bytes against the expected file format header, then extend the key using known structural elements at the end of the file.
+
+```python
+# Step 1: XOR first bytes against expected header to derive key start
+encrypted = open('encrypted.pdf', 'rb').read()
+
+# PDF files always start with %PDF-1.
+expected_header = b'%PDF-1.'
+key_start = bytes(a ^ b for a, b in zip(encrypted[:len(expected_header)], expected_header))
+print(f"Key prefix: {key_start}")  # e.g., b'h4ck4ll'
+
+# Step 2: Extend key using known trailer structures
+# PDF files end with %%EOF (possibly followed by newline)
+# Try known trailer patterns at the end of the file
+pdf_trailers = [b'%%EOF\n', b'%%EOF\r\n', b'%%EOF']
+for trailer in pdf_trailers:
+    tail = encrypted[-len(trailer):]
+    key_tail = bytes(a ^ b for a, b in zip(tail, trailer))
+    print(f"Key tail candidate: {key_tail}")
+
+# Step 3: Once key length is known, combine fragments
+# Common structures to anchor: 'startxref', 'trailer', 'endobj'
+key = b'h4ck4llth3cryp70'  # 16-byte repeating key
+key_len = len(key)
+
+# Step 4: Decrypt entire file
+decrypted = bytes(encrypted[i] ^ key[i % key_len] for i in range(len(encrypted)))
+with open('decrypted.pdf', 'wb') as f:
+    f.write(decrypted)
+
+# Verify
+import subprocess
+result = subprocess.run(['file', 'decrypted.pdf'], capture_output=True, text=True)
+print(result.stdout)  # Should show: PDF document
+```
+
+**Key insight:** Every file format has known byte sequences at fixed positions -- magic bytes at the start, structural markers throughout, and trailer signatures at the end. XOR with a repeating key is fully recoverable when you know enough plaintext at known offsets. For a key of length N, you need N bytes of known plaintext at known positions (they need not be contiguous, but you must know their offset modulo the key length).
+
+**Common file format anchors for key recovery:**
+
+| Format | Header | Trailer/Footer |
+|--------|--------|----------------|
+| PDF | `%PDF-1.` | `%%EOF` |
+| PNG | `\x89PNG\r\n\x1a\n` | `IEND\xaeB\x60\x82` |
+| ZIP | `PK\x03\x04` | `PK\x05\x06` (EOCD) |
+| JPEG | `\xff\xd8\xff\xe0` | `\xff\xd9` |
+| ELF | `\x7fELF` | -- |
+| GIF | `GIF89a` or `GIF87a` | `\x3b` (trailer) |
+
+**When to recognize:** Challenge provides a file that should be a known format (filename extension or description says so) but `file` reports "data" or wrong type. Hex dump shows no recognizable magic bytes. XOR the first few bytes against the expected header -- if the result looks like an ASCII string or repeating pattern, it is a repeating XOR key.
+
+**Determining key length:** If the header-derived key fragment repeats or the key is a readable string, try common lengths (8, 16, 32). Alternatively, XOR the file against itself shifted by candidate key lengths and look for low-entropy output (many null bytes indicate correct shift = key length).
+
+**References:** MetaCTF Flash CTF 2026 "In The Door"

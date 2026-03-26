@@ -11,6 +11,7 @@
 - [Anti-Carving via Null Byte Interleaving (BSidesSF 2024)](#anti-carving-via-null-byte-interleaving-bsidessf-2024)
 - [BTRFS Subvolume/Snapshot Recovery (BSidesSF 2026)](#btrfs-subvolumesnapshot-recovery-bsidessf-2026)
 - [FAT16 Free Space Data Recovery (BSidesSF 2026)](#fat16-free-space-data-recovery-bsidessf-2026)
+- [FAT16 Deleted File Recovery via Sleuth Kit (MetaCTF Flash 2026)](#fat16-deleted-file-recovery-via-sleuth-kit-metactf-flash-2026)
 - [Ext2 Orphaned Inode Recovery via fsck (BSidesSF 2026)](#ext2-orphaned-inode-recovery-via-fsck-bsidessf-2026)
 
 ---
@@ -366,6 +367,40 @@ with open("disk.img", "rb") as f:
 **When to recognize:** Challenge provides a filesystem image. Mounting shows nothing useful, but `file` identifies it as FAT16/FAT32. Volume label or challenge description hints at "free space", "deleted", or "hidden in plain sight".
 
 **References:** BSidesSF 2026 "freeflag"
+
+---
+
+## FAT16 Deleted File Recovery via Sleuth Kit (MetaCTF Flash 2026)
+
+**Pattern (rm -rf flag.png):** A file has been deleted from a FAT16 filesystem image. The file's data and cluster chain remain intact, but the directory entry's first byte is replaced with `0xE5` (the FAT deletion marker). Sleuth Kit's `fls` and `icat` recover the file by inode.
+
+```bash
+# Step 1: Identify the filesystem
+file flash.img
+# flash.img: DOS/MBR boot sector, code offset 0x3e+2, ... FAT (16 bit) ...
+
+# Step 2: List all files including deleted ones (-d = deleted only, -r = recursive)
+fls -r -d flash.img
+# r/r * 4:    _lag.png    (first char replaced by FAT deletion marker)
+
+# Step 3: Recover the deleted file by its inode number
+icat flash.img 4 > recovered_flag.png
+
+# Step 4: Verify recovery
+file recovered_flag.png
+# recovered_flag.png: PNG image data, 800 x 600, 8-bit/color RGBA
+```
+
+**Key insight:** FAT16/FAT32 deletion only marks the directory entry's first byte as `0xE5` and marks clusters as free in the FAT table, but the actual file data remains on disk until overwritten. The filename appears scrambled (e.g., `flag.png` becomes `_lag.png`), but `fls -d` lists deleted entries and `icat` extracts the full file by following the original cluster chain. This is more targeted than free space carving because it preserves the original file boundaries.
+
+**When to recognize:** Challenge provides a FAT filesystem image with a deleted file. The challenge name or description hints at deletion (`rm`, `deleted`, `removed`). Mount shows the file is missing, but `fls` reveals the deleted directory entry.
+
+**Alternative approaches:**
+- `foremost` / `scalpel` for carving without filesystem awareness
+- `fatcat` for low-level FAT manipulation
+- Manual hex editing: search for `0xE5` entries in directory clusters
+
+**References:** MetaCTF Flash CTF 2026 "rm -rf flag.png"
 
 ---
 
