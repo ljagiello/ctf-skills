@@ -30,15 +30,19 @@ jobs:
 
       - name: Find skills to audit
         id: list
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             SKILL_FILES=$(find . -name SKILL.md -not -path './.git/*' | sort)
             LABEL="All skills"
           else
-            if [ "${{ github.event_name }}" = "pull_request" ]; then
-              CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || echo "")
+            if [ "$EVENT_NAME" = "pull_request" ]; then
+              CHANGED=$(git diff --name-only "origin/$BASE_REF"...HEAD 2>/dev/null || echo "")
             else
-              BEFORE='${{ github.event.before }}'
+              BEFORE="$PUSH_BEFORE"
               if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
                 CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null || echo "")
               else
