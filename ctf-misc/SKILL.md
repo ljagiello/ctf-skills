@@ -12,6 +12,23 @@ metadata:
 
 Quick reference for miscellaneous CTF challenges. Each technique has a one-liner here; see supporting files for full details.
 
+## Prerequisites
+
+**Python packages (all platforms):**
+```bash
+pip install z3-solver pwntools scapy Pillow numpy requests dnslib
+```
+
+**Linux (apt):**
+```bash
+apt install ffmpeg qrencode sagemath
+```
+
+**macOS (Homebrew):**
+```bash
+brew install ffmpeg qrencode sagemath
+```
+
 ## Additional Resources
 
 - [pyjails.md](pyjails.md) - Python jail/sandbox escape techniques, quine context detection, restricted character repunit decomposition, func_globals module chain traversal, restricted charset number generation, class attribute persistence

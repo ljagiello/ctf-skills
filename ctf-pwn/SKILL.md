@@ -12,6 +12,32 @@ metadata:
 
 Quick reference for binary exploitation (pwn) CTF challenges. Each technique has a one-liner here; see supporting files for full details.
 
+## Prerequisites
+
+**Python packages (all platforms):**
+```bash
+pip install pwntools ropper ROPgadget
+```
+
+**Linux (apt):**
+```bash
+apt install gdb binutils strace ltrace qemu-system-x86
+```
+
+**macOS (Homebrew):**
+```bash
+brew install gdb binutils qemu
+```
+
+**Ruby gems (all platforms):**
+```bash
+gem install one_gadget seccomp-tools
+```
+
+**Manual install:**
+- pwndbg — [GitHub](https://github.com/pwndbg/pwndbg), GDB plugin for exploit development
+- checksec — included with pwntools
+
 ## Additional Resources
 
 - [overflow-basics.md](overflow-basics.md) - Stack/global buffer overflow, ret2win, canary bypass, canary byte-by-byte brute force on forking servers, struct pointer overwrite, signed integer bypass, hidden gadgets, stride-based OOB read leak, parser stack overflow via unchecked memcpy length with callee-saved register restoration

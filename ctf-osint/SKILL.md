@@ -12,6 +12,23 @@ metadata:
 
 Quick reference for OSINT CTF challenges. Each technique has a one-liner here; see supporting files for full details.
 
+## Prerequisites
+
+**Python packages (all platforms):**
+```bash
+pip install shodan requests dnspython Pillow
+```
+
+**Linux (apt):**
+```bash
+apt install whois dnsutils nmap libimage-exiftool-perl imagemagick curl
+```
+
+**macOS (Homebrew):**
+```bash
+brew install whois bind nmap exiftool imagemagick curl
+```
+
 ## Additional Resources
 
 - [social-media.md](social-media.md) - Twitter/X (user IDs, Snowflake timestamps, Nitter, memory.lol, Wayback CDX), Tumblr (blog checks, post JSON, avatars), BlueSky search + API, Unicode homoglyph steganography, Discord API, username OSINT (namechk, whatsmyname, Osint Industries), username metadata mining (postal codes), platform false positives, multi-platform chains, Strava fitness route OSINT

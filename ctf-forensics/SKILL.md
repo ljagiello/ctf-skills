@@ -12,6 +12,30 @@ metadata:
 
 Quick reference for forensics CTF challenges. Each technique has a one-liner here; see supporting files for full details.
 
+## Prerequisites
+
+**Python packages (all platforms):**
+```bash
+pip install volatility3 Pillow numpy matplotlib
+```
+
+**Linux (apt):**
+```bash
+apt install binwalk foremost libimage-exiftool-perl tshark sleuthkit \
+  ffmpeg steghide testdisk john pcapfix
+```
+
+**macOS (Homebrew):**
+```bash
+brew install binwalk exiftool wireshark sleuthkit ffmpeg steghide \
+  testdisk john-jumbo
+```
+
+**Ruby gems (all platforms):**
+```bash
+gem install zsteg
+```
+
 ## Additional Resources
 
 - [3d-printing.md](3d-printing.md) - 3D printing forensics (PrusaSlicer binary G-code, QOIF, heatshrink)
