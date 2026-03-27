@@ -23,6 +23,11 @@ Hash-based attacks, protocol-level exploits, ECB oracles, Rabin/RSA parity attac
 - [MD5 Multi-Collision via Fastcol (BackdoorCTF 2016)](#md5-multi-collision-via-fastcol-backdoorctf-2016)
 - [Custom Hash State Reversal via Known Intermediates (BackdoorCTF 2016)](#custom-hash-state-reversal-via-known-intermediates-backdoorctf-2016)
 - [CRC32 Brute-Force for Small Payloads (BackdoorCTF 2016)](#crc32-brute-force-for-small-payloads-backdoorctf-2016)
+- [Noisy RSA LSB Oracle with Post-Hoc Error Correction (SharifCTF 7 2016)](#noisy-rsa-lsb-oracle-with-post-hoc-error-correction-sharifctf-7-2016)
+- [Sponge Hash Collision via Meet-in-the-Middle on Partial State (BKP 2017)](#sponge-hash-collision-via-meet-in-the-middle-on-partial-state-bkp-2017)
+- [CBC IV Forgery + Block Truncation for Authentication Bypass (0CTF 2017)](#cbc-iv-forgery--block-truncation-for-authentication-bypass-0ctf-2017)
+- [Padding Oracle to CBC Bitflip Command Injection (BSidesSF 2017)](#padding-oracle-to-cbc-bitflip-command-injection-bsidessf-2017)
+- [SPN Cipher Partial Key Recovery via S-box Intersection (SharifCTF 7 2016)](#spn-cipher-partial-key-recovery-via-s-box-intersection-sharifctf-7-2016)
 
 ---
 
@@ -582,3 +587,128 @@ for chars in itertools.product(string.printable[:95], repeat=5):
 ```
 
 **Key insight:** CRC32 stored in ZIP headers is not encrypted — it's always accessible even for password-protected ZIPs. For small files (≤ 6 bytes of printable ASCII), the search space is feasible. A C implementation is ~100x faster than Python. Multiple CRC collisions are expected for 5+ byte payloads; combine with language analysis or cross-reference multiple encrypted files to disambiguate.
+
+---
+
+## Noisy RSA LSB Oracle with Post-Hoc Error Correction (SharifCTF 7 2016)
+
+**Pattern:** Extension of the RSA LSB oracle binary search when the oracle occasionally returns incorrect results. Run the standard LSB oracle attack, then inspect decoded bytes. Non-ASCII or unexpected charset values indicate an oracle error within the last ~8 bits. Try single bit-flips at nearby oracle positions; the correct flip fixes the entire remaining decryption.
+
+```python
+def lsb_oracle_attack(ciphertext, e, n, oracle_fn, flips=None):
+    """Recover plaintext from RSA LSB oracle, with optional error correction."""
+    flips = flips or []
+    lower, upper = 0, n
+    mult = 1
+    for i in range(n.bit_length()):
+        ciphertext = (ciphertext * pow(2, e, n)) % n
+        result = oracle_fn(ciphertext)
+        if i in flips:
+            result = not result  # correct known oracle error
+        mid = (lower + upper) // 2
+        if result == 0:
+            upper = mid
+        else:
+            lower = mid
+    return lower
+```
+
+**Key insight:** Sparse oracle errors produce localized corruption in the recovered plaintext. By inspecting character validity (e.g., expecting hex digits), the error position can be identified and corrected by flipping the oracle result at that query index.
+
+---
+
+## Sponge Hash Collision via Meet-in-the-Middle on Partial State (BKP 2017)
+
+**Pattern:** A custom sponge hash uses AES with a known key, XORing 10-byte message blocks into a 16-byte state. Since only 10 of 16 state bytes are controllable per block, a direct preimage requires ~2^48 work. Meet-in-the-middle reduces this: precompute 2^24 forward AES encryptions keyed on their last 6 bytes, then search backward decryptions for matches in those 6 bytes.
+
+```python
+from Crypto.Cipher import AES
+import os
+
+aes = AES.new(b'\x00' * 16, AES.MODE_ECB)
+forward = {}
+
+# Forward: compute AES(random_10_bytes || 0x00*6), key on last 6 bytes
+for _ in range(2**24):
+    block = os.urandom(10) + b'\x00' * 6
+    enc = aes.encrypt(block)
+    forward[enc[-6:]] = block
+
+# Backward: compute AES_dec(target XOR random_c), check last 6 bytes
+target_state = b'\x77\x40\x56\x0a\x1d\x64'  # target hash
+for _ in range(2**40):
+    c_block = os.urandom(10) + target_state
+    dec = aes.decrypt(c_block)
+    if dec[-6:] in forward:
+        a_block = forward[dec[-6:]]
+        b_block = xor(aes.encrypt(a_block), dec)  # middle block
+        break
+```
+
+**Key insight:** When a sponge rate is smaller than the state size, the uncontrolled bytes create a meet-in-the-middle opportunity. Precompute one direction, search the other — reducing 2^48 to 2^24 space + 2^24 time.
+
+---
+
+## CBC IV Forgery + Block Truncation for Authentication Bypass (0CTF 2017)
+
+**Pattern:** Service encrypts `MD5(padded_name) || padded_name` with AES-CBC. The MD5 serves as an integrity check on login. Two attacks combine: (1) IV manipulation: XOR IV bytes to change the decrypted first block from the source MD5 to the target MD5. (2) Block truncation: register with `pad("admin") + 16_junk_bytes`, then strip trailing ciphertext blocks — AES-CBC has no length field, so shorter ciphertext decrypts validly if PKCS7 padding is correct.
+
+```python
+# Forge IV to flip MD5 from registered user to "admin"
+source_md5 = md5(pad("admin") + b"A"*16)
+target_md5 = md5(pad("admin"))
+new_iv = bytes(a ^ b ^ c for a, b, c in zip(original_iv, source_md5, target_md5))
+
+# Strip last 2 blocks (junk + PKCS padding block)
+forged_token = new_iv + ciphertext[16:-32]
+```
+
+**Key insight:** AES-CBC decryption has no built-in length integrity. Truncating ciphertext blocks from the end is valid as long as the new last block decrypts to valid PKCS7 padding. Combined with IV manipulation of block 0, this forges arbitrary first-block content.
+
+---
+
+## Padding Oracle to CBC Bitflip Command Injection (BSidesSF 2017)
+
+**Pattern:** Encrypted commands passed via URL parameter. Error messages reveal padding validity (padding oracle). Chain two attacks: (1) Padding oracle recovers the plaintext of the encrypted command. (2) CBC bitflipping modifies a ciphertext block to inject shell metacharacters (`;$(cmd)`) into the decrypted command, achieving RCE through crypto manipulation alone.
+
+```python
+# Step 1: Padding oracle recovers plaintext
+plaintext = padding_oracle_decrypt(ciphertext, oracle_fn)
+
+# Step 2: CBC bitflip — modify block N-1 to change decrypted block N
+target_block = 5
+desired = b';$(cat *.txt)   '  # 16 bytes, pad with spaces
+original = plaintext[target_block * 16:(target_block + 1) * 16]
+ct = bytearray(bytes.fromhex(ciphertext))
+for i in range(16):
+    ct[(target_block - 1) * 16 + i] ^= original[i] ^ desired[i]
+forged = ct.hex()
+```
+
+**Key insight:** Padding oracle and CBC bitflipping are usually taught separately. Chaining them converts a pure cryptographic weakness into full command injection: the oracle recovers plaintext needed to compute the XOR mask, and the bitflip injects the payload.
+
+---
+
+## SPN Cipher Partial Key Recovery via S-box Intersection (SharifCTF 7 2016)
+
+**Pattern:** A 3-round substitution-permutation network with 36-bit blocks and 6-bit S-boxes. Attack using chosen-plaintext pairs: for each pair of 6-bit sub-keys (rounds 2 and 3), partially decrypt through the last two rounds and check if the intermediate S-box input matches. Intersecting candidate key sets across ~200 plaintext-ciphertext pairs uniquely identifies each 6-bit sub-key, reducing a 108-bit brute force to six independent 12-bit searches.
+
+```python
+def recover_subkeys(pairs, sbox, perm):
+    """Recover 6-bit subkeys via intersection across plaintext-ciphertext pairs."""
+    for sbox_pos in range(6):  # 6 S-boxes per round
+        candidates = None
+        for pt, ct in pairs:
+            valid = set()
+            for k2 in range(64):  # 6-bit subkey round 2
+                for k3 in range(64):  # 6-bit subkey round 3
+                    # Partial decrypt through rounds 3 and 2
+                    intermediate = inv_sbox[ct_bits[sbox_pos] ^ k3]
+                    intermediate = inv_perm(intermediate)
+                    if inv_sbox[intermediate ^ k2] == expected_from_pt:
+                        valid.add((k2, k3))
+            candidates = valid if candidates is None else candidates & valid
+        assert len(candidates) == 1  # unique key pair
+```
+
+**Key insight:** SPN structures allow divide-and-conquer key recovery. Each S-box position can be attacked independently, and the intersection of valid key candidates across multiple plaintext-ciphertext pairs converges to a unique solution.

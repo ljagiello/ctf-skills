@@ -14,6 +14,9 @@
 - [ICMP Payload Steganography with Byte Rotation (HackIM 2016)](#icmp-payload-steganography-with-byte-rotation-hackim-2016)
 - [Packet Reconstruction via Checksum Validation (Break In 2016)](#packet-reconstruction-via-checksum-validation-break-in-2016)
 - [USB HID Keyboard Capture Decoding (EKOPARTY CTF 2016)](#usb-hid-keyboard-capture-decoding-ekoparty-ctf-2016)
+- [dnscat2 Traffic Reassembly from DNS PCAP (BSidesSF 2017)](#dnscat2-traffic-reassembly-from-dns-pcap-bsidessf-2017)
+- [USB Keyboard LED Morse Code Exfiltration (BITSCTF 2017)](#usb-keyboard-led-morse-code-exfiltration-bitsctf-2017)
+- [Unreferenced PDF Objects with Hidden Pages (SharifCTF 7 2016)](#unreferenced-pdf-objects-with-hidden-pages-sharifctf-7-2016)
 
 ---
 
@@ -560,6 +563,97 @@ def decode_hid_keyboard(capture_data):
 ```
 
 **Key insight:** USB HID keyboards send 8-byte reports where byte 0 is modifiers (Shift/Ctrl/Alt) and bytes 2-7 are active key scan codes. In Wireshark, filter with `usb.transfer_type == 1` and extract `usb.capdata`. Ignore reports where byte 2 is 0x00 (key release).
+
+---
+
+## dnscat2 Traffic Reassembly from DNS PCAP (BSidesSF 2017)
+
+**Pattern (dnscap):** Extract data tunneled via dnscat2 from a DNS pcap. Decode base32 subdomain labels from DNS queries, strip the 9-byte dnscat2 protocol header from each chunk, deduplicate retransmitted packets by comparing consecutive queries, then reassemble the payload (e.g., PNG image).
+
+```python
+from scapy.all import rdpcap, DNSQR
+
+packets = rdpcap('capture.pcap')
+domain = '.skullseclabs.org.'
+prev = None
+data = b''
+
+for p in packets:
+    if not p.haslayer(DNSQR):
+        continue
+    qname = p[DNSQR].qname.decode()
+    if domain not in qname:
+        continue
+    # Strip domain, join hex-encoded labels
+    labels = qname.replace(domain, '').split('.')
+    chunk = bytes.fromhex(''.join(labels))
+    chunk = chunk[9:]  # strip 9-byte dnscat2 header
+    if chunk == prev:
+        continue  # skip retransmission
+    prev = chunk
+    data += chunk
+
+with open('extracted.png', 'wb') as f:
+    f.write(data)
+```
+
+**Key insight:** dnscat2 encodes data in DNS query subdomain labels (hex or base32). Each query carries a 9-byte header (session ID, sequence, acknowledgment). Retransmissions are common — deduplicate by comparing consecutive payloads. The reassembled stream may contain files (PNG, documents) identifiable by magic bytes.
+
+---
+
+## USB Keyboard LED Morse Code Exfiltration (BITSCTF 2017)
+
+**Pattern (Ghost in the Machine):** A pcap of USB keyboard traffic contains host-to-device packets with alternating `0x01`/`0x03` values controlling the Caps Lock LED state. Timing differences between LED state changes encode Morse code: durations >300ms represent dashes, shorter durations represent dots. Decode the Morse sequence to recover the flag.
+
+```python
+from scapy.all import rdpcap
+import struct
+
+packets = rdpcap('usb_capture.pcap')
+signals = []
+
+for p in packets:
+    raw = bytes(p)
+    # USB HID SET_REPORT to keyboard (host -> device)
+    if len(raw) >= 35 and raw[30] in (0x01, 0x03):
+        timestamp = p.time
+        led_state = raw[30]  # 0x01 = LED off, 0x03 = LED on
+        signals.append((timestamp, led_state))
+
+# Convert timing to Morse
+morse = ''
+for i in range(0, len(signals) - 1, 2):
+    duration = signals[i+1][0] - signals[i][0]
+    if duration > 0.3:
+        morse += '-'
+    else:
+        morse += '.'
+    # Gap between signals indicates letter/word boundary
+```
+
+**Key insight:** Data exfiltration via keyboard LED state changes captured in USB pcap. The LED control packets use HID SET_REPORT class requests. Timing analysis of on/off transitions reveals Morse code patterns. Tools: Wireshark USB dissector, filter on `usb.transfer_type == 0x02` (interrupt) and direction host→device.
+
+---
+
+## Unreferenced PDF Objects with Hidden Pages (SharifCTF 7 2016)
+
+**Pattern (Strange PDF):** A PDF contains objects not referenced by the page tree. To reveal hidden content: (1) examine raw PDF objects with `qpdf --show-xref` or a text editor, (2) identify unreferenced content stream objects, (3) modify the `/Kids` array in the Pages object to include hidden page references, (4) increment the `/Count` value, (5) re-render the PDF to display previously hidden pages containing flag data.
+
+```bash
+# List all objects in the PDF
+qpdf --show-xref suspicious.pdf
+
+# Find pages object and hidden content objects
+strings suspicious.pdf | grep -E '/Type /Page|/Contents|/Kids'
+
+# Manual fix: edit PDF to add hidden page references
+# Change: /Kids [1 0 R]  ->  /Kids [1 0 R 5 0 R]
+# Change: /Count 1  ->  /Count 2
+# Rewrite xref table or use qpdf --linearize to fix offsets
+qpdf --linearize modified.pdf fixed.pdf
+```
+
+**Key insight:** PDF viewers only render pages reachable from the `/Pages` tree root. Unreferenced objects are invisible but still present in the file. Check object cross-references: any content stream object not in `/Kids` may contain hidden data. `mutool clean -d` and `qpdf --show-object N` help inspect individual objects.
 
 ---
 

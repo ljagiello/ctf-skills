@@ -12,6 +12,8 @@
 - [OpenType Font Ligature Exploitation for Hidden Messages (Hack The Vote 2016)](#opentype-font-ligature-exploitation-for-hidden-messages-hack-the-vote-2016)
 - [GLSL Shader VM with Self-Modifying Code (ApoorvCTF 2026)](#glsl-shader-vm-with-self-modifying-code-apoorvctf-2026)
 - [Instruction Counter as Cryptographic State (MetaCTF Flash 2026)](#instruction-counter-as-cryptographic-state-metactf-flash-2026)
+- [Thread Race Condition with Signed Integer Overflow (Codegate 2017)](#thread-race-condition-with-signed-integer-overflow-codegate-2017)
+- [ESP32/Xtensa Firmware Reversing with ROM Symbol Map (Insomni'hack 2017)](#esp32xtensa-firmware-reversing-with-rom-symbol-map-insomnihack-2017)
 
 ---
 
@@ -447,5 +449,54 @@ for pos in range(FLAG_LEN):
 - Static analysis: count instructions manually to compute counter values, then invert transforms algebraically (error-prone due to counter accumulation)
 
 **References:** MetaCTF Flash CTF 2026 "Who's Counting?"
+
+---
+
+## Thread Race Condition with Signed Integer Overflow (Codegate 2017)
+
+**Pattern (Hunting):** A game binary uses thread-unsafe skill selection. The attack thread checks `skill_id <= 4` using signed comparison, then sleeps briefly before applying damage. During the sleep, switch to a different skill. The fireball skill uses `cdqe` (sign-extend EAX to RAX), converting `0xFFFFFFFF` (icesword damage) to `-1` as a signed 64-bit value. Subtracting `-1` from the boss's HP (`0x7FFFFFFFFFFFFFFF`) causes signed overflow to a negative value, killing the boss.
+
+```python
+# Race condition exploit:
+# Thread A: select fireball (skill_id=2, passes <= 4 check)
+# Thread A: sleeps for animation
+# Main: switch to icesword (skill_id=5, damage=0xFFFFFFFF)
+# Thread A: wakes, reads damage from icesword slot
+# cdqe: 0xFFFFFFFF -> 0xFFFFFFFFFFFFFFFF (-1 signed)
+# boss_hp -= (-1) -> boss_hp = 0x7FFFFFFFFFFFFFFF + 1 = negative -> dead
+
+import time, threading
+def race():
+    select_skill(2)  # fireball - passes bounds check
+    time.sleep(0.001)
+    select_skill(5)  # icesword - race into damage calculation
+```
+
+**Key insight:** `cdqe` (Convert Doubleword to Quadword Extension) sign-extends 32-bit EAX into 64-bit RAX. When the attack code reads a 32-bit damage value and sign-extends it, `0xFFFFFFFF` becomes `-1`. Subtracting a negative number adds to HP, but if HP is already at `INT64_MAX`, the addition overflows to negative, killing the target.
+
+---
+
+## ESP32/Xtensa Firmware Reversing with ROM Symbol Map (Insomni'hack 2017)
+
+**Pattern (Internet of Fail):** ESP32 firmware (Xtensa architecture) with no native IDA support. Use radare2 with the ESP32 ROM linker script (`esp32.rom.ld`) to map function addresses to names. Cross-reference with public ESP32 HTTP server source code to identify the password-checking logic, composed of ~20 conditional XOR functions operating on a global state variable.
+
+```bash
+# Load ESP32 firmware in radare2
+r2 -a xtensa -b 32 firmware.bin
+
+# Apply ROM symbol map from ESP-IDF
+# esp32.rom.ld maps addresses like:
+# 0x40000000 = ets_printf
+# 0x400013A0 = cache_Read_Enable
+# Load as flags: . esp32.rom.ld.r2
+
+# Identify HTTP request handler by cross-referencing
+# with esp-idf/examples/protocols/http_server
+# Look for URI handler registration patterns
+```
+
+**Key insight:** ESP32's Xtensa architecture lacks mainstream RE tool support, but the ESP-IDF SDK provides ROM linker scripts mapping every ROM function address to its name. Loading these as symbols in radare2 immediately resolves hundreds of function calls. Cross-referencing with public ESP-IDF example code identifies application-level patterns (HTTP handlers, WiFi callbacks) even in stripped firmware.
+
+---
 
 See also: [patterns-ctf.md](patterns-ctf.md) for Part 1, [patterns-ctf-2.md](patterns-ctf-2.md) for Part 2 (multi-layer self-decrypting binary, embedded ZIP+XOR license, stack string deobfuscation, prefix hash brute-force, CVP/LLL lattice, decision tree obfuscation, GF(2^8) Gaussian elimination).
