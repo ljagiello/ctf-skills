@@ -26,12 +26,11 @@ apt install gdb radare2 binutils strace ltrace apktool upx
 
 **macOS (Homebrew):**
 ```bash
-brew install gdb radare2 binutils apktool upx
+brew install gdb radare2 binutils apktool upx ghidra
 ```
 
 **Manual install:**
-- Ghidra — [ghidra-sre.org](https://ghidra-sre.org), requires Java 17+
-- pwndbg — [GitHub](https://github.com/pwndbg/pwndbg), GDB plugin
+- pwndbg — Linux: [GitHub](https://github.com/pwndbg/pwndbg), macOS: `brew install pwndbg/tap/pwndbg-gdb`
 
 ## Additional Resources
 

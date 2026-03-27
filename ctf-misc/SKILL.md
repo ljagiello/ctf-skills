@@ -16,7 +16,7 @@ Quick reference for miscellaneous CTF challenges. Each technique has a one-liner
 
 **Python packages (all platforms):**
 ```bash
-pip install z3-solver pwntools scapy Pillow numpy requests dnslib
+pip install z3-solver pwntools Pillow numpy requests dnslib
 ```
 
 **Linux (apt):**
@@ -26,8 +26,11 @@ apt install ffmpeg qrencode sagemath
 
 **macOS (Homebrew):**
 ```bash
-brew install ffmpeg qrencode sagemath
+brew install ffmpeg qrencode
 ```
+
+**Manual install:**
+- SageMath — Linux: `apt install sagemath`, macOS: `brew install --cask sage`
 
 ## Additional Resources
 

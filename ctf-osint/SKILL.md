@@ -16,7 +16,7 @@ Quick reference for OSINT CTF challenges. Each technique has a one-liner here; s
 
 **Python packages (all platforms):**
 ```bash
-pip install shodan requests dnspython Pillow
+pip install shodan Pillow
 ```
 
 **Linux (apt):**

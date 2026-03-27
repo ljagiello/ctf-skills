@@ -27,7 +27,7 @@ apt install binwalk foremost libimage-exiftool-perl tshark sleuthkit \
 
 **macOS (Homebrew):**
 ```bash
-brew install binwalk exiftool wireshark sleuthkit ffmpeg steghide \
+brew install binwalk exiftool wireshark sleuthkit ffmpeg \
   testdisk john-jumbo
 ```
 

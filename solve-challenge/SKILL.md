@@ -21,7 +21,7 @@ Two setup strategies depending on your workflow:
 
 **Python packages (all platforms):**
 ```bash
-pip install pwntools pycryptodome z3-solver sympy gmpy2 hashpumpy \
+pip install pwntools pycryptodome z3-solver sympy gmpy2 hashpumpy fpylll py_ecc \
   angr frida-tools qiling requests flask-unsign sqlmap \
   ropper ROPgadget volatility3 yara-python pefile capstone \
   oletools unicorn scapy Pillow numpy matplotlib shodan \
@@ -39,8 +39,8 @@ apt install gdb radare2 binutils binwalk foremost libimage-exiftool-perl \
 **macOS (Homebrew):**
 ```bash
 brew install gdb radare2 binutils binwalk exiftool wireshark sleuthkit \
-  ffmpeg steghide testdisk john-jumbo nmap whois bind hashcat \
-  imagemagick curl jq apktool upx qemu sagemath qrencode
+  ffmpeg testdisk john-jumbo nmap whois bind hashcat ghidra \
+  imagemagick curl jq apktool upx qemu qrencode
 ```
 
 **Ruby gems (all platforms):**
@@ -48,10 +48,17 @@ brew install gdb radare2 binutils binwalk exiftool wireshark sleuthkit \
 gem install one_gadget seccomp-tools zsteg
 ```
 
+**Go tools (all platforms, requires Go):**
+```bash
+go install github.com/ffuf/ffuf/v2@latest
+```
+
 **Manual install:**
-- Ghidra — [ghidra-sre.org](https://ghidra-sre.org), requires Java 17+
-- pwndbg — [github.com/pwndbg/pwndbg](https://github.com/pwndbg/pwndbg)
+- pwndbg — Linux: [github.com/pwndbg/pwndbg](https://github.com/pwndbg/pwndbg), macOS: `brew install pwndbg/tap/pwndbg-gdb`
 - RsaCtfTool — `git clone https://github.com/RsaCtfTool/RsaCtfTool`
+- SageMath — Linux: `apt install sagemath`, macOS: `brew install --cask sage`
+- steghide — Linux: `apt install steghide` (not available via Homebrew)
+- dnSpy — [github.com/dnSpy/dnSpy](https://github.com/dnSpy/dnSpy) (.NET decompiler, Windows)
 
 ### On-demand (during challenges)
 

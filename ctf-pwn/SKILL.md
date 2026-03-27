@@ -35,7 +35,7 @@ gem install one_gadget seccomp-tools
 ```
 
 **Manual install:**
-- pwndbg — [GitHub](https://github.com/pwndbg/pwndbg), GDB plugin for exploit development
+- pwndbg — Linux: [GitHub](https://github.com/pwndbg/pwndbg), macOS: `brew install pwndbg/tap/pwndbg-gdb`
 - checksec — included with pwntools
 
 ## Additional Resources

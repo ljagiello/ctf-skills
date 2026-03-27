@@ -16,7 +16,7 @@ Quick reference for web CTF challenges. Each technique has a one-liner here; see
 
 **Python packages (all platforms):**
 ```bash
-pip install sqlmap flask-unsign requests pycryptodome
+pip install sqlmap flask-unsign requests
 ```
 
 **Linux (apt):**
@@ -32,7 +32,6 @@ brew install hashcat jq curl
 **Go tools (all platforms, requires Go):**
 ```bash
 go install github.com/ffuf/ffuf/v2@latest
-go install github.com/hahwul/dalfox/v2@latest
 ```
 
 **Manual install:**
@@ -317,7 +316,6 @@ sqlmap -u "http://target/?id=1" --dbs       # SQLi
 ffuf -u http://target/FUZZ -w wordlist.txt   # Directory fuzzing
 flask-unsign --decode --cookie "eyJ..."      # JWT decode
 hashcat -m 16500 jwt.txt wordlist.txt        # JWT crack
-dalfox url http://target/?q=test             # XSS
 ```
 
 ## Flask/Werkzeug Debug Mode

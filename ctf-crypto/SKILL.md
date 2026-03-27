@@ -16,7 +16,7 @@ Quick reference for crypto CTF challenges. Each technique has a one-liner here; 
 
 **Python packages (all platforms):**
 ```bash
-pip install pycryptodome z3-solver sympy gmpy2 hashpumpy
+pip install pycryptodome z3-solver sympy gmpy2 hashpumpy fpylll py_ecc
 ```
 
 **Linux (apt):**
@@ -26,10 +26,11 @@ apt install hashcat sagemath
 
 **macOS (Homebrew):**
 ```bash
-brew install hashcat sagemath
+brew install hashcat
 ```
 
 **Manual install:**
+- SageMath — Linux: `apt install sagemath`, macOS: `brew install --cask sage`
 - RsaCtfTool — `git clone https://github.com/RsaCtfTool/RsaCtfTool` (automated RSA attacks)
 
 > **Note:** `gmpy2` requires libgmp — Linux: `apt install libgmp-dev`, macOS: `brew install gmp`.
