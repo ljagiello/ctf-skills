@@ -3,7 +3,6 @@
 Hash-based attacks, protocol-level exploits, ECB oracles, Rabin/RSA parity attacks, and specialized cipher weaknesses. For core AES/CBC/padding oracle techniques, see [modern-ciphers.md](modern-ciphers.md). For stream cipher attacks (LFSR, RC4, XOR), see [stream-ciphers.md](stream-ciphers.md).
 
 ## Table of Contents
-- [CRC32 Collision-Based Signature Forgery (iCTF 2013)](#crc32-collision-based-signature-forgery-ictf-2013)
 - [Blum-Goldwasser Bit-Extension Oracle (PlaidCTF 2013)](#blum-goldwasser-bit-extension-oracle-plaidctf-2013)
 - [Hash Length Extension Attack (PlaidCTF 2014)](#hash-length-extension-attack-plaidctf-2014)
 - [Compression Oracle / CRIME-Style Attack (BCTF 2015)](#compression-oracle--crime-style-attack-bctf-2015)
@@ -28,33 +27,6 @@ Hash-based attacks, protocol-level exploits, ECB oracles, Rabin/RSA parity attac
 - [CBC IV Forgery + Block Truncation for Authentication Bypass (0CTF 2017)](#cbc-iv-forgery--block-truncation-for-authentication-bypass-0ctf-2017)
 - [Padding Oracle to CBC Bitflip Command Injection (BSidesSF 2017)](#padding-oracle-to-cbc-bitflip-command-injection-bsidessf-2017)
 - [SPN Cipher Partial Key Recovery via S-box Intersection (SharifCTF 7 2016)](#spn-cipher-partial-key-recovery-via-s-box-intersection-sharifctf-7-2016)
-
----
-
-## CRC32 Collision-Based Signature Forgery (iCTF 2013)
-
-**Pattern:** CRC32 is linear — appending 4 carefully chosen bytes to any message produces a target CRC32 value, enabling signature forgery without knowing the secret key.
-
-**Key insight:** `CRC32(msg || secret)` is not a secure MAC. Given any signed response `(msg, sig)`, compute 4 suffix bytes that force `CRC32(forged_msg || suffix || secret) == target_sig`. The linearity of CRC32 means the suffix computation is deterministic and instant.
-
-```python
-import struct, binascii
-
-def crc32_forge(data, target_crc):
-    """Append 4 bytes to data so CRC32(data + suffix) == target_crc"""
-    current = binascii.crc32(data) & 0xFFFFFFFF
-    # CRC32 polynomial table lookup to find suffix bytes
-    # that transform current CRC into target_crc
-    suffix = b''
-    crc = target_crc ^ 0xFFFFFFFF
-    for _ in range(4):
-        byte = (crc & 0xFF)
-        crc = (crc >> 8)
-        suffix = bytes([byte]) + suffix
-    return data + suffix  # Simplified — full implementation requires polynomial division
-```
-
-**When to use:** Any protocol using CRC32 as a message authentication code (MAC). CRC32 is a checksum, not a cryptographic hash — it provides no integrity guarantees against adversarial modification.
 
 ---
 

@@ -2,13 +2,13 @@
 
 ## Table of Contents
 - [Quick Triage: Is This a Lattice Problem?](#quick-triage-is-this-a-lattice-problem)
-- [Core Tools: LLL, BKZ, Babai, CVP, SVP](#core-tools-lll-bkz-babai-cvp-svp)
-- [Hidden Number Problem (HNP): Partial Nonce / Biased Nonce](#hidden-number-problem-hnp-partial-nonce--biased-nonce)
-- [LCG and Truncated Output as a Lattice Problem](#lcg-and-truncated-output-as-a-lattice-problem)
-- [LWE via Embedding and CVP](#lwe-via-embedding-and-cvp)
-- [Ring-LWE / Module-LWE Recognition Notes](#ring-lwe--module-lwe-recognition-notes)
-- [Orthogonal Lattices: HSSP / AHSSP Style Recovery](#orthogonal-lattices-hssp--ahssp-style-recovery)
-- [Subset Sum / Knapsack via Lattice Reduction](#subset-sum--knapsack-via-lattice-reduction)
+- [Core Tools: LLL, BKZ, Babai, CVP, SVP](#core-tools-lll-bkz-babai-cvp-svp-asis-ctf-finals-2015-ctfzone-2017)
+- [Hidden Number Problem (HNP): Partial Nonce / Biased Nonce](#hidden-number-problem-hnp-partial-nonce--biased-nonce-nullcon-hackim-2020-ledger-donjon-ctf-2020)
+- [LCG and Truncated Output as a Lattice Problem](#lcg-and-truncated-output-as-a-lattice-problem-x-mas-ctf-2018-fwordctf-2020)
+- [LWE via Embedding and CVP](#lwe-via-embedding-and-cvp-plaidctf-2016-aero-ctf-2020)
+- [Ring-LWE / Module-LWE Recognition Notes](#ring-lwe--module-lwe-recognition-notes-plaidctf-2016-dicectf-2022)
+- [Orthogonal Lattices: HSSP / AHSSP Style Recovery](#orthogonal-lattices-hssp--ahssp-style-recovery-zer0pts-ctf-2022)
+- [Subset Sum / Knapsack via Lattice Reduction](#subset-sum--knapsack-via-lattice-reduction-hitcon-ctf-2017-backdoorctf-2023)
 - [Common Failure Modes](#common-failure-modes)
 
 ---
@@ -44,7 +44,7 @@ That "small thing" is usually what the lattice is trying to expose.
 
 ---
 
-## Core Tools: LLL, BKZ, Babai, CVP, SVP
+## Core Tools: LLL, BKZ, Babai, CVP, SVP (ASIS CTF Finals 2015, CTFZone 2017)
 
 ### LLL
 
@@ -104,7 +104,7 @@ Rule of thumb:
 
 ---
 
-## Hidden Number Problem (HNP): Partial Nonce / Biased Nonce
+## Hidden Number Problem (HNP): Partial Nonce / Biased Nonce (nullcon HackIM 2020, Ledger Donjon CTF 2020)
 
 **Pattern:** signatures or RNG equations leak a few bits of a hidden value `k`, or `k` is sampled from a small / biased range.
 
@@ -213,7 +213,7 @@ What to do next:
 
 ---
 
-## LCG and Truncated Output as a Lattice Problem
+## LCG and Truncated Output as a Lattice Problem (X-MAS CTF 2018, FwordCTF 2020)
 
 **Pattern:** internal state follows an affine recurrence, but you only see:
 
@@ -301,7 +301,7 @@ What to do next:
 
 ---
 
-## LWE via Embedding and CVP
+## LWE via Embedding and CVP (PlaidCTF 2016, Aero CTF 2020)
 
 **Pattern:** given `A`, `b`, modulus `q`, and the promise:
 
@@ -324,7 +324,7 @@ This is the standard LWE shape.
 ### Embedding-style lattice
 
 ```python
-from sage.all import Matrix, ZZ, identity_matrix, block_matrix
+from sage.all import Matrix, ZZ, identity_matrix, zero_matrix, block_matrix
 
 def lwe_embedding(A, q):
     m, n = A.nrows(), A.ncols()
@@ -351,7 +351,7 @@ After CVP:
 
 ---
 
-## Ring-LWE / Module-LWE Recognition Notes
+## Ring-LWE / Module-LWE Recognition Notes (PlaidCTF 2016, DiceCTF 2022)
 
 You should suspect Ring-LWE / Module-LWE when:
 
@@ -374,11 +374,35 @@ In many CTFs, the intended shortcut is not a full Ring-LWE attack, but one of th
 - check whether NTT / inverse NTT is used incorrectly
 - check sign conventions, endian order, and whether coefficients were centered into `[-q/2, q/2]`
 
-**CTF reality:** most Ring-LWE / Module-LWE challenges are weakened by implementation mistakes, tiny errors, or over-structured secrets.
+### Flattening Ring-LWE to plain LWE
+
+```python
+from sage.all import Matrix, ZZ, vector
+
+def ring_lwe_to_matrix(a_poly, n, q):
+    """Flatten a(x) in Z_q[x]/(x^n+1) to its negacyclic rotation matrix."""
+    coeffs = list(a_poly) + [0] * (n - len(list(a_poly)))
+    rows = []
+    for i in range(n):
+        row = [0] * n
+        for j in range(n):
+            idx = (i - j) % n
+            sign = -1 if (i - j) < 0 and ((i - j) % n) != 0 else 1
+            # negacyclic: x^n = -1
+            if j <= i:
+                row[j] = coeffs[i - j]
+            else:
+                row[j] = -coeffs[n + i - j]
+        rows.append(row)
+    return Matrix(ZZ, rows)
+# After flattening, treat as plain LWE: b_vec = A_mat * s_vec + e_vec (mod q)
+```
+
+**Key insight:** most Ring-LWE / Module-LWE CTF challenges are weakened by implementation mistakes, tiny errors, or over-structured secrets. Flatten to plain LWE first and check whether standard lattice tools solve it before pursuing ring-specific attacks.
 
 ---
 
-## Orthogonal Lattices: HSSP / AHSSP Style Recovery
+## Orthogonal Lattices: HSSP / AHSSP Style Recovery (zer0pts CTF 2022)
 
 **Pattern:** you do not directly know the secret matrix or subset, but you can construct vectors that should be orthogonal to it modulo `M` or `p`.
 
@@ -388,13 +412,33 @@ This often appears in hidden-subset style problems:
 - recover a hidden low-weight subspace
 - reconstruct unknown rows from modular inner-product relations
 
-Core move:
+Core workflow:
 
 1. build a lattice whose short vectors represent orthogonal relations
 2. reduce it
 3. recover the orthogonal lattice
 4. take the kernel / orthogonal complement
 5. reduce again to expose the hidden binary or short basis
+
+```python
+from sage.all import Matrix, ZZ, identity_matrix, block_matrix
+
+def orthogonal_lattice_recovery(H, M):
+    """Recover hidden binary basis from h = alpha * A (mod M).
+
+    H: observed matrix (k x n) over Z_M
+    M: modulus
+    Returns: LLL-reduced orthogonal lattice whose kernel reveals A.
+    """
+    k, n = H.nrows(), H.ncols()
+    # Build lattice: [M*I_k | 0; H^T | I_n]
+    top = block_matrix([[M * identity_matrix(k), Matrix(ZZ, k, n)]])
+    bot = block_matrix([[H.change_ring(ZZ).transpose(), identity_matrix(n)]])
+    L = block_matrix([[top], [bot]])
+    L_reduced = L.LLL()
+    # Short rows in the bottom-right block are orthogonal to the hidden basis
+    return L_reduced
+```
 
 **When to use:**
 
@@ -406,7 +450,7 @@ Core move:
 
 ---
 
-## Subset Sum / Knapsack via Lattice Reduction
+## Subset Sum / Knapsack via Lattice Reduction (HITCON CTF 2017, BackdoorCTF 2023)
 
 **Pattern:** recover a binary vector `x_i ∈ {0,1}` such that:
 

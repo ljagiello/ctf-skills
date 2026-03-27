@@ -36,7 +36,7 @@ bash scripts/install_ctf_tools.sh go
 bash scripts/install_ctf_tools.sh manual
 ```
 
-The full package lists now live in [scripts/install_ctf_tools.sh](/Users/user/Desktop/ctf-skills/scripts/install_ctf_tools.sh).
+The full package lists now live in [scripts/install_ctf_tools.sh](../scripts/install_ctf_tools.sh).
 
 ### On-demand (during challenges)
 
@@ -122,11 +122,7 @@ If your first approach doesn't work:
 
 ### Step 5: Generate Write-up
 
-After solving the challenge, invoke `/ctf-writeup` to generate a standardized writeup. Choose a format based on your needs:
-
-- `submission` — concise, for competition organizers
-- `blog` — detailed and educational, for publishing
-- `brief` — one-liner + key commands, for team archives
+After solving the challenge, invoke `/ctf-writeup` to generate a standardized submission-style writeup — concise, reproducible, and ready for competition organizers or teammates to validate.
 
 ## Flag Formats
 

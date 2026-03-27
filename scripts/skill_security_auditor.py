@@ -54,6 +54,13 @@ FRONTMATTER_CHECKS = {
     'description': 'Missing description field in frontmatter',
 }
 
+THIRD_PERSON_STARTERS = (
+    'provides', 'generates', 'solves', 'analyzes', 'extracts', 'scans',
+    'detects', 'identifies', 'builds', 'creates', 'parses', 'runs',
+    'executes', 'processes', 'transforms', 'validates', 'checks',
+    'orchestrates', 'delegates', 'implements',
+)
+
 
 def parse_frontmatter(content: str) -> dict:
     """Extract YAML frontmatter fields (simple key: value parsing)."""
@@ -243,6 +250,32 @@ def scan_skill(skill_dir: Path) -> dict:
                         'line': 0,
                         'rule': f'missing_{key}',
                         'message': message,
+                    })
+
+            # Validate name matches directory
+            if 'name' in fm:
+                expected_name = skill_dir.name
+                actual_name = fm['name'].strip('"').strip("'")
+                if actual_name != expected_name:
+                    findings.append({
+                        'severity': 'HIGH',
+                        'file': str(skill_md),
+                        'line': 0,
+                        'rule': 'name_mismatch',
+                        'message': f'Frontmatter name "{actual_name}" does not match directory "{expected_name}"',
+                    })
+
+            # Validate description is third-person
+            if 'description' in fm:
+                desc = fm['description'].strip('"').strip("'").strip()
+                first_word = desc.split()[0].lower() if desc else ''
+                if first_word and not first_word.endswith('s'):
+                    findings.append({
+                        'severity': 'INFO',
+                        'file': str(skill_md),
+                        'line': 0,
+                        'rule': 'description_not_third_person',
+                        'message': f'Description should start with a third-person verb (e.g., "Provides..."), got "{first_word.capitalize()}..."',
                     })
 
     # Scan all markdown files

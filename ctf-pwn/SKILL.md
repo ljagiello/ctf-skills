@@ -218,7 +218,7 @@ OOB via vulnerable `lseek`, heap grooming with `fork()`, SUID exploits. Check `C
 
 ## Integer Truncation Bypass (int32→int16)
 
-**Pattern:** Input validated as int32 (>= 0), cast to int16_t for bounds check. Value 65534 passes int32 check, becomes -2 as int16_t → OOB array access. Use `xchg rdi, rax; cld; ret` gadget for dynamic fd capture in containerized ORW chains. See [advanced-exploits-2.md](advanced-exploits-2.md#integer-truncation-bypass-int32int16-apoorvctf-2026).
+**Pattern:** Input validated as int32 (>= 0), cast to int16_t for bounds check. Value 65534 passes int32 check, becomes -2 as int16_t → OOB array access. Use `xchg rdi, rax; cld; ret` gadget for dynamic fd capture in containerized ORW chains. See [advanced-exploits-2.md](advanced-exploits-2.md#integer-truncation-bypass-int32-to-int16-apoorvctf-2026).
 
 ## Format String Quick Reference
 
@@ -412,7 +412,7 @@ Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers
 
 ## Signed/Unsigned Char Underflow → Heap Overflow (Midnightflag 2026)
 
-**Pattern:** Size field stored as `signed char`, cast to `unsigned char` for use. `size = -112` → `(unsigned char)(-112) = 144`, overflowing a 127-byte buffer by 17 bytes. Combine with XOR keystream brute-force for byte-precise writes, forge chunk sizes for unsorted bin promotion (libc leak), FSOP stdout for TLS leak, and TLS destructor (`__call_tls_dtors`) overwrite for RCE. See [advanced-exploits-2.md](advanced-exploits-2.md#signedunsigned-char-underflow--heap-overflow--tls-destructor-hijack-midnightflag-2026).
+**Pattern:** Size field stored as `signed char`, cast to `unsigned char` for use. `size = -112` → `(unsigned char)(-112) = 144`, overflowing a 127-byte buffer by 17 bytes. Combine with XOR keystream brute-force for byte-precise writes, forge chunk sizes for unsorted bin promotion (libc leak), FSOP stdout for TLS leak, and TLS destructor (`__call_tls_dtors`) overwrite for RCE. See [advanced-exploits-2.md](advanced-exploits-2.md#signedunsigned-char-underflow-to-heap-overflow--tls-destructor-hijack-midnightflag-2026).
 
 ## TLS Destructor Hijack via `__call_tls_dtors`
 
@@ -422,7 +422,7 @@ Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers
 
 **Pattern (Canvas of Fear):** Index formula `y * width + x` in signed 32-bit int overflows to negative value, passing bounds check and writing backward into heap metadata. Use to corrupt adjacent chunk sizes/pointers, leak libc via unsorted bin, redirect a data pointer to `environ` for stack leak, then write ROP chain to main's return address. When binary is behind a web API, chain XSS → Fetch API → heap exploit, and inject `\n` in API parameters for command stacking via `sendline()`.
 
-See [advanced-exploits-2.md](advanced-exploits-2.md#signed-int-overflow--negative-oob-heap-write--xss-to-binary-pwn-bridge-midnight-2026) for full exploit chain, XSS bridge pattern, and RGB pixel write primitive.
+See [advanced-exploits-2.md](advanced-exploits-2.md#signed-int-overflow-to-negative-oob-heap-write--xss-to-binary-pwn-bridge-midnight-2026) for full exploit chain, XSS bridge pattern, and RGB pixel write primitive.
 
 ## Custom Shadow Stack Bypass via Pointer Overflow (Midnight 2026)
 

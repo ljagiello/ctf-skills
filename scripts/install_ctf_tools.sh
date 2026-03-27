@@ -14,7 +14,16 @@ set -euo pipefail
 MODE="${1:-all}"
 
 install_python() {
-  python3 -m pip install \
+  PIP_FLAGS=()
+  # Detect PEP 668 externally-managed environments (Debian 12+, Ubuntu 23.04+)
+  if python3 -c "import sysconfig; marker = sysconfig.get_path('stdlib') + '/EXTERNALLY-MANAGED'; open(marker)" 2>/dev/null; then
+    if [ -z "${VIRTUAL_ENV:-}" ]; then
+      echo "PEP 668 detected and no virtualenv active — installing with --user" >&2
+      PIP_FLAGS+=(--user)
+    fi
+  fi
+
+  python3 -m pip install "${PIP_FLAGS[@]}" \
     pwntools pycryptodome z3-solver sympy gmpy2 hashpumpy fpylll py_ecc \
     angr frida-tools qiling requests flask-unsign sqlmap \
     ropper ROPgadget volatility3 yara-python pefile capstone \
