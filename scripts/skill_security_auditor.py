@@ -36,7 +36,7 @@ HIGH_PATTERNS = [
 ]
 
 INFO_PATTERNS = [
-    (r'TODO|FIXME|HACK|XXX', "Code annotation found"),
+    (r'\b(TODO|FIXME|HACK)\s*:', "Code annotation found"),
 ]
 
 PLACEHOLDER_HOST_MARKERS = (

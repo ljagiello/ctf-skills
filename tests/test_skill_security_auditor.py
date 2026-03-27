@@ -186,6 +186,35 @@ class SkillSecurityAuditorTests(unittest.TestCase):
                 for finding in result["findings"])
         )
 
+    def test_todo_without_colon_is_not_flagged(self):
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "technique.md": textwrap.dedent(
+                    """\
+                    Search source for `TODO`, `FIXME`, `WIP` comments.
+                    Format: `XXXX+XXX` (Plus Code).
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(finding["severity"] == "INFO" and "Code annotation" in finding["message"]
+                for finding in result["findings"])
+        )
+
     def test_placeholder_xss_exfil_example_is_not_flagged_high(self):
         skill_dir = self._make_skill(
             textwrap.dedent(
