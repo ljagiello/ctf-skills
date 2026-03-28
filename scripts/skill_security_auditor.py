@@ -72,6 +72,14 @@ CTF_CHMOD_ALLOWLIST = re.compile(
     r'chmod\s+[47]77\s+/tmp/'
 )
 
+# Comment prefixes used across programming languages.  A line inside a fenced
+# code block whose stripped form starts with one of these is documentation, not
+# executable code — HIGH patterns should not fire on it.  CRITICAL and SECRET
+# patterns still apply.  This covers Python/Ruby/Bash/Perl (#),
+# JS/TS/Java/C/Go/Rust/PHP (//), SQL/Lua/Haskell (--), and ASM (;).
+CODE_COMMENT_PREFIXES = ('#', '//', '--', ';')
+
+
 FRONTMATTER_CHECKS = {
     'license': 'Missing license field in frontmatter',
     'allowed-tools': 'Missing allowed-tools field in frontmatter',
@@ -166,6 +174,15 @@ def scan_file(filepath: Path) -> list:
 
         in_executable_example = in_code_block or is_indented_code
 
+        # Comment lines inside code blocks are documentation, not executable.
+        # A line starting with #, //, --, or ; is a comment in virtually every
+        # language used in CTF skill files.
+        is_code_comment = (
+            in_code_block
+            and stripped != ''
+            and any(stripped.startswith(p) for p in CODE_COMMENT_PREFIXES)
+        )
+
         # Destructive commands should appear in runnable examples before we flag them.
         if in_executable_example:
             for pattern, message in CRITICAL_PATTERNS:
@@ -191,8 +208,8 @@ def scan_file(filepath: Path) -> list:
                     'context': line.strip()[:120],
                 })
 
-        # High patterns — only in runnable code examples
-        if in_executable_example:
+        # High patterns — only in runnable code examples, skip comment lines
+        if in_executable_example and not is_code_comment:
             # Inline suppression: <!-- audit-ok --> on the current or previous line
             suppress_marker_here = AUDIT_SUPPRESS_MARKER in line
             suppress_marker_prev = (i >= 2 and AUDIT_SUPPRESS_MARKER in lines[i - 2])

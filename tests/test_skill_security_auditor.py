@@ -821,5 +821,202 @@ class SkillSecurityAuditorTests(unittest.TestCase):
         )
 
 
+    def test_comment_line_in_python_code_block_not_flagged_high(self):
+        """Comments inside code blocks are documentation, not executable code."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "example.md": textwrap.dedent(
+                    """\
+                    ```python
+                    # e.g., os.system(f"date -d '{user_input}'") where user controls input
+                    subprocess.run(['date', '-f', target], capture_output=True)
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(
+                finding["severity"] == "HIGH"
+                and "os.system()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_comment_line_in_bash_code_block_not_flagged_high(self):
+        """Bash comments should also be skipped for HIGH patterns."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "example.md": textwrap.dedent(
+                    """\
+                    ```bash
+                    # verify with: eval "$(decode payload)"
+                    echo "safe command"
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(finding["severity"] == "HIGH" for finding in result["findings"])
+        )
+
+    def test_non_comment_code_still_flagged_high(self):
+        """Actual executable code (not comments) should still be flagged."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "example.md": textwrap.dedent(
+                    """\
+                    ```python
+                    os.system(f"date -d '{user_input}'")
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertTrue(
+            any(
+                finding["severity"] == "HIGH"
+                and "os.system()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_comment_line_still_checked_for_critical(self):
+        """CRITICAL patterns should fire even on comment lines."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "example.md": textwrap.dedent(
+                    """\
+                    ```bash
+                    # rm -rf /etc/important
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertTrue(
+            any(finding["severity"] == "CRITICAL" for finding in result["findings"])
+        )
+
+    def test_untagged_code_block_comment_still_skipped(self):
+        """Comment lines are detected by prefix, even without a language tag."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "example.md": textwrap.dedent(
+                    """\
+                    ```
+                    # os.system(f"dangerous '{input}'")
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        # # prefix is recognized as a comment regardless of language tag
+        self.assertFalse(
+            any(
+                finding["severity"] == "HIGH"
+                and "os.system()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_js_comment_in_javascript_block_not_flagged(self):
+        """JavaScript // comments should be skipped for HIGH patterns."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "example.md": textwrap.dedent(
+                    """\
+                    ```javascript
+                    // eval("payload") is used by the vulnerable app
+                    console.log("safe");
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(finding["severity"] == "HIGH" for finding in result["findings"])
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
