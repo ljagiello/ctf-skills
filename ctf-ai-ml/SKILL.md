@@ -97,14 +97,14 @@ print(f'Shape: {img.shape}, Range: [{img.min():.3f}, {img.max():.3f}]')
 - **PGD:** Iterative FGSM with projection back to epsilon-ball each step. Standard benchmark attack. See [adversarial-ml.md](adversarial-ml.md#adversarial-example-generation-fgsm-pgd-cw).
 - **C&W:** Optimization-based attack that minimizes perturbation norm while achieving misclassification. See [adversarial-ml.md](adversarial-ml.md#adversarial-example-generation-fgsm-pgd-cw).
 - **Adversarial patches:** Physical-world patches that cause misclassification when placed in a scene. See [adversarial-ml.md](adversarial-ml.md#adversarial-patch-generation).
-- **Data poisoning:** Injecting backdoor triggers into training data so model learns attacker-chosen behavior. See [adversarial-ml.md](adversarial-ml.md#data-poisoning).
+- **Data poisoning:** Injecting backdoor triggers into training data so model learns attacker-chosen behavior. See [adversarial-ml.md](adversarial-ml.md#data-poisoning-foundational).
 
 ## LLM Attacks
 
-- **Prompt injection:** Overriding system instructions via user input; both direct injection and indirect via retrieved documents. See [llm-attacks.md](llm-attacks.md#prompt-injection).
-- **Jailbreaking:** Bypassing safety filters via DAN, role play, encoding tricks, multi-turn escalation. See [llm-attacks.md](llm-attacks.md#llm-jailbreaking).
-- **Token smuggling:** Exploiting tokenizer splits so filtered words pass through as subword tokens. See [llm-attacks.md](llm-attacks.md#token-smuggling).
-- **Tool use exploitation:** Abusing function calling in LLM agents to execute unintended actions. See [llm-attacks.md](llm-attacks.md#tool-use-exploitation).
+- **Prompt injection:** Overriding system instructions via user input; both direct injection and indirect via retrieved documents. See [llm-attacks.md](llm-attacks.md#prompt-injection-foundational).
+- **Jailbreaking:** Bypassing safety filters via DAN, role play, encoding tricks, multi-turn escalation. See [llm-attacks.md](llm-attacks.md#llm-jailbreaking-foundational).
+- **Token smuggling:** Exploiting tokenizer splits so filtered words pass through as subword tokens. See [llm-attacks.md](llm-attacks.md#token-smuggling-foundational).
+- **Tool use exploitation:** Abusing function calling in LLM agents to execute unintended actions. See [llm-attacks.md](llm-attacks.md#tool-use-exploitation-foundational).
 
 ## Model Extraction & Inference
 

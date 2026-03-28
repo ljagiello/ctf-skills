@@ -62,6 +62,10 @@ r2pm -ci r2ghidra   # Native Ghidra decompiler for radare2
 - If you already understand the binary and now need heap, ROP, or kernel exploitation, switch to `/ctf-pwn`.
 - If the challenge is really about recovering deleted files, PCAP data, or disk artifacts, switch to `/ctf-forensics`.
 - If the target is a web app and you are only reversing a small client-side helper script, switch to `/ctf-web`.
+- If the binary implements a machine learning model and the challenge is about model attacks or adversarial inputs, switch to `/ctf-ai-ml`.
+- If the reversed binary's core logic is a cryptographic algorithm or math problem, switch to `/ctf-crypto`.
+- If the binary is a real malware sample with C2, packing, or evasion behavior, switch to `/ctf-malware`.
+- If the challenge is a toy VM, encoding puzzle, or pyjail rather than a real binary, switch to `/ctf-misc`.
 
 ## Problem-Solving Workflow
 
@@ -274,7 +278,7 @@ Binary mangles input 2 bytes at a time with running state; extract target from `
 
 ## Rust serde_json Schema Recovery
 
-Disassemble serde `Visitor` implementations to recover expected JSON schema; field names in order reveal flag. See [languages-platforms.md](languages-platforms.md#rust-serde_json-schema-recovery).
+Disassemble serde `Visitor` implementations to recover expected JSON schema; field names in order reveal flag. See [languages-platforms.md](languages-platforms.md#rust-serdejson-schema-recovery).
 
 ## Position-Based Transformation Reversing
 
@@ -286,7 +290,7 @@ Input converted to hex, compared against constant. Decode with `xxd -r -p`. See 
 
 ## Embedded ZIP + XOR License Decryption
 
-Binary with named symbols (`EMBEDDED_ZIP`, `ENCRYPTED_MESSAGE`) in `.rodata` → extract ZIP containing license, XOR encrypted message with license bytes to recover flag. No execution needed. See [patterns-ctf-2.md](patterns-ctf-2.md#embedded-zip--xor-license-decryption-metactf-2026).
+Binary with named symbols (`EMBEDDED_ZIP`, `ENCRYPTED_MESSAGE`) in `.rodata` → extract ZIP containing license, XOR encrypted message with license bytes to recover flag. No execution needed. See [patterns-ctf-2.md](patterns-ctf-2.md#embedded-zip-xor-license-decryption-metactf-2026).
 
 ## Stack String Deobfuscation (.rodata XOR Blob)
 
@@ -362,7 +366,7 @@ N-layer binary where each layer decrypts the next using user-provided key bytes 
 
 ## Hash-Resolved Imports / No-Import Ransomware (BSidesSF 2026)
 
-**Pattern:** Binary with zero visible imports resolves APIs via symbol name hashing at runtime. Skip the hash reversing — hook OpenSSL functions via `LD_PRELOAD` in Docker to capture AES keys directly. See [patterns-ctf.md](patterns-ctf.md#hash-resolved-imports--no-import-ransomware-bsidessf-2026).
+**Pattern:** Binary with zero visible imports resolves APIs via symbol name hashing at runtime. Skip the hash reversing — hook OpenSSL functions via `LD_PRELOAD` in Docker to capture AES keys directly. See [patterns-ctf.md](patterns-ctf.md#hash-resolved-imports-no-import-ransomware-bsidessf-2026).
 
 ## ELF Section Header Corruption for Anti-Analysis (BSidesSF 2026)
 
@@ -430,11 +434,11 @@ pwndbg: `context`, `vmmap`, `search -s "flag{"`, `telescope $rsp`. GEF alternati
 
 ## macOS / iOS Reversing
 
-Mach-O binaries: `otool -l` for load commands, `class-dump` for Objective-C headers. Swift: `swift demangle` for symbols. iOS apps: decrypt FairPlay DRM with frida-ios-dump, bypass jailbreak detection with Frida hooks. Re-sign patched binaries with `codesign -f -s -`. See [platforms.md](platforms.md#macos--ios-reversing).
+Mach-O binaries: `otool -l` for load commands, `class-dump` for Objective-C headers. Swift: `swift demangle` for symbols. iOS apps: decrypt FairPlay DRM with frida-ios-dump, bypass jailbreak detection with Frida hooks. Re-sign patched binaries with `codesign -f -s -`. See [platforms.md](platforms.md#macos-ios-reversing).
 
 ## Embedded / IoT Firmware RE
 
-`binwalk -Me firmware.bin` for recursive extraction. Hardware: UART/JTAG/SPI flash for firmware dumps. Filesystems: SquashFS (`unsquashfs`), JFFS2, UBI. Emulate with QEMU: `qemu-arm -L /usr/arm-linux-gnueabihf/ ./binary`. See [platforms.md](platforms.md#embedded--iot-firmware-re).
+`binwalk -Me firmware.bin` for recursive extraction. Hardware: UART/JTAG/SPI flash for firmware dumps. Filesystems: SquashFS (`unsquashfs`), JFFS2, UBI. Emulate with QEMU: `qemu-arm -L /usr/arm-linux-gnueabihf/ ./binary`. See [platforms.md](platforms.md#embedded-iot-firmware-re).
 
 ## Kernel Driver Reversing
 
@@ -450,11 +454,11 @@ Swift: `swift demangle` symbols, protocol witness tables for dispatch, `__swift5
 
 ## INT3 Patch + Coredump Brute-Force Oracle (Pwn2Win 2016)
 
-Patch `0xCC` (INT3) after transform output, enable core dumps, brute-force each input character by extracting computed state from coredump via `strings`. Avoids full reverse of transformation. See [patterns.md](patterns.md#int3-patch--coredump-brute-force-oracle-pwn2win-2016).
+Patch `0xCC` (INT3) after transform output, enable core dumps, brute-force each input character by extracting computed state from coredump via `strings`. Avoids full reverse of transformation. See [patterns.md](patterns.md#int3-patch-coredump-brute-force-oracle-pwn2win-2016).
 
 ## Signal Handler Chain + LD_PRELOAD Oracle (Nuit du Hack 2016)
 
-Binary uses signal handler chains for per-character password validation. Hook `signal()` via LD_PRELOAD -- the call to install the next handler confirms the current character is correct. See [patterns.md](patterns.md#signal-handler-chain--ld_preload-oracle-nuit-du-hack-2016).
+Binary uses signal handler chains for per-character password validation. Hook `signal()` via LD_PRELOAD -- the call to install the next handler confirms the current character is correct. See [patterns.md](patterns.md#signal-handler-chain-ldpreload-oracle-nuit-du-hack-2016).
 
 ## Font Ligature Exploitation (Hack The Vote 2016)
 
@@ -502,4 +506,4 @@ Native JNI library patches Dalvik bytecode in memory via `/proc/self/maps` + `mp
 
 ## Fork + Pipe + Dead Branch Anti-Analysis (RCTF 2017)
 
-Fork/pipe IPC where parent writes data and exits, child reads and continues. Real validation hidden in a dead branch (always-false comparison). `strace` reveals the fork/pipe pattern; patch the comparison constant to reach hidden code. See [patterns-ctf-3.md](patterns-ctf-3.md#fork--pipe--dead-branch-anti-analysis-rctf-2017).
+Fork/pipe IPC where parent writes data and exits, child reads and continues. Real validation hidden in a dead branch (always-false comparison). `strace` reveals the fork/pipe pattern; patch the comparison constant to reach hidden code. See [patterns-ctf-3.md](patterns-ctf-3.md#fork-pipe-dead-branch-anti-analysis-rctf-2017).

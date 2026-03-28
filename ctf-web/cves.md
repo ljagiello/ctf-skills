@@ -173,7 +173,7 @@ See [server-side.md](server-side.md) for full details.
 
 **Affected:** ExifTool ≤ 12.23. DjVu ANTa annotation chunk parsed with Perl `eval`. Craft minimal DjVu with injected metadata to achieve RCE on any endpoint processing images with ExifTool.
 
-See [server-side-advanced.md](server-side-advanced.md#exiftool-cve-2021-22204--djvu-perl-injection-0xfun-2026) for full exploit code.
+See [server-side-advanced.md](server-side-advanced.md#exiftool-cve-2021-22204-djvu-perl-injection-0xfun-2026) for full exploit code.
 
 ---
 

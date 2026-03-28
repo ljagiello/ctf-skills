@@ -62,6 +62,7 @@ gem install one_gadget seccomp-tools
 - If you do not yet understand what the binary does, switch to `/ctf-reverse` before trying to exploit it.
 - If the service is really a restricted shell, encoding puzzle, or sandbox language challenge, switch to `/ctf-misc`.
 - If the exploit path depends on a web endpoint, session bug, or upload primitive more than memory corruption, switch to `/ctf-web`.
+- If the vulnerability requires breaking a cryptographic primitive before exploitation, switch to `/ctf-crypto`.
 
 ## Quick Start Commands
 
@@ -160,11 +161,11 @@ Leak libc via `puts@PLT(puts@GOT)`, return to vuln, stage 2 with `system("/bin/s
 
 **Raw syscall ROP:** When `system()`/`execve()` crash (CET/IBT), use `pop rax; ret` + `syscall; ret` from libc. See [rop-and-shellcode.md](rop-and-shellcode.md).
 
-**ret2csu:** `__libc_csu_init` gadgets control `rdx`, `rsi`, `edi` and call any GOT function — universal 3-argument call without libc gadgets. See [rop-and-shellcode.md](rop-and-shellcode.md#ret2csu--__libc_csu_init-gadgets-crypto-cat).
+**ret2csu:** `__libc_csu_init` gadgets control `rdx`, `rsi`, `edi` and call any GOT function — universal 3-argument call without libc gadgets. See [rop-and-shellcode.md](rop-and-shellcode.md#ret2csu-libccsuinit-gadgets-crypto-cat).
 
 **Bad char XOR bypass:** XOR payload data with key before writing to `.data`, then XOR back in place with ROP gadgets. Avoids null bytes, newlines, and other filtered characters. See [rop-and-shellcode.md](rop-and-shellcode.md#bad-character-bypass-via-xor-encoding-in-rop-crypto-cat).
 
-**Exotic gadgets (BEXTR/XLAT/STOSB/PEXT):** When standard `mov` write gadgets are unavailable, chain obscure x86 instructions for byte-by-byte memory writes. See [rop-and-shellcode.md](rop-and-shellcode.md#exotic-x86-gadgets--bextrxlatstosbpext-crypto-cat).
+**Exotic gadgets (BEXTR/XLAT/STOSB/PEXT):** When standard `mov` write gadgets are unavailable, chain obscure x86 instructions for byte-by-byte memory writes. See [rop-and-shellcode.md](rop-and-shellcode.md#exotic-x86-gadgets-bextrxlatstosbpext-crypto-cat).
 
 **Stack pivot (xchg rax,esp):** Swap stack pointer to attacker-controlled heap/buffer when overflow is too small for full ROP chain. Requires `pop rax; ret` to load pivot address first. See [rop-and-shellcode.md](rop-and-shellcode.md#stack-pivot-via-xchg-raxesp-crypto-cat).
 
@@ -176,7 +177,7 @@ Leak libc via `puts@PLT(puts@GOT)`, return to vuln, stage 2 with `system("/bin/s
 
 ## ret2vdso — No-Gadget Binary Exploitation
 
-**Pattern:** Statically-linked binary with minimal functions and no useful ROP gadgets. The Linux kernel maps a vDSO into every process, containing usable gadgets. Leak vDSO base from `AT_SYSINFO_EHDR` (auxv type `0x21`) on the stack, dump the vDSO, extract gadgets for `execve`. vDSO is kernel-specific — always dump the remote copy. See [rop-advanced.md](rop-advanced.md#ret2vdso--using-kernel-vdso-gadgets-htb-nowhere-to-go).
+**Pattern:** Statically-linked binary with minimal functions and no useful ROP gadgets. The Linux kernel maps a vDSO into every process, containing usable gadgets. Leak vDSO base from `AT_SYSINFO_EHDR` (auxv type `0x21`) on the stack, dump the vDSO, extract gadgets for `execve`. vDSO is kernel-specific — always dump the remote copy. See [rop-advanced.md](rop-advanced.md#ret2vdso-using-kernel-vdso-gadgets-htb-nowhere-to-go).
 
 ## Use-After-Free (UAF) Exploitation
 
@@ -232,7 +233,7 @@ Writable `.fini_array` + arbitrary write -> overwrite with win/shellcode address
 
 OOB via vulnerable `lseek`, heap grooming with `fork()`, SUID exploits. Check `CONFIG_SLAB_FREELIST_RANDOM` and `CONFIG_SLAB_MERGE_DEFAULT`. See [advanced.md](advanced.md).
 
-**Race window extension (DiceCTF 2026):** `MADV_DONTNEED` + `mprotect()` loop forces repeated page faults during kernel operations touching userland memory, extending race windows from sub-ms to tens of seconds. See [kernel-techniques.md](kernel-techniques.md#race-window-extension-via-madv_dontneed--mprotect-dicectf-2026).
+**Race window extension (DiceCTF 2026):** `MADV_DONTNEED` + `mprotect()` loop forces repeated page faults during kernel operations touching userland memory, extending race windows from sub-ms to tens of seconds. See [kernel-techniques.md](kernel-techniques.md#race-window-extension-via-madvdontneed-mprotect-dicectf-2026).
 
 **Cross-cache via CPU split (DiceCTF 2026):** Allocate on CPU 0, free from CPU 1 — objects escape dedicated SLUB caches via partial list overflow → buddy allocator. See [kernel-techniques.md](kernel-techniques.md#cross-cache-attack-via-cpu-split-strategy-dicectf-2026).
 
@@ -240,7 +241,7 @@ OOB via vulnerable `lseek`, heap grooming with `fork()`, SUID exploits. Check `C
 
 ## io_uring UAF with SQE Injection
 
-**Pattern:** Custom slab allocator + io_uring worker thread. FLUSH frees objects (UAF), type confusion via slab fallback, craft `IORING_OP_OPENAT` SQE in reused memory. io_uring trusts SQE contents from userland shared memory. See [advanced-exploits-2.md](advanced-exploits-2.md#io_uring-uaf-with-sqe-injection-apoorvctf-2026).
+**Pattern:** Custom slab allocator + io_uring worker thread. FLUSH frees objects (UAF), type confusion via slab fallback, craft `IORING_OP_OPENAT` SQE in reused memory. io_uring trusts SQE contents from userland shared memory. See [advanced-exploits-2.md](advanced-exploits-2.md#iouring-uaf-with-sqe-injection-apoorvctf-2026).
 
 ## Integer Truncation Bypass (int32→int16)
 
@@ -260,11 +261,11 @@ See [format-string.md](format-string.md) for GOT overwrite patterns, blind pwn, 
 
 ## __printf_chk Bypass with Sequential %p (VolgaCTF 2017)
 
-**Pattern:** `__printf_chk()` blocks `%n` writes and direct parameter access (`%123$p`), but sequential `%p%p%p...` still works. Chain hundreds of `%p` to reach any stack offset for leaks (canary, libc, PIE). See [format-string.md](format-string.md#__printf_chk-bypass-with-sequential-p-volgactf-2017).
+**Pattern:** `__printf_chk()` blocks `%n` writes and direct parameter access (`%123$p`), but sequential `%p%p%p...` still works. Chain hundreds of `%p` to reach any stack offset for leaks (canary, libc, PIE). See [format-string.md](format-string.md#printfchk-bypass-with-sequential-p-volgactf-2017).
 
 ## Leak + GOT Overwrite in Single printf Call (picoCTF 2017)
 
-**Pattern:** When `exit()` immediately follows the format string vulnerability, combine `%p` leak and `%hn` GOT overwrite in a single `printf` call. Overwrite `exit@GOT` with `main` to create a re-entry point while simultaneously leaking libc. See [format-string.md](format-string.md#leak--got-overwrite-in-single-printf-call-picoctf-2017).
+**Pattern:** When `exit()` immediately follows the format string vulnerability, combine `%p` leak and `%hn` GOT overwrite in a single `printf` call. Overwrite `exit@GOT` with `main` to create a re-entry point while simultaneously leaking libc. See [format-string.md](format-string.md#leak-got-overwrite-in-single-printf-call-picoctf-2017).
 
 ## Heap Exploitation
 
@@ -278,7 +279,7 @@ See [format-string.md](format-string.md) for GOT overwrite patterns, blind pwn, 
 - Check glibc version: `strings libc.so.6 | grep GLIBC`
 - Freed chunks contain libc pointers (fd/bk) -> leak via error messages or missing null-termination
 - Heap feng shui: control alloc order/sizes, create holes, place targets adjacent to overflow source
-- **Unsafe unlink + top chunk consolidation**: After unlink writes self-pointer to BSS, craft fake BSS chunk spanning to top chunk. `free()` consolidates, relocating heap base to BSS. Subsequent mallocs return BSS memory. See [heap-techniques.md](heap-techniques.md#unsafe-unlink-to-bss--top-chunk-consolidation-seccon-2016).
+- **Unsafe unlink + top chunk consolidation**: After unlink writes self-pointer to BSS, craft fake BSS chunk spanning to top chunk. `free()` consolidates, relocating heap base to BSS. Subsequent mallocs return BSS memory. See [heap-techniques.md](heap-techniques.md#unsafe-unlink-to-bss-top-chunk-consolidation-seccon-2016).
 
 **House of Orange:** Corrupt top chunk size → large malloc forces sysmalloc → old top freed without calling `free()`. Chain with FSOP. See [heap-techniques.md](heap-techniques.md#house-of-orange).
 
@@ -292,7 +293,7 @@ See [format-string.md](format-string.md) for GOT overwrite patterns, blind pwn, 
 
 **UAF vtable pointer encoding shell argument:** After UAF, heap spray places `system()` at offset +3. Object address containing `0x6873` ("sh") in low bytes doubles as the command string argument when `system(this)` is called through the hijacked vtable. See [heap-techniques.md](heap-techniques.md#uaf-vtable-pointer-encoding-shell-argument-bctf-2017).
 
-**Fastbin stdout vtable two-stage hijack (PIE + Full RELRO):** Use 0x7f byte in libc's stdout region as fake fastbin chunk size. Two-stage: first vtable redirect to `gets()` (rdi=stdout), then `gets()` overwrites vtable again to `system()` with command string. See [heap-techniques.md](heap-techniques.md#fastbin-stdout-vtable-two-stage-hijack-for-pie--full-relro-asis-ctf-2017).
+**Fastbin stdout vtable two-stage hijack (PIE + Full RELRO):** Use 0x7f byte in libc's stdout region as fake fastbin chunk size. Two-stage: first vtable redirect to `gets()` (rdi=stdout), then `gets()` overwrites vtable again to `system()` with command string. See [heap-techniques.md](heap-techniques.md#fastbin-stdout-vtable-two-stage-hijack-for-pie-full-relro-asis-ctf-2017).
 
 See [heap-techniques.md](heap-techniques.md) for House of Apple 2 FSOP chain (+ setcontext SUID variant), House of Orange/Spirit/Lore/Force, tcache stashing unlink, custom allocator exploitation (nginx pools, talloc), classic unlink, musl libc heap. See [advanced.md](advanced.md) for ret2dlresolve, heap overlap via base conversion, tree data structure stack underallocation.
 
@@ -326,7 +327,7 @@ See [heap-techniques.md](heap-techniques.md) for House of Apple 2 FSOP chain (+ 
 
 ## Stack Leak via __environ and memcpy Overflow (BSidesSF 2026)
 
-**Pattern:** Binary with read-only primitive and `memcpy(stack_buf, user_addr, user_len)`. Leak libc via GOT, leak stack via `__environ`, plant ROP addresses in input buffer, overflow memcpy to copy them over return address, send EOF to trigger return. See [advanced-exploits-3.md](advanced-exploits-3.md#stack-leak-via-__environ-and-memcpy-overflow-bsidessf-2026).
+**Pattern:** Binary with read-only primitive and `memcpy(stack_buf, user_addr, user_len)`. Leak libc via GOT, leak stack via `__environ`, plant ROP addresses in input buffer, overflow memcpy to copy them over return address, send EOF to trigger return. See [advanced-exploits-3.md](advanced-exploits-3.md#stack-leak-via-environ-and-memcpy-overflow-bsidessf-2026).
 
 ## JIT Sandbox Escape via uint16 Jump Truncation (BSidesSF 2026)
 
@@ -346,7 +347,7 @@ See [heap-techniques.md](heap-techniques.md) for House of Apple 2 FSOP chain (+ 
 
 ## File Descriptor Inheritance via Missing O_CLOEXEC (BSidesSF 2026)
 
-**Pattern:** Service reads secret into `memfd_create()` FD without `MFD_CLOEXEC`, then calls `system()` for user commands — child inherits the FD. Bypass `strstr()` keyword filters with shell quote splitting (`p'r'oc` instead of `proc`) to read `/proc/self/fd/N`. See [advanced-exploits-3.md](advanced-exploits-3.md#file-descriptor-inheritance-via-missing-o_cloexec-bsidessf-2026).
+**Pattern:** Service reads secret into `memfd_create()` FD without `MFD_CLOEXEC`, then calls `system()` for user commands — child inherits the FD. Bypass `strstr()` keyword filters with shell quote splitting (`p'r'oc` instead of `proc`) to read `/proc/self/fd/N`. See [advanced-exploits-3.md](advanced-exploits-3.md#file-descriptor-inheritance-via-missing-ocloexec-bsidessf-2026).
 
 ## Sign Extension Integer Underflow in Metadata Parsing (BSidesSF 2026)
 
@@ -378,7 +379,7 @@ Validation time varies per correct character; measure elapsed time per candidate
 
 ## Format String .fini_array Loop for Multi-Stage Exploitation (Codegate 2016)
 
-**Pattern:** No GOT function called after `printf()`. Overwrite `.fini_array[0]` with `main()` for re-execution loop. Stage 1: leak libc/stack. Stage 2: `printf@GOT` to `system()`, `__stack_chk_fail@GOT` to `main()`. Stage 3: corrupt canary to trigger `__stack_chk_fail` re-entry, now `printf(input)` is `system(input)`. See [format-string.md](format-string.md#format-string-fini_array-loop-for-multi-stage-exploitation-codegate-2016).
+**Pattern:** No GOT function called after `printf()`. Overwrite `.fini_array[0]` with `main()` for re-execution loop. Stage 1: leak libc/stack. Stage 2: `printf@GOT` to `system()`, `__stack_chk_fail@GOT` to `main()`. Stage 3: corrupt canary to trigger `__stack_chk_fail` re-entry, now `printf(input)` is `system(input)`. See [format-string.md](format-string.md#format-string-finiarray-loop-for-multi-stage-exploitation-codegate-2016).
 
 ## Format String with RWX .fini_array Hijack
 
@@ -426,7 +427,7 @@ Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers
 
 ## process_vm_readv Sandbox Bypass (0CTF 2016)
 
-**Pattern:** Sandbox validates file paths via `process_vm_readv()` + `realpath()`. Map memory with `PROT_READ` only at fixed address via `mmap(MAP_FIXED)` -- sandbox's `process_vm_readv` fails silently, bypassing path validation entirely. See [sandbox-escape.md](sandbox-escape.md#process_vm_readv-failure-as-sandbox-escape-0ctf-2016).
+**Pattern:** Sandbox validates file paths via `process_vm_readv()` + `realpath()`. Map memory with `PROT_READ` only at fixed address via `mmap(MAP_FIXED)` -- sandbox's `process_vm_readv` fails silently, bypassing path validation entirely. See [sandbox-escape.md](sandbox-escape.md#processvmreadv-failure-as-sandbox-escape-0ctf-2016).
 
 ## Named Pipe (mkfifo) File Size Bypass (Nuit du Hack 2016)
 
@@ -450,17 +451,17 @@ Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers
 
 ## Signed/Unsigned Char Underflow → Heap Overflow (Midnightflag 2026)
 
-**Pattern:** Size field stored as `signed char`, cast to `unsigned char` for use. `size = -112` → `(unsigned char)(-112) = 144`, overflowing a 127-byte buffer by 17 bytes. Combine with XOR keystream brute-force for byte-precise writes, forge chunk sizes for unsorted bin promotion (libc leak), FSOP stdout for TLS leak, and TLS destructor (`__call_tls_dtors`) overwrite for RCE. See [advanced-exploits-2.md](advanced-exploits-2.md#signedunsigned-char-underflow-to-heap-overflow--tls-destructor-hijack-midnightflag-2026).
+**Pattern:** Size field stored as `signed char`, cast to `unsigned char` for use. `size = -112` → `(unsigned char)(-112) = 144`, overflowing a 127-byte buffer by 17 bytes. Combine with XOR keystream brute-force for byte-precise writes, forge chunk sizes for unsorted bin promotion (libc leak), FSOP stdout for TLS leak, and TLS destructor (`__call_tls_dtors`) overwrite for RCE. See [advanced-exploits-2.md](advanced-exploits-2.md#signedunsigned-char-underflow-to-heap-overflow-tls-destructor-hijack-midnightflag-2026).
 
 ## TLS Destructor Hijack via `__call_tls_dtors`
 
-**Pattern:** Alternative to House of Apple 2 on glibc 2.34+. Forge `__tls_dtor_list` entries with pointer-guard-mangled function pointers: `encoded = rol(target ^ pointer_guard, 0x11)`. Requires leaking pointer guard from TLS segment (via FSOP stdout redirection). Each node calls `PTR_DEMANGLE(func)(obj)` on exit. See [advanced-exploits-2.md](advanced-exploits-2.md#tls-destructor-overwrite-for-rce-via-__call_tls_dtors).
+**Pattern:** Alternative to House of Apple 2 on glibc 2.34+. Forge `__tls_dtor_list` entries with pointer-guard-mangled function pointers: `encoded = rol(target ^ pointer_guard, 0x11)`. Requires leaking pointer guard from TLS segment (via FSOP stdout redirection). Each node calls `PTR_DEMANGLE(func)(obj)` on exit. See [advanced-exploits-2.md](advanced-exploits-2.md#tls-destructor-overwrite-for-rce-via-calltlsdtors).
 
 ## Signed Int Overflow → Negative OOB Heap Write (Midnight 2026)
 
 **Pattern (Canvas of Fear):** Index formula `y * width + x` in signed 32-bit int overflows to negative value, passing bounds check and writing backward into heap metadata. Use to corrupt adjacent chunk sizes/pointers, leak libc via unsorted bin, redirect a data pointer to `environ` for stack leak, then write ROP chain to main's return address. When binary is behind a web API, chain XSS → Fetch API → heap exploit, and inject `\n` in API parameters for command stacking via `sendline()`.
 
-See [advanced-exploits-2.md](advanced-exploits-2.md#signed-int-overflow-to-negative-oob-heap-write--xss-to-binary-pwn-bridge-midnight-2026) for full exploit chain, XSS bridge pattern, and RGB pixel write primitive.
+See [advanced-exploits-2.md](advanced-exploits-2.md#signed-int-overflow-to-negative-oob-heap-write-xss-to-binary-pwn-bridge-midnight-2026) for full exploit chain, XSS bridge pattern, and RGB pixel write primitive.
 
 ## Custom Shadow Stack Bypass via Pointer Overflow (Midnight 2026)
 
@@ -468,7 +469,7 @@ See [advanced-exploits-2.md](advanced-exploits-2.md#signed-int-overflow-to-negat
 
 ## Windows SEH Overwrite + VirtualAlloc ROP (RainbowTwo HTB)
 
-Format string leak defeats ASLR. SEH (Structured Exception Handler) overwrite with stack pivot to ROP chain. `pushad` builds VirtualAlloc call frame for DEP (Data Execution Prevention) bypass. Detached process launcher for shell stability on thread-based servers. See [advanced-exploits-4.md](advanced-exploits-4.md#windows-seh-overwrite--pushad-virtualalloc-rop-rainbowtwo-htb).
+Format string leak defeats ASLR. SEH (Structured Exception Handler) overwrite with stack pivot to ROP chain. `pushad` builds VirtualAlloc call frame for DEP (Data Execution Prevention) bypass. Detached process launcher for shell stability on thread-based servers. See [advanced-exploits-4.md](advanced-exploits-4.md#windows-seh-overwrite-pushad-virtualalloc-rop-rainbowtwo-htb).
 
 ## SeDebugPrivilege → SYSTEM
 
@@ -484,7 +485,7 @@ Over-unmap via mmap(small)/munmap(large) destroys adjacent mappings. Thread stac
 
 ## Windows CFG Bypass Using system() as Valid Call Target (Insomni'hack 2017)
 
-**Pattern:** Windows CFG validates indirect call targets but `system()` from msvcrt passes validation since it is a legitimate API entry point. Overwrite function pointer with `system()`, use comma instead of space in arguments to bypass input filters. See [advanced-exploits-4.md](advanced-exploits-4.md#windows-cfg-bypass-using-system-as-valid-call-target-somnihack-2017).
+**Pattern:** Windows CFG validates indirect call targets but `system()` from msvcrt passes validation since it is a legitimate API entry point. Overwrite function pointer with `system()`, use comma instead of space in arguments to bypass input filters. See [advanced-exploits-4.md](advanced-exploits-4.md#windows-cfg-bypass-using-system-as-valid-call-target-insomnihack-2017).
 
 ## 4-Byte Shellcode with Timing Side-Channel (Google CTF 2017)
 
