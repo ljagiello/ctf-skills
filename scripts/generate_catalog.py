@@ -22,16 +22,26 @@ def _detect_repo_url() -> str:
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
-        # Normalise SSH → HTTPS and strip trailing .git
-        if url.startswith("git@"):
-            url = url.replace(":", "/", 1).replace("git@", "https://")
+        # Normalise SSH variants → HTTPS
+        if url.startswith("ssh://"):
+            url = url.replace("ssh://", "https://", 1).replace("git@", "")
+        elif url.startswith("git@"):
+            url = url.replace("git@", "https://", 1).replace(":", "/", 1)
         url = url.removesuffix(".git")
         return url
     except (subprocess.CalledProcessError, FileNotFoundError):
         return _DEFAULT_REPO_URL
 
 
-REPO_URL = _detect_repo_url()
+# Lazy-initialized; call _get_repo_url() instead of using directly.
+_repo_url: str | None = None
+
+
+def _get_repo_url() -> str:
+    global _repo_url
+    if _repo_url is None:
+        _repo_url = _detect_repo_url()
+    return _repo_url
 
 CATEGORY_COLORS = {
     "ctf-web": "#1d76db",
@@ -127,9 +137,9 @@ def build_html(skills: list[dict]) -> str:
         if s["techniques"]:
             items = []
             for t in s["techniques"]:
-                gh_link = f"{REPO_URL}/blob/main/{s['dir_name']}/{t['file']}"
+                gh_link = f"{_get_repo_url()}/blob/main/{s['dir_name']}/{t['file']}"
                 items.append(
-                    f'<li><a href="{gh_link}" target="_blank">{html.escape(t["name"])}</a></li>'
+                    f'<li><a href="{gh_link}" target="_blank" rel="noopener noreferrer">{html.escape(t["name"])}</a></li>'
                 )
             tech_list = f'<ul class="technique-list">{"".join(items)}</ul>'
 
@@ -297,7 +307,7 @@ def build_html(skills: list[dict]) -> str:
       {"".join(cards)}
     </div>
     <footer>
-      <a href="{REPO_URL}">GitHub Repository</a>
+      <a href="{_get_repo_url()}">GitHub Repository</a>
       &middot;
       <a href="https://agentskills.io">Agent Skills</a>
       &middot;
