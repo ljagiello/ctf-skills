@@ -75,6 +75,10 @@ Skills are loaded automatically based on context. You can also invoke the orches
 /solve-challenge <challenge description or URL>
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and contribution guidelines.
+
 ## License
 
 MIT

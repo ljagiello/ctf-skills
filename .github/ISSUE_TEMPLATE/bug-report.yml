@@ -1,0 +1,61 @@
+name: Bug Report
+description: Report a bug in a skill, script, or tooling
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill in the details below to help us investigate.
+
+  - type: input
+    id: affected-file
+    attributes:
+      label: Affected File or Skill
+      description: Which file or skill category is affected?
+      placeholder: "e.g., ctf-web/SKILL.md, scripts/install_ctf_tools.sh"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is the bug? Be as specific as possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce the issue?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Any relevant environment details (OS, tool versions, agent runtime)
+      placeholder: |
+        - OS: Ubuntu 24.04
+        - Python: 3.14
+        - Agent: Claude Code
+    validations:
+      required: false

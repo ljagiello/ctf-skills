@@ -1,0 +1,42 @@
+name: Coverage Gap
+description: Report missing technique coverage in a skill category
+labels: ["coverage-gap"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to flag areas where a skill category is missing techniques that would help solve real CTF challenges.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Which skill category has the coverage gap?
+      options:
+        - ctf-ai-ml
+        - ctf-crypto
+        - ctf-forensics
+        - ctf-malware
+        - ctf-misc
+        - ctf-osint
+        - ctf-pwn
+        - ctf-reverse
+        - ctf-web
+    validations:
+      required: true
+
+  - type: textarea
+    id: whats-missing
+    attributes:
+      label: What's Missing
+      description: Describe the techniques, vulnerability classes, or tool coverage that is absent or insufficient
+    validations:
+      required: true
+
+  - type: textarea
+    id: reference-links
+    attributes:
+      label: Reference Links
+      description: Links to writeups, papers, tools, or documentation that demonstrate the gap
+    validations:
+      required: false

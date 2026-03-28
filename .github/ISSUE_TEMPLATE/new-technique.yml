@@ -1,0 +1,52 @@
+name: New Technique
+description: Suggest a new CTF technique to add from a writeup or competition
+labels: ["new-technique"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing a new technique! Please provide the details below.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Which skill category does this technique belong to?
+      options:
+        - ctf-ai-ml
+        - ctf-crypto
+        - ctf-forensics
+        - ctf-malware
+        - ctf-misc
+        - ctf-osint
+        - ctf-pwn
+        - ctf-reverse
+        - ctf-web
+        - New category (describe below)
+    validations:
+      required: true
+
+  - type: input
+    id: source-url
+    attributes:
+      label: Source Writeup URL
+      description: Link to the CTF writeup, blog post, or competition solution
+      placeholder: "https://example.com/ctf-writeup"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Technique Description
+      description: Brief description of the technique, what it exploits, and when an agent should use it
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other relevant details (related CVEs, alternative writeups, edge cases)
+    validations:
+      required: false
