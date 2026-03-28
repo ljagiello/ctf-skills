@@ -6,12 +6,14 @@ name: Link Checker
     paths:
       - '**/*.md'
       - '.github/workflows/link-checker.yml'
+      - '.lychee.toml'
   push:
     branches:
       - main
     paths:
       - '**/*.md'
       - '.github/workflows/link-checker.yml'
+      - '.lychee.toml'
   schedule:
     - cron: '0 8 * * 1' # Weekly on Monday at 08:00 UTC
   workflow_dispatch:
@@ -34,6 +36,7 @@ jobs:
         uses: lycheeverse/lychee-action@v2
         with:
           args: >-
+            --config .lychee.toml
             --no-progress
             --exclude-path .pytest_cache
             '**/*.md'
