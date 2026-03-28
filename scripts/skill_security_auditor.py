@@ -131,7 +131,7 @@ def parse_frontmatter(content: str) -> dict:
 
 
 def has_shell_true_subprocess_call(line: str) -> bool:
-    """Detect subprocess.call() with a string argument and shell=True on the same line."""
+    """Detect subprocess.call() with shell=True."""
     if "subprocess.call" not in line or "shell=True" not in line:
         return False
 
@@ -362,7 +362,10 @@ def scan_skill(skill_dir: Path) -> dict:
                             "file": str(skill_md),
                             "line": 0,
                             "rule": "name_mismatch",
-                            "message": f'Frontmatter name "{actual_name}" does not match directory "{expected_name}"',
+                            "message": (
+                                f'Frontmatter name "{actual_name}" does not'
+                                f' match directory "{expected_name}"'
+                            ),
                         }
                     )
 
@@ -377,7 +380,11 @@ def scan_skill(skill_dir: Path) -> dict:
                             "file": str(skill_md),
                             "line": 0,
                             "rule": "description_not_third_person",
-                            "message": f'Description should start with a third-person verb (e.g., "Provides..."), got "{first_word.capitalize()}..."',
+                            "message": (
+                                f'Description should start with a'
+                                f' third-person verb (e.g., "Provides..."),'
+                                f' got "{first_word.capitalize()}..."'
+                            ),
                         }
                     )
 
