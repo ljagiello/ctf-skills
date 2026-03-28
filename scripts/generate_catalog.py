@@ -3,10 +3,35 @@
 
 import html
 import re
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = REPO_ROOT / "_site"
+
+# Fallback if git remote is unavailable (e.g., in CI without full clone)
+_DEFAULT_REPO_URL = "https://github.com/ljagiello/ctf-skills"
+
+
+def _detect_repo_url() -> str:
+    """Derive the GitHub repo URL from the git remote, with fallback."""
+    try:
+        url = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"],
+            cwd=REPO_ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        # Normalise SSH → HTTPS and strip trailing .git
+        if url.startswith("git@"):
+            url = url.replace(":", "/", 1).replace("git@", "https://")
+        url = url.removesuffix(".git")
+        return url
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return _DEFAULT_REPO_URL
+
+
+REPO_URL = _detect_repo_url()
 
 CATEGORY_COLORS = {
     "ctf-web": "#1d76db",
@@ -23,17 +48,17 @@ CATEGORY_COLORS = {
 }
 
 CATEGORY_ICONS = {
-    "ctf-web": "&#127760;",
-    "ctf-pwn": "&#128163;",
-    "ctf-crypto": "&#128272;",
-    "ctf-reverse": "&#128270;",
-    "ctf-forensics": "&#128269;",
-    "ctf-osint": "&#127758;",
-    "ctf-malware": "&#129440;",
-    "ctf-misc": "&#129513;",
-    "ctf-ai-ml": "&#129302;",
-    "ctf-writeup": "&#128221;",
-    "solve-challenge": "&#127919;",
+    "ctf-web": "\U0001f310",
+    "ctf-pwn": "\U0001f4a3",
+    "ctf-crypto": "\U0001f510",
+    "ctf-reverse": "\U0001f50e",
+    "ctf-forensics": "\U0001f50d",
+    "ctf-osint": "\U0001f30e",
+    "ctf-malware": "\U0001f9a0",
+    "ctf-misc": "\U0001f9e9",
+    "ctf-ai-ml": "\U0001f916",
+    "ctf-writeup": "\U0001f4dd",
+    "solve-challenge": "\U0001f3af",
 }
 
 
@@ -86,22 +111,6 @@ def count_techniques(skill_dir: Path) -> list[dict[str, str]]:
     return techniques
 
 
-def extract_h2_sections(filepath: Path) -> list[str]:
-    """Extract ## headings from a markdown file (after frontmatter)."""
-    text = filepath.read_text(encoding="utf-8")
-    # Skip frontmatter
-    if text.startswith("---"):
-        end = text.find("---", 3)
-        if end != -1:
-            text = text[end + 3 :]
-    sections = []
-    for line in text.splitlines():
-        m = re.match(r"^##\s+(.+)$", line)
-        if m:
-            sections.append(m.group(1).strip())
-    return sections
-
-
 def build_html(skills: list[dict]) -> str:
     """Build the full HTML catalog page."""
     total_techniques = sum(len(s["techniques"]) for s in skills)
@@ -110,7 +119,7 @@ def build_html(skills: list[dict]) -> str:
     cards = []
     for s in skills:
         color = CATEGORY_COLORS.get(s["dir_name"], "#666")
-        icon = CATEGORY_ICONS.get(s["dir_name"], "&#128196;")
+        icon = html.escape(CATEGORY_ICONS.get(s["dir_name"], "\U0001f4c4"))
         tech_count = len(s["techniques"])
         desc = html.escape(s.get("description", ""))
 
@@ -118,7 +127,7 @@ def build_html(skills: list[dict]) -> str:
         if s["techniques"]:
             items = []
             for t in s["techniques"]:
-                gh_link = f"https://github.com/ljagiello/ctf-skills/blob/main/{s['dir_name']}/{t['file']}"
+                gh_link = f"{REPO_URL}/blob/main/{s['dir_name']}/{t['file']}"
                 items.append(
                     f'<li><a href="{gh_link}" target="_blank">{html.escape(t["name"])}</a></li>'
                 )
@@ -288,7 +297,7 @@ def build_html(skills: list[dict]) -> str:
       {"".join(cards)}
     </div>
     <footer>
-      <a href="https://github.com/ljagiello/ctf-skills">GitHub Repository</a>
+      <a href="{REPO_URL}">GitHub Repository</a>
       &middot;
       <a href="https://agentskills.io">Agent Skills</a>
       &middot;

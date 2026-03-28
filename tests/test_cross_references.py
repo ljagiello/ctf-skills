@@ -18,7 +18,12 @@ SKILL_DIRS = sorted(p.parent for p in REPO_ROOT.glob("*/SKILL.md"))
 
 
 def _slugify_heading(heading: str) -> str:
-    """Convert a markdown heading to a GitHub-style anchor slug."""
+    """Convert a markdown heading to a GitHub-style anchor slug.
+
+    This is an approximation of GitHub's algorithm. It handles the common
+    cases in this repo but may diverge for emoji, non-Latin scripts, or
+    unusual consecutive special characters.
+    """
     slug = heading.lower().strip()
     # Remove markdown formatting
     slug = re.sub(r"[*_`~]", "", slug)
@@ -201,6 +206,8 @@ class TestBidirectionalPivotReferences(unittest.TestCase):
                         source,
                         pivot_map.get(target, set()),
                         f"{target}/SKILL.md 'When to Pivot' does not "
-                        f"reference back to /ctf-{source.removeprefix('ctf-')} "
-                        f"(but {source} references /{target})",
+                        f"reference back to /{source} "
+                        f"(but {source} references /{target}). "
+                        f"Fix: add a '- If ..., switch to `/{source}`.' "
+                        f"bullet in {target}/SKILL.md's 'When to Pivot' section.",
                     )
