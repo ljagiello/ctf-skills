@@ -47,6 +47,31 @@ PLACEHOLDER_HOST_MARKERS = (
     'example.invalid',
 )
 
+# Inline suppression: lines containing this marker are skipped for HIGH patterns
+AUDIT_SUPPRESS_MARKER = '<!-- audit-ok'
+
+# CTF documentation patterns that are expected in attack technique references.
+# These appear in code blocks as copy-paste payloads, not as instructions to
+# run dangerous commands against real systems.
+
+# AngularJS $eval() is a template sandbox escape payload, not Python/JS eval()
+CTF_EVAL_ALLOWLIST = re.compile(
+    r'\$eval\s*\('        # AngularJS $eval('...')
+    r'|'
+    r'eval\s*\(\s*["\']x='  # AngularJS sandbox: eval('x=alert(1)')
+)
+
+# Common RCE verification commands used in CTF exploit demonstrations
+CTF_EXEC_ALLOWLIST = re.compile(
+    r"""exec\s*\(\s*['"](?:id|ls|cat |whoami|uname|pwd|echo )"""
+)
+
+# /tmp/ is world-writable by design — chmod 777 /tmp/* is standard in
+# kernel exploitation (modprobe_path, core_pattern) and not a system risk
+CTF_CHMOD_ALLOWLIST = re.compile(
+    r'chmod\s+[47]77\s+/tmp/'
+)
+
 FRONTMATTER_CHECKS = {
     'license': 'Missing license field in frontmatter',
     'allowed-tools': 'Missing allowed-tools field in frontmatter',
@@ -168,7 +193,12 @@ def scan_file(filepath: Path) -> list:
 
         # High patterns — only in runnable code examples
         if in_executable_example:
-            if has_shell_true_subprocess_call(line):
+            # Inline suppression: <!-- audit-ok --> on the current or previous line
+            suppress_marker_here = AUDIT_SUPPRESS_MARKER in line
+            suppress_marker_prev = (i >= 2 and AUDIT_SUPPRESS_MARKER in lines[i - 2])
+            suppress = suppress_marker_here or suppress_marker_prev
+
+            if not suppress and has_shell_true_subprocess_call(line):
                 findings.append({
                     'severity': 'HIGH',
                     'file': str(filepath),
@@ -178,18 +208,26 @@ def scan_file(filepath: Path) -> list:
                     'context': line.strip()[:120],
                 })
 
-            for pattern, message in HIGH_PATTERNS:
-                if re.search(pattern, line):
-                    if message == "XSS payload accessing sensitive DOM" and is_placeholder_xss_example(line):
-                        continue
-                    findings.append({
-                        'severity': 'HIGH',
-                        'file': str(filepath),
-                        'line': i,
-                        'rule': pattern[:40],
-                        'message': message,
-                        'context': line.strip()[:120],
-                    })
+            if not suppress:
+                for pattern, message in HIGH_PATTERNS:
+                    if re.search(pattern, line):
+                        if message == "XSS payload accessing sensitive DOM" and is_placeholder_xss_example(line):
+                            continue
+                        # CTF-specific allowlists for documented attack payloads
+                        if "eval()" in message and CTF_EVAL_ALLOWLIST.search(line):
+                            continue
+                        if "exec()" in message and CTF_EXEC_ALLOWLIST.search(line):
+                            continue
+                        if "World-writable" in message and CTF_CHMOD_ALLOWLIST.search(line):
+                            continue
+                        findings.append({
+                            'severity': 'HIGH',
+                            'file': str(filepath),
+                            'line': i,
+                            'rule': pattern[:40],
+                            'message': message,
+                            'context': line.strip()[:120],
+                        })
 
         for pattern, message in INFO_PATTERNS:
             if re.search(pattern, line):

