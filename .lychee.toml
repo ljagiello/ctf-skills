@@ -1,0 +1,24 @@
+# Lychee link checker configuration
+# https://lychee.cli.rs/usage/config/
+
+# Exclude URLs that block CI bots or are unreliable
+exclude = [
+  "quipqiup\\.com",       # Frequent timeouts
+  "rbndr\\.us",           # DNS rebinding tool — often offline
+  "whatsmyname\\.app",    # Blocks automated requests (403)
+]
+
+# Accept common "soft error" status codes
+accept = [200, 204, 301, 302, 403, 429]
+
+# Ignore file:// links (appear in code examples, not real references)
+scheme = ["https", "http"]
+
+# Timeout per request
+timeout = 15
+
+# Limit concurrent requests to avoid rate limiting
+max_concurrency = 8
+
+# Retry transient failures
+max_retries = 2
