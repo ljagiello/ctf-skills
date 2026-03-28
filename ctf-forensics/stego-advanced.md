@@ -20,6 +20,10 @@
 - [Arnold's Cat Map Image Descrambling (Nuit du Hack 2017)](#arnolds-cat-map-image-descrambling-nuit-du-hack-2017)
 - [High-Resolution SSTV Custom FM Demodulation (PlaidCTF 2017)](#high-resolution-sstv-custom-fm-demodulation-plaidctf-2017)
 - [MJPEG Extra Bytes After FFD9 Steganography (PoliCTF 2017)](#mjpeg-extra-bytes-after-ffd9-steganography-polictf-2017)
+- [EXIF Zlib Data with Non-Default LSB Pixel Pattern (ASIS CTF Finals 2017)](#exif-zlib-data-with-non-default-lsb-pixel-pattern-asis-ctf-finals-2017)
+- [PDF Cross-Reference Table Covert Channel (SEC-T CTF 2017)](#pdf-cross-reference-table-covert-channel-sec-t-ctf-2017)
+- [ANSI Escape Code Steganography in Network Capture (Square CTF 2017)](#ansi-escape-code-steganography-in-network-capture-square-ctf-2017)
+- [Pixel-Wise ECB Deduplication for Image Recovery (BackdoorCTF 2017)](#pixel-wise-ecb-deduplication-for-image-recovery-backdoorctf-2017)
 
 ---
 
@@ -577,7 +581,7 @@ print('Flag:', ''.join(flag_chars))
 
 ## Arnold's Cat Map Image Descrambling (Nuit du Hack 2017)
 
-Arnold's Cat Map is a chaotic area-preserving transformation that is periodic -- iterating it enough times restores the original image. When an image appears scrambled with a noise-like pattern but retains the correct dimensions and color histogram, suspect a Cat Map scramble.
+Arnold's Cat Map is a chaotic area-preserving transformation that is periodic — iterating it enough times restores the original image. When an image appears scrambled with a noise-like pattern but retains the correct dimensions and color histogram, suspect a Cat Map scramble.
 
 ```python
 from PIL import Image
@@ -662,6 +666,143 @@ for frame in frames:
 print(hidden.decode(errors='ignore'))
 ```
 
-**Key insight:** JPEG decoders stop at the FFD9 (End of Image) marker and ignore trailing bytes. In MJPEG streams, each frame is a complete JPEG -- appending 1+ extra bytes after each frame's FFD9 creates a covert channel invisible to video players.
+**Key insight:** JPEG decoders stop at the FFD9 (End of Image) marker and ignore trailing bytes. In MJPEG streams, each frame is a complete JPEG — appending 1+ extra bytes after each frame's FFD9 creates a covert channel invisible to video players.
 
 **Detection:** MJPEG file where individual frames are slightly larger than expected. `binwalk` on raw MJPEG may show repeated JPEG headers. Hex dump shows non-zero data between FFD9 and the next FFD8.
+
+---
+
+## EXIF Zlib Data with Non-Default LSB Pixel Pattern (ASIS CTF Finals 2017)
+
+A JPG's EXIF `ImageDescription` field contains zlib-compressed then base64-encoded data. Detect via the `\x78\x9C` zlib magic bytes after base64 decoding. After decompression, the hint references the Stegano Python library with a `triangular_numbers` generator for non-sequential pixel selection (positions 1, 3, 6, 10, ...).
+
+```bash
+# Step 1: Extract EXIF ImageDescription
+exiftool -ImageDescription image.jpg
+# Or:
+python3 -c "
+from PIL import Image
+img = Image.open('image.jpg')
+desc = img._getexif()[270]  # Tag 270 = ImageDescription
+print(repr(desc))
+"
+
+# Step 2: Base64-decode, then zlib-decompress
+python3 -c "
+import base64, zlib
+desc = '<exif_description_value>'
+decoded = base64.b64decode(desc)
+print(zlib.decompress(decoded).decode())
+"
+
+# Step 3: Extract hidden data using Stegano with triangular_numbers generator
+python3 -c "
+from stegano import lsb
+from stegano.lsb import generators
+print(lsb.reveal('image.png', generators.triangular_numbers()))
+"
+```
+
+**Key insight:** Standard LSB tools (zsteg, stegsolve) fail with non-sequential pixel patterns. The Stegano library supports custom generators; always check EXIF metadata for hints about which generator to use. The `\x78\x9C` bytes are the deflate magic — a reliable indicator of zlib-compressed content.
+
+---
+
+## PDF Cross-Reference Table Covert Channel (SEC-T CTF 2017)
+
+PDF xref table entries normally use generation number 0 (live objects) or 65535 (free/deleted). Non-standard generation numbers encode data: read each non-zero, non-65535 generation number in order, interpret as hex → ASCII characters (may need to reverse the string).
+
+```bash
+# Inspect raw xref entries with pdf-parser.py
+python pdf-parser.py --stats suspicious.pdf
+python pdf-parser.py --type /XRef suspicious.pdf
+
+# Or read the raw xref table directly
+python3 -c "
+with open('suspicious.pdf', 'rb') as f:
+    data = f.read().decode('latin-1')
+
+# Find xref section
+xref_idx = data.rfind('xref')
+xref_section = data[xref_idx:xref_idx+2000]
+gen_numbers = []
+for line in xref_section.splitlines():
+    parts = line.split()
+    if len(parts) == 3 and parts[2] in ('n', 'f'):
+        gen = int(parts[1])
+        if gen not in (0, 65535):
+            gen_numbers.append(gen)
+
+# Convert hex values to ASCII
+flag = bytes.fromhex(''.join(f'{g:02x}' for g in gen_numbers)).decode()
+print(flag)
+# Also try reversed: print(flag[::-1])
+"
+```
+
+**Key insight:** PDF xref generation numbers are rarely validated by viewers, making them a low-noise steganographic channel. Any value other than 0 (live) or 65535 (deleted) is suspicious. Use `pdf-parser.py --raw` to inspect raw xref entries without parser normalization.
+
+---
+
+## ANSI Escape Code Steganography in Network Capture (Square CTF 2017)
+
+Network packet data contains ANSI escape sequences (color codes, cursor movement). Raw hex and strings tools show garbled output. Pipe raw bytes through a terminal pager (`more`, `less -r`) to render the escape codes — the flag becomes visible as colored or positioned text.
+
+```bash
+# Extract raw TCP stream payload
+tshark -r capture.pcap -q -z "follow,tcp,raw,0" | \
+  tail -n +7 | tr -d '\n' | xxd -r -p > stream.bin
+
+# Render ANSI escape codes (simplest approach)
+more stream.bin
+# or
+cat stream.bin | less -r
+
+# Alternative: extract data field directly
+tshark -r capture.pcap -T fields -e data | xxd -r -p | more
+```
+
+ANSI escape patterns to recognize:
+- `\x1b[<n>m` — color/attribute codes
+- `\x1b[<row>;<col>H` — cursor position
+- `\x1b[<n>A/B/C/D` — cursor movement (up/down/right/left)
+
+**Key insight:** ANSI escape sequences encode visual information only revealed by terminal rendering. Always try `more` or `less -r` if content looks like terminal output. Cursor-positioning sequences can spell out text that only appears correct on a terminal.
+
+---
+
+## Pixel-Wise ECB Deduplication for Image Recovery (BackdoorCTF 2017)
+
+An image is encrypted by replacing each pixel's value with a hash (ECB-mode pixel encryption). Since the pixel value space is small (256 for grayscale, or limited palette), precompute a hash-to-pixel lookup table and remap each hash value back to the original pixel.
+
+```python
+from PIL import Image
+import hashlib
+
+img = Image.open('encrypted.png').convert('L')  # Grayscale
+pixels = list(img.getdata())
+
+# Build lookup table: hash(pixel) -> pixel value
+# The encryption maps each unique pixel value to a unique hash
+# Since the space is small (256 values), enumerate all possible originals
+lookup = {}
+for original_val in range(256):
+    # Determine which hash function was used (MD5, SHA1, etc.)
+    h = hashlib.md5(bytes([original_val])).hexdigest()
+    lookup[h] = original_val
+
+# Reconstruct: each "pixel" in encrypted image is actually a hash index
+# For palette-based images, map color index -> original pixel
+unique_colors = list(set(pixels))
+color_map = {}
+for i, color in enumerate(unique_colors):
+    # ECB: identical pixels -> identical cipher values
+    # Count unique values to confirm small space
+    pass
+
+# Simpler: if encrypted values are small integers (0-255 remapped)
+# The structure is preserved — just find the right permutation
+reconstructed = Image.new('L', img.size)
+# Map each encrypted value back using the lookup
+```
+
+**Key insight:** ECB-mode pixel encryption leaks structure via identical ciphertexts for identical plaintext pixels. With only 256 possible grayscale values, the full lookup table is trivial to precompute. The encrypted image will show the same shapes/edges as the original — recognizable structure confirms ECB mode.

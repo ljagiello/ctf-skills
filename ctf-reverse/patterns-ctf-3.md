@@ -16,6 +16,9 @@
 - [ESP32/Xtensa Firmware Reversing with ROM Symbol Map (Insomni'hack 2017)](#esp32xtensa-firmware-reversing-with-rom-symbol-map-insomnihack-2017)
 - [Batch Crackme Automation via objdump Pattern Extraction (DEF CON 2017)](#batch-crackme-automation-via-objdump-pattern-extraction-def-con-2017)
 - [Fork + Pipe + Dead Branch Anti-Analysis (RCTF 2017)](#fork--pipe--dead-branch-anti-analysis-rctf-2017)
+- [Time-Locked Binary with Date-Based Key (Hack.lu 2017)](#time-locked-binary-with-date-based-key-hacklu-2017)
+- [ARM Code in Image Pixels via UnicornJS (Hack.lu 2017)](#arm-code-in-image-pixels-via-unicornjs-hacklu-2017)
+- [x86 16-bit MBR psadbw Constraint Solving (CSAW 2017)](#x86-16-bit-mbr-psadbw-constraint-solving-csaw-2017)
 
 ---
 
@@ -553,6 +556,111 @@ open('binary_patched','wb').write(data)
 ```
 
 **Key insight:** Fork+pipe creates a parent-child relationship where the parent provides data and exits. Dead branches (comparisons that always evaluate to false) hide the real validation logic. `strace` reveals the fork/pipe/read pattern; patching the comparison constant reaches the hidden code path.
+
+---
+
+---
+
+## Time-Locked Binary with Date-Based Key (Hack.lu 2017)
+
+Binary reads the system date and only executes correctly on a specific date (e.g., December 21, 2012). The date constant appears in the binary as a Unix timestamp or structured date comparison.
+
+**Detection:** Look for comparisons against large integer constants that fall in a recognizable date range (Unix timestamps: 2012 = ~1.35B, 2017 = ~1.5B). Cultural significance helps: apocalypse dates, CTF release dates, historical events.
+
+```bash
+# Set system clock to the required date
+sudo date -s "2012-12-21 00:00:00"
+./binary
+
+# Or use faketime to avoid system-wide change
+LD_PRELOAD=/usr/lib/faketime/libfaketime.so.1 FAKETIME="2012-12-21 00:00:00" ./binary
+
+# Restore system time afterward
+sudo ntpdate pool.ntp.org
+```
+
+**In IDA/Ghidra:** Search for `time()` or `localtime()` calls. The struct `tm` fields to watch: `tm_year` (years since 1900), `tm_mon` (0-based), `tm_mday`.
+
+**Key insight:** Time-based keys use culturally significant dates. Always check for date comparisons in reversed code and try setting the system clock or using faketime before attempting deeper analysis.
+
+**References:** Hack.lu CTF 2017
+
+---
+
+## ARM Code in Image Pixels via UnicornJS (Hack.lu 2017)
+
+JavaScript challenge embeds ARM bytecode in image pixel data. The image is base64-encoded in the HTML/JS source. Pixel RGBA values encode ARM instructions. A bundled UnicornJS library (ARM CPU emulator in JavaScript) extracts and executes the bytecode.
+
+**Identification flow:**
+1. Find base64 blob in JS source → decode → PNG/BMP file
+2. Identify UnicornJS import (`unicorn.js`, `uc.js`, or similar) → confirms ARM emulation
+3. Pixel extraction loop: RGBA bytes concatenated in raster order form the ARM instruction stream
+4. Feed the extracted bytes to an ARM disassembler
+
+```python
+from PIL import Image
+import capstone
+
+img = Image.open('decoded.png').convert('RGBA')
+pixels = list(img.getdata())
+
+# Extract ARM bytecode from pixel data (4 bytes per pixel: R, G, B, A)
+arm_code = bytes([channel for pixel in pixels for channel in pixel])
+
+# Disassemble as ARM Thumb or ARM32
+md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_THUMB)
+for insn in md.disasm(arm_code, 0x0):
+    print(f"0x{insn.address:04x}: {insn.mnemonic} {insn.op_str}")
+```
+
+**Key insight:** Multi-layer obfuscation: ARM code in image pixels, base64 encoded, emulated via UnicornJS at runtime. Identify the emulator library first to know which ISA to reverse — the library name reveals the architecture.
+
+**References:** Hack.lu CTF 2017
+
+---
+
+## x86 16-bit MBR psadbw Constraint Solving (CSAW 2017)
+
+Bootable MBR uses SSE2 `psadbw` (Packed Sum of Absolute Differences of Bytes) on xmm registers to validate the flag. Each iteration masks 2 input bytes, computes `psadbw` against known constants, and compares the sum to an expected value.
+
+**`psadbw` semantics:**
+```asm
+psadbw xmm0, xmm1
+; For each of 8 byte pairs: sum += |xmm0[i] - xmm1[i]|
+; Result stored as 16-bit integer in low qword of xmm0
+```
+
+This generates sum-of-absolute-differences equations:
+```text
+|a[0] - k[0]| + |a[1] - k[1]| + ... + |a[7] - k[7]| = C
+```
+
+**Solution approach:**
+```python
+import numpy as np
+from itertools import product
+
+# For each 2-byte masked group, extract the constants and expected sum
+# Equations are not purely linear (absolute value), but printable ASCII
+# constrains each byte to [0x20, 0x7e], limiting brute-force space
+
+def solve_psadbw_group(known_constants, expected_sum, printable_range=(0x20, 0x7e)):
+    """Brute-force 2 unknown bytes given sum-of-abs-diff constraint."""
+    solutions = []
+    for a, b in product(range(*printable_range), repeat=2):
+        pair = [a, b]
+        sad = sum(abs(pair[i] - known_constants[i]) for i in range(len(pair)))
+        if sad == expected_sum:
+            solutions.append(bytes([a, b]))
+    return solutions
+
+# For ambiguous cases with multiple solutions: apply additional constraints
+# (flag format prefix, character frequency, subsequent iterations)
+```
+
+**Key insight:** `psadbw` creates sum-of-absolute-difference equations — not purely linear but solvable with constrained brute-force when bytes are limited to printable ASCII. Each 2-byte group is independent, keeping the search space to 95^2 = ~9000 candidates per group.
+
+**References:** CSAW CTF 2017
 
 ---
 

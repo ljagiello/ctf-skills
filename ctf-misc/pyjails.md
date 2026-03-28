@@ -28,6 +28,7 @@
 - [func_globals to Module Chain Traversal (PlaidCTF 2013)](#func_globals-to-module-chain-traversal-plaidctf-2013)
 - [Restricted Charset Number Generation (PlaidCTF 2013)](#restricted-charset-number-generation-plaidctf-2013)
 - [Multi-Stage Payload with Class Attribute Persistence (PlaidCTF 2013)](#multi-stage-payload-with-class-attribute-persistence-plaidctf-2013)
+- [Python Name Mangling and Attribute Access (Tokyo Westerns 2017)](#python-name-mangling-and-attribute-access-tokyo-westerns-2017)
 - [Decorator-Based Escape (No Call, No Quotes, No Equals)](#decorator-based-escape-no-call-no-quotes-no-equals)
   - [Technique 1: `function.__name__` as String Keys](#technique-1-function__name__-as-string-keys)
   - [Technique 2: Name Extractor via getset_descriptor](#technique-2-name-extractor-via-getset_descriptor)
@@ -518,6 +519,39 @@ def brainfuckize(nb):
 ```
 
 **Key insight:** Combine with `"%c" % ascii_value` to build arbitrary strings character by character. This bypasses jails that strip all alphanumeric characters while allowing operators and brackets.
+
+---
+
+## Python Name Mangling and Attribute Access (Tokyo Westerns 2017)
+
+Three sandbox escape vectors that exploit Python's name visibility model.
+
+**1. Name mangling bypass:** Python "private" `__method` names in a class are stored as `_ClassName__method`. They are accessible via `dir()` and `getattr()` — not truly private.
+
+```python
+# Name mangling bypass
+getattr(obj, dir(obj)[0])()  # calls _ClassName__method
+```
+
+**2. Function constant leakage:** All string literals inside a function body are stored in `func_code.co_consts` (Python 2) or `__code__.co_consts` (Python 3) and are readable from outside.
+
+```python
+# func_code local variable leak (Python 2)
+func.func_code.co_consts  # reveals all string literals in function
+
+# Python 3 equivalent
+func.__code__.co_consts
+```
+
+**3. Module docstring as data store:** Module-level triple-quoted strings become `module.__doc__`, readable without needing file access.
+
+```python
+# Module docstring access
+import target_module
+target_module.__doc__  # reads module-level triple-quoted string
+```
+
+**Key insight:** Python `__` prefix is name-mangled, not truly private — `dir(obj)` + `getattr()` bypass it. `func_code.co_consts` exposes all literal constants defined inside a function. Module docstrings are always readable as `__doc__` without file access.
 
 ---
 

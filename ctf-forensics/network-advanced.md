@@ -17,6 +17,10 @@
 - [dnscat2 Traffic Reassembly from DNS PCAP (BSidesSF 2017)](#dnscat2-traffic-reassembly-from-dns-pcap-bsidessf-2017)
 - [USB Keyboard LED Morse Code Exfiltration (BITSCTF 2017)](#usb-keyboard-led-morse-code-exfiltration-bitsctf-2017)
 - [Unreferenced PDF Objects with Hidden Pages (SharifCTF 7 2016)](#unreferenced-pdf-objects-with-hidden-pages-sharifctf-7-2016)
+- [RDP Session Decryption via Extracted PKCS12 Key (HITB 2017)](#rdp-session-decryption-via-extracted-pkcs12-key-hitb-2017)
+- [USB HID Keyboard Arrow Key Navigation Tracking (HackIT 2017)](#usb-hid-keyboard-arrow-key-navigation-tracking-hackit-2017)
+- [RADIUS Shared Secret Cracking (UConn CyberSEED 2017)](#radius-shared-secret-cracking-uconn-cyberseed-2017)
+- [RC4 Stream Identification in Shellcode PCAP (CODE BLUE 2017)](#rc4-stream-identification-in-shellcode-pcap-code-blue-2017)
 
 ---
 
@@ -654,6 +658,119 @@ qpdf --linearize modified.pdf fixed.pdf
 ```
 
 **Key insight:** PDF viewers only render pages reachable from the `/Pages` tree root. Unreferenced objects are invisible but still present in the file. Check object cross-references: any content stream object not in `/Kids` may contain hidden data. `mutool clean -d` and `qpdf --show-object N` help inspect individual objects.
+
+---
+
+## RDP Session Decryption via Extracted PKCS12 Key (HITB 2017)
+
+PCAP contains a PKCS12 (.p12/.pfx) file transmitted over UDP. Extract the private key from the PKCS12 container, then load it into Wireshark to decrypt the RDP session and recover transmitted data.
+
+```bash
+# Extract private key from PKCS12 (no cert, no passphrase protection)
+openssl pkcs12 -in cert.p12 -out key.pem -nocerts -nodes
+
+# In Wireshark: Edit > Preferences > Protocols > TLS > RSA keys list
+# Add entry: IP=<rdp_server_ip>, Port=3389, Protocol=tpkt, Key file=key.pem
+```
+
+**Key insight:** PKCS12 files in network captures provide the private key needed to decrypt encrypted RDP sessions in Wireshark. Look for .p12/.pfx file transfers (often in UDP or FTP streams) before the RDP session begins.
+
+---
+
+## USB HID Keyboard Arrow Key Navigation Tracking (HackIT 2017)
+
+USB HID keyboard traffic from an Apple Keyboard requires tracking arrow key navigation. Decode HID keycodes using the USB HID usage table. Modifier byte `0x02` = Shift (uppercase). Track cursor position via up/down arrow presses to determine which line contains the flag.
+
+```bash
+tshark -r capture.pcap -T fields -e usb.capdata | \
+  python3 decode_hid.py  # Must track arrow keys for line position
+```
+
+Arrow key HID codes to track:
+- `0x4F` = Right Arrow
+- `0x50` = Left Arrow
+- `0x51` = Down Arrow (next line)
+- `0x52` = Up Arrow (previous line)
+
+```python
+# Skeleton: track line position during HID decode
+line = 0
+lines = {0: ""}
+for report in hid_reports:
+    modifier = report[0]
+    keycode = report[2]
+    if keycode == 0x51:    # Down arrow
+        line += 1; lines.setdefault(line, "")
+    elif keycode == 0x52:  # Up arrow
+        line -= 1; lines.setdefault(line, "")
+    elif keycode in HID_MAP:
+        char = HID_MAP[keycode]
+        if modifier & 0x22:
+            char = char.upper()
+        lines[line] += char
+# Flag is on a specific line determined by arrow navigation
+```
+
+**Key insight:** USB keyboard captures must account for cursor movement keys (arrows, backspace). Track cursor line position to reconstruct text typed on each line separately — the flag may be on a non-zero line that arrow keys navigated to.
+
+---
+
+## RADIUS Shared Secret Cracking (UConn CyberSEED 2017)
+
+Extract the RADIUS authenticator hash from a PCAP using `radius2john.pl`, crack the shared secret with john, then enter the cracked secret in Wireshark to decrypt obfuscated password fields.
+
+```bash
+# Extract hash for john
+perl radius2john.pl capture.pcap > radius_hash.txt
+john radius_hash.txt --wordlist=rockyou.txt
+
+# Wireshark: Edit > Preferences > Protocols > RADIUS > Shared Secret = <cracked_secret>
+# RADIUS Access-Request packets will now show decrypted User-Password fields
+```
+
+`radius2john.pl` is part of the JohnTheRipper jumbo package (`src/radius2john.pl`).
+
+**Key insight:** RADIUS uses MD5(shared_secret + authenticator + password) for password obfuscation — cracking the shared secret via john exposes all credentials in the capture. The shared secret is typically a short dictionary word.
+
+---
+
+## RC4 Stream Identification in Shellcode PCAP (CODE BLUE 2017)
+
+A backdoor sends 32 bytes of `/dev/urandom` as an RC4 key, then encrypts all subsequent traffic. Identify RC4 by the characteristic 256-byte KSA (Key Scheduling Algorithm) table initialization pattern visible in the shellcode. Extract the key from the first 32 bytes of the TCP stream and decrypt the remainder.
+
+```python
+from scapy.all import rdpcap, TCP
+
+packets = rdpcap('capture.pcap')
+stream = b''
+for pkt in packets:
+    if TCP in pkt and pkt[TCP].payload:
+        stream += bytes(pkt[TCP].payload)
+
+# First 32 bytes = RC4 key (from /dev/urandom)
+key = stream[:32]
+ciphertext = stream[32:]
+
+# RC4 decryption
+def rc4(key, data):
+    S = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + S[i] + key[i % len(key)]) % 256
+        S[i], S[j] = S[j], S[i]
+    i = j = 0
+    out = []
+    for byte in data:
+        i = (i + 1) % 256
+        j = (j + S[i]) % 256
+        S[i], S[j] = S[j], S[i]
+        out.append(byte ^ S[(S[i] + S[j]) % 256])
+    return bytes(out)
+
+plaintext = rc4(key, ciphertext)
+```
+
+**Key insight:** RC4 in shellcode is identifiable by the 256-byte permutation table initialization loop (KSA). The key is typically the first N bytes transmitted over the connection before encrypted data begins. Look for a fixed-length initial burst followed by encrypted traffic.
 
 ---
 

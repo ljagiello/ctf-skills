@@ -27,6 +27,9 @@ Hash-based attacks, protocol-level exploits, ECB oracles, Rabin/RSA parity attac
 - [CBC IV Forgery + Block Truncation for Authentication Bypass (0CTF 2017)](#cbc-iv-forgery--block-truncation-for-authentication-bypass-0ctf-2017)
 - [Padding Oracle to CBC Bitflip Command Injection (BSidesSF 2017)](#padding-oracle-to-cbc-bitflip-command-injection-bsidessf-2017)
 - [SPN Cipher Partial Key Recovery via S-box Intersection (SharifCTF 7 2016)](#spn-cipher-partial-key-recovery-via-s-box-intersection-sharifctf-7-2016)
+- [AES-CFB IV Recovery from Timestamp-Seeded PRNG (SHA2017)](#aes-cfb-iv-recovery-from-timestamp-seeded-prng-sha2017)
+- [Three-Round XOR Protocol Key Cancellation (HITB 2017)](#three-round-xor-protocol-key-cancellation-hitb-2017)
+- [AES-CBC UnicodeDecodeError Side-Channel Oracle (Kaspersky 2017)](#aes-cbc-unicodedecodeerror-side-channel-oracle-kaspersky-2017)
 
 ---
 
@@ -684,3 +687,79 @@ def recover_subkeys(pairs, sbox, perm):
 ```
 
 **Key insight:** SPN structures allow divide-and-conquer key recovery. Each S-box position can be attacked independently, and the intersection of valid key candidates across multiple plaintext-ciphertext pairs converges to a unique solution.
+
+---
+
+## AES-CFB IV Recovery from Timestamp-Seeded PRNG (SHA2017)
+
+**Pattern:** Ransomware encrypts files with AES-CFB using a hardcoded password from bash_history. The IV is derived from `random.choice()` seeded with `int(time())` at encryption time. The file's mtime (preserved by the filesystem) equals the exact seed used, enabling full decryption without the private key.
+
+```python
+import random, os, string, base64
+from Crypto.Cipher import AES
+
+password = b'hardcoded_password_from_bash_history'
+img = 'encrypted_file.enc'
+
+# File mtime IS the random seed used at encryption time
+random.seed(int(os.stat(img).st_mtime))
+iv = ''.join(random.choice(string.letters + string.digits) for _ in range(16))
+
+aes = AES.new(password, AES.MODE_CFB, iv.encode())
+with open(img, 'rb') as f:
+    ciphertext = base64.b64decode(f.read())
+plaintext = aes.decrypt(ciphertext)
+```
+
+**Key insight:** PRNG seeded with `time()` at encryption time leaks the seed via the filesystem mtime. Always check Python version compatibility — Python 2 and Python 3 have different `random` module implementations producing different sequences from the same seed. The `-it` flag on `cp`/`mv` may reset mtime; work from the original unmodified file.
+
+**References:** SHA2017
+
+---
+
+## Three-Round XOR Protocol Key Cancellation (HITB 2017)
+
+**Pattern:** A custom protocol performs a three-message XOR key exchange:
+1. Client sends `c1 = msg XOR clientKey`
+2. Server responds `c2 = c1 XOR serverKey`
+3. Client sends `c3 = c2 XOR clientKey`
+
+All three ciphertexts are observable in a PCAP or network capture. Computing `c1 XOR c2 XOR c3` directly recovers the original `msg` because all key material cancels:
+
+```python
+# c1 = msg ^ clientKey
+# c2 = msg ^ clientKey ^ serverKey
+# c3 = msg ^ serverKey
+# c1 ^ c2 ^ c3 = msg ^ clientKey ^ msg ^ clientKey ^ serverKey ^ msg ^ serverKey
+#              = msg   (all keys cancel via XOR)
+plaintext = bytes(a ^ b ^ c for a, b, c in zip(c1, c2, c3))
+```
+
+**Key insight:** Three-message XOR key exchange where the client applies its key twice creates an algebraic weakness: XOR of all three ciphertexts directly recovers the original message without knowledge of either key. Any protocol where the same key is applied an even number of times is trivially broken.
+
+**References:** HITB 2017
+
+---
+
+## AES-CBC UnicodeDecodeError Side-Channel Oracle (Kaspersky 2017)
+
+**Pattern:** Server decrypts AES-CBC ciphertext and attempts to UTF-8 decode the result. Invalid UTF-8 sequences raise a `UnicodeDecodeError` (or equivalent). This error is distinguishable from other errors (e.g., application-level errors), creating a decryption oracle analogous to a padding oracle.
+
+**Attack:** Standard CBC bit-flip oracle technique, using UTF-8 validity as the distinguisher:
+1. For each target plaintext byte at position `i` in block `b`, modify byte `i` in block `b-1`
+2. Cycle through all 256 XOR values; when the decrypted byte produces valid UTF-8 in context, the server returns a non-`UnicodeDecodeError` response
+3. From the XOR value that passes and the known modification to `c[b-1][i]`, recover `plaintext[b][i]`
+
+```python
+# CBC bit-flip oracle using UTF-8 validity
+for guess in range(256):
+    modified = bytearray(prev_block)
+    modified[pos] = known_intermediate[pos] ^ guess  # produce desired output byte
+    if not unicode_error(modified_block + target_block):
+        plaintext_byte = guess  # valid UTF-8 at this position
+        break
+```
+
+**Key insight:** Any error that distinguishes valid from invalid plaintext content serves as a decryption oracle — not just PKCS#7 padding errors. UTF-8 validity, base64 decodability, JSON parsability, and ASCII-only constraints are all valid oracle conditions. The only requirement is a server-side distinguishable response.
+
+**References:** Kaspersky CTF 2017

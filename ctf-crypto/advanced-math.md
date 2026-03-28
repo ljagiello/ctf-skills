@@ -18,6 +18,7 @@
 - [LWE Lattice Attack via CVP (EHAX 2026)](#lwe-lattice-attack-via-cvp-ehax-2026)
 - [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
 - [Introspective CRC via GF(2) Linear Algebra (Google CTF 2017)](#introspective-crc-via-gf2-linear-algebra-google-ctf-2017)
+- [Baby-Step Giant-Step for Sparse/Low Hamming Weight Exponents (SEC-T CTF 2017)](#baby-step-giant-step-for-sparselow-hamming-weight-exponents-sec-t-ctf-2017)
 
 ---
 
@@ -712,3 +713,51 @@ solution = M.solve_right(target_vector)
 **Key insight:** CRC is a linear function over GF(2). The self-referential constraint CRC(x)=x becomes a system of linear equations over GF(2), solvable by Gaussian elimination. The ASCII constraint requires choosing free variables to keep all bytes in the printable range.
 
 **References:** Google CTF 2017
+
+---
+
+## Baby-Step Giant-Step for Sparse/Low Hamming Weight Exponents (SEC-T CTF 2017)
+
+**Pattern:** DLP where the exponent is known to have low Hamming weight — e.g., at most k=11 bits set in a 128-bit exponent. Split the exponent into two halves `e = e1 * 2^64 + e2`. Precompute baby steps for all `e1` values with ⌊k/2⌋ = 5 bits set, then do giant steps for all `e2` values with ⌈k/2⌉ = 6 bits set.
+
+**Complexity:** `C(128, 5) ≈ 10^8` baby steps + `C(128, 6) ≈ 10^9` giant steps — vastly less than `O(2^128)` brute force or `O(2^64)` standard BSGS.
+
+```python
+from itertools import combinations
+from math import comb
+
+# Parameters: g^x = a (mod p), x has at most k=11 bits set in 128 bits
+# Split: x = x1 * 2^64 + x2, where x1 has 5 bits set, x2 has 6 bits set
+half = 64
+k_low, k_high = 5, 6
+
+# Baby step: g^(x1 * 2^64) for all x1 with k_low bits set
+baby = {}
+for bit_positions in combinations(range(half), k_low):
+    x1 = sum(1 << b for b in bit_positions)
+    val = pow(g, x1 * (2**half), p)
+    baby[val] = x1
+
+# Giant step: check if a * g^(-x2) is in baby table
+# a = g^x = g^(x1*2^64) * g^x2, so g^(x1*2^64) = a * g^(-x2)
+g_inv = pow(g, -1, p)
+for bit_positions in combinations(range(half), k_high):
+    x2 = sum(1 << b for b in bit_positions)
+    candidate = (a * pow(g_inv, x2, p)) % p
+    if candidate in baby:
+        x1 = baby[candidate]
+        x = x1 * (2**half) + x2
+        assert pow(g, x, p) == a
+        print(f"Found exponent: {x}")
+        break
+```
+
+**Verification:**
+```python
+# Check Hamming weight of recovered exponent
+assert bin(x).count('1') <= 11
+```
+
+**Key insight:** Sparse-exponent DLP with only k bits set is attackable with meet-in-the-middle: each half uses `C(n, k/2)` entries, reducing complexity from `O(2^k)` to `O(C(n, k/2))`. For k=11 in 128 bits, this is ~10^8 vs 2^128. Always check if the challenge reveals or constrains the Hamming weight of the exponent.
+
+**References:** SEC-T CTF 2017

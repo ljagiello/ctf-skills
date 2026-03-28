@@ -35,6 +35,9 @@ Advanced tooling for commercial packers/protectors, binary diffing, deobfuscatio
 - [Patching Strategies](#patching-strategies)
   - [Binary Ninja Patching (Python API)](#binary-ninja-patching-python-api)
   - [LIEF (Library for Instrumenting Executable Formats)](#lief-library-for-instrumenting-executable-formats)
+- [GDB Constraint Extraction with ILP/LP Solver (BackdoorCTF 2017)](#gdb-constraint-extraction-with-ilplp-solver-backdoorctf-2017)
+- [GDB Position-Encoded Input with Zero Flag Monitoring (EKOPARTY 2017)](#gdb-position-encoded-input-with-zero-flag-monitoring-ekoparty-2017)
+- [LD_PRELOAD to Dump Execute-Only Binary (BackdoorCTF 2017)](#ld_preload-to-dump-execute-only-binary-backdoorctf-2017)
 
 ---
 
@@ -651,3 +654,126 @@ binary.write("patched")
 ```
 
 **LIEF advantages:** Cross-format (ELF, PE, Mach-O), Python API, can add sections/segments, modify headers, patch imports.
+
+---
+
+## GDB Constraint Extraction with ILP/LP Solver (BackdoorCTF 2017)
+
+When a binary enforces linear arithmetic relationships between input bytes, extract constraints automatically via GDB and solve with an ILP solver.
+
+**Technique:** Send position-encoded input (`input[i] = i`) so that when a comparison fires, you know exactly which positions are involved and what their sum/difference must equal. Collect all constraints from logged comparisons, then feed to PuLP or Gurobi.
+
+```python
+from pulp import *
+
+n = 32  # flag length
+prob = LpProblem("crackme", LpMinimize)
+x = [LpVariable(f'x{i}', 32, 126, cat='Integer') for i in range(n)]
+prob += 0  # dummy objective
+
+# Constraints extracted via GDB automation (input[i]=i, monitor comparisons):
+prob += x[3] + x[7] == 0xAB
+prob += x[1] - x[5] == 0x0C
+# ... add all extracted constraints ...
+
+# Constrain to printable ASCII
+for xi in x:
+    prob += xi >= 32
+    prob += xi <= 126
+
+prob.solve(PULP_CBC_CMD(msg=0))
+flag = ''.join(chr(int(value(xi))) for xi in x)
+print("Flag:", flag)
+```
+
+**GDB automation to extract constraints:**
+```python
+# In GDB Python: set input[i]=i, run, log every CMP instruction result
+import gdb
+
+class CmpLogger(gdb.Breakpoint):
+    def stop(self):
+        frame = gdb.selected_frame()
+        # Read compared values, map back to input indices via position encoding
+        return False
+```
+
+**Key insight:** When a binary enforces linear arithmetic relationships between input bytes, ILP solvers directly find the satisfying assignment once constraints are extracted via GDB automation.
+
+**References:** BackdoorCTF 2017
+
+---
+
+## GDB Position-Encoded Input with Zero Flag Monitoring (EKOPARTY 2017)
+
+Send input where `input[i] = i` (position-encoded). Single-step through the binary monitoring the CPU zero flag (ZF). When ZF is set at a comparison involving a specific position's value, the comparison matched — log the expected value for that position.
+
+```python
+import gdb
+
+# Script: single-step binary with position-encoded input, watch ZF
+class ZFMonitor(gdb.Breakpoint):
+    def stop(self):
+        zf = (int(gdb.parse_and_eval('$eflags')) >> 6) & 1
+        if zf:
+            rip = int(gdb.parse_and_eval('$rip'))
+            # Disassemble at rip to find the compared immediate
+            disasm = gdb.execute(f'x/1i {rip-5}', to_string=True)
+            print(f"ZF set at {rip:#x}: {disasm.strip()}")
+        return False
+
+# Run once with input b'\x00\x01\x02\x03...\x1f'
+# ZF fires when comparison matches the position's own value -> that IS the key byte
+```
+
+Maps each input byte to its required value in one pass without manual reversing.
+
+**Key insight:** Position-encoded input (`input[i]=i`) combined with zero flag monitoring reveals the full key/password in one pass — the zero flag fires when the expected value for position i equals i itself.
+
+**References:** EKOPARTY CTF 2017
+
+---
+
+## LD_PRELOAD to Dump Execute-Only Binary (BackdoorCTF 2017)
+
+A binary has execute-only permissions (mode `--x`, no read bit). The file cannot be read directly or with standard tools, but the kernel still maps it into memory on execution.
+
+LD_PRELOAD a shared library with a constructor that runs inside the process and reads its own memory via `/proc/self/mem`:
+
+```c
+// dump_xo.c — compile: gcc -shared -fPIC -o dump_xo.so dump_xo.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+__attribute__((constructor)) void dump() {
+    FILE *maps = fopen("/proc/self/maps", "r");
+    char line[256];
+    unsigned long base = 0, end = 0;
+
+    // Find the execute-only binary's mapping (r-xp or --xp)
+    while (fgets(line, sizeof(line), maps)) {
+        if (strstr(line, "binary_name")) {
+            sscanf(line, "%lx-%lx", &base, &end);
+            break;
+        }
+    }
+    fclose(maps);
+
+    FILE *mem = fopen("/proc/self/mem", "rb");
+    fseek(mem, base, SEEK_SET);
+    size_t size = end - base;
+    void *buf = malloc(size);
+    fread(buf, 1, size, mem);
+    fclose(mem);
+
+    FILE *out = fopen("/tmp/dumped_binary", "wb");
+    fwrite(buf, 1, size, out);
+    fclose(out);
+}
+// Usage: LD_PRELOAD=./dump_xo.so ./binary_xo
+```
+
+**Key insight:** Execute-only prevents file reading but not execution. LD_PRELOAD constructors run inside the process where `/proc/self/mem` provides access to mapped memory regardless of file permissions.
+
+**References:** BackdoorCTF 2017

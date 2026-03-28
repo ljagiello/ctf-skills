@@ -12,6 +12,10 @@
 - [Icosahedral Symmetry Group Cipher (BSidesSF 2026)](#icosahedral-symmetry-group-cipher-bsidessf-2026)
 - [Goldwasser-Micali Ciphertext Replication Oracle (BSidesSF 2026)](#goldwasser-micali-ciphertext-replication-oracle-bsidessf-2026)
 - [BB-84 Quantum Key Distribution MITM Attack (PlaidCTF 2017)](#bb-84-quantum-key-distribution-mitm-attack-plaidctf-2017)
+- [ElGamal Trivial DLP When B = p-1 (Hack.lu 2017)](#elgamal-trivial-dlp-when-b--p-1-hacklu-2017)
+- [Paillier LSB Oracle via Homomorphic Doubling (CODE BLUE 2017)](#paillier-lsb-oracle-via-homomorphic-doubling-code-blue-2017)
+- [Differential Privacy Laplace Noise Cancellation (Pwn2Win 2017)](#differential-privacy-laplace-noise-cancellation-pwn2win-2017)
+- [Homomorphic Encryption Oracle Bit-Extraction (Tokyo Westerns 2017)](#homomorphic-encryption-oracle-bit-extraction-tokyo-westerns-2017)
 
 ---
 
@@ -553,3 +557,129 @@ for qbit in alice_qbits:
 **Key insight:** BB-84 QKD is secure only with authenticated classical channels. Without authentication, an attacker can independently negotiate keys with both parties. Forcing a constant value to one party makes their key entirely predictable, while the other party's key is captured through measurement.
 
 **References:** PlaidCTF 2017
+
+---
+
+## ElGamal Trivial DLP When B = p-1 (Hack.lu 2017)
+
+**Pattern:** ElGamal public key `B = g^key mod p`. If `B + 1 == p`, then `B = p-1 = -1 mod p`. By Euler's criterion, `g^((p-1)/2) ≡ -1 (mod p)` for any primitive root `g`. Therefore `g^key ≡ g^((p-1)/2) (mod p)`, so `key = (p-1)/2` directly. No DLP algorithm needed.
+
+```python
+# Check for trivial case
+if (B + 1) == p:
+    key = (p - 1) // 2
+    # Verify
+    assert pow(g, key, p) == B
+    # Decrypt ElGamal: shared_secret = pow(ephemeral, key, p)
+```
+
+**Key insight:** The generator raised to `(p-1)/2` always equals `-1 mod p` (Euler's criterion for quadratic residues). When the public key `B` equals `p-1`, the private key is trivially `(p-1)/2`. Always check `B == p-1` (and `B == 1` for key=0) before attempting general DLP.
+
+**References:** Hack.lu CTF 2017
+
+---
+
+## Paillier LSB Oracle via Homomorphic Doubling (CODE BLUE 2017)
+
+**Pattern:** Paillier encryption is additively homomorphic: multiplying a ciphertext by itself (`ct^2 mod n^2`) doubles the plaintext. Doubling repeatedly and observing when the LSB changes (due to modular reduction by n) reveals plaintext bits one at a time — a binary search identical to the RSA LSB oracle.
+
+**Attack (bit-by-bit recovery from MSB to LSB):**
+```python
+def paillier_double(ct, n):
+    """Homomorphically double the plaintext."""
+    return pow(ct, 2, n * n)
+
+def recover_plaintext(ct, oracle_lsb, n):
+    """Oracle returns LSB of decrypted plaintext."""
+    lower, upper = 0, n
+    current_ct = ct
+    for _ in range(n.bit_length()):
+        current_ct = paillier_double(current_ct)
+        lsb = oracle_lsb(current_ct)
+        mid = (lower + upper) // 2
+        if lsb == 1:
+            lower = mid  # plaintext > n/2, wraparound occurred
+        else:
+            upper = mid
+    return lower
+
+# Alternative: homomorphic subtraction to isolate each bit
+def paillier_encrypt_scalar(m, n, g=None):
+    """Encrypt scalar m under Paillier (with r=1 for known randomness)."""
+    g = g or (n + 1)
+    return pow(g, m, n * n)  # simplified (r=1)
+
+def subtract_plaintext(ct, val, n):
+    """Compute E(pt - val) = ct * E(-val) mod n^2."""
+    neg_enc = paillier_encrypt_scalar(n - val, n)
+    return (ct * neg_enc) % (n * n)
+```
+
+**Key insight:** Paillier's additive homomorphism enables a binary search oracle: doubling the plaintext via `ct^2` and observing LSB changes reveals one bit per query. Equivalently, use homomorphic subtraction of known masks to isolate each bit. Total queries: log2(n) ≈ 2048 for 2048-bit modulus.
+
+**References:** CODE BLUE CTF 2017
+
+---
+
+## Differential Privacy Laplace Noise Cancellation (Pwn2Win 2017)
+
+**Pattern:** Server implements differential privacy by adding Laplace noise (mean 0, scale λ) to character ordinals before returning them. Since Laplace noise has zero mean, querying the same position many times and averaging the results cancels the noise via the Law of Large Numbers.
+
+```python
+import requests
+import statistics
+
+def recover_char(position, num_queries=1000):
+    """Average 1000 noisy responses to cancel Laplace noise."""
+    samples = []
+    for _ in range(num_queries):
+        noisy_val = query_server(position)
+        samples.append(noisy_val)
+    # Mean converges to true value as queries → ∞
+    true_val = round(statistics.mean(samples))
+    return chr(true_val)
+
+flag = ''.join(recover_char(i) for i in range(flag_length))
+```
+
+**Key insight:** Laplace differential privacy with zero mean is breakable with sufficient queries — averaging N samples reduces noise variance by factor N (standard error ∝ 1/sqrt(N)). With λ=1 and 1000 queries, the mean is within ±0.1 of the true value. Round to nearest integer to recover the exact character ordinal. This applies to any additive zero-mean noise mechanism.
+
+**References:** Pwn2Win CTF 2017
+
+---
+
+## Homomorphic Encryption Oracle Bit-Extraction (Tokyo Westerns 2017)
+
+**Pattern:** An encryption oracle has homomorphic properties — you can add 1 to the plaintext by performing a known operation on the ciphertext. Extract bits from an unknown plaintext by observing how the ciphertext changes as the plaintext value crosses power-of-2 boundaries.
+
+**Low-bit extraction (observe overflow):**
+```python
+# Increment plaintext by 1 repeatedly via homomorphic add-1
+# Detect when bit N overflows: ciphertext "wraps" at value 2^N
+ct = target_ciphertext
+for bit_pos in range(num_bits):
+    threshold = 2 ** bit_pos
+    # Add 1 repeatedly until bit flips
+    increments = 0
+    prev_ct = ct
+    while True:
+        ct = homomorphic_add_one(ct)
+        increments += 1
+        if bit_has_flipped(ct, prev_ct, bit_pos):
+            low_bits = (threshold - increments) % threshold
+            break
+```
+
+**High-bit extraction (divide by 2 on even values):**
+```python
+# Subtract recovered low bits to make value even
+even_ct = homomorphic_subtract(target_ct, low_bits)
+# Repeatedly divide by 2 and observe the resulting high bits
+for i in range(high_bit_count):
+    even_ct = homomorphic_halve(even_ct)
+    high_bits = (high_bits << 1) | observe_lsb(even_ct)
+```
+
+**Key insight:** Homomorphic oracles enable bit-extraction: detect overflow in specific bit positions when incrementing for low bits; use division-by-2 on even numbers for high bits. The total number of queries scales linearly with the bit count of the plaintext.
+
+**References:** Tokyo Westerns CTF 2017

@@ -37,6 +37,7 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
   - [Mixed Boolean-Arithmetic (MBA) Identification & Simplification](#mixed-boolean-arithmetic-mba-identification--simplification)
 - [SIGILL Handler for Execution Mode Switching (Hack.lu 2015)](#sigill-handler-for-execution-mode-switching-hacklu-2015)
 - [SIGFPE Signal Handler Side-Channel via strace Counting (PlaidCTF 2017)](#sigfpe-signal-handler-side-channel-via-strace-counting-plaidctf-2017)
+- [Instruction Trace Inversion with Keystone and Unicorn (MeePwn CTF 2017)](#instruction-trace-inversion-with-keystone-and-unicorn-meepwn-ctf-2017)
 - [Comprehensive Bypass Strategies](#comprehensive-bypass-strategies)
   - [Universal Bypass Checklist](#universal-bypass-checklist)
   - [Layered Anti-Debug (Real-World Pattern)](#layered-anti-debug-real-world-pattern)
@@ -626,6 +627,66 @@ done
 ```
 
 **Key insight:** Signal handlers (SIGFPE, SIGSEGV, SIGILL) create implicit control flow invisible to static analysis. The number of signals raised correlates with validation progress. Counting signals via `strace -e signal=SIGFPE` turns opaque signal-based validation into a measurable side-channel for character-by-character brute-force.
+
+---
+
+## Instruction Trace Inversion with Keystone and Unicorn (MeePwn CTF 2017)
+
+UPX-packed binary applies a sequence of arithmetic-only transforms (sub, add, xor, rol, ror) to the flag. No memory side-effects — purely register arithmetic. IDAPython traces non-jump instructions, the sequence is then inverted to recover the flag.
+
+**Inversion rules:**
+- Reverse the instruction sequence (last instruction first)
+- Swap inverse pairs: `add ↔ sub`, `rol ↔ ror`, `xor` is self-inverse
+
+```python
+# IDAPython: collect non-jump instructions in the obfuscated routine
+import idaapi, idc
+
+def trace_transforms(start_ea, end_ea):
+    instructions = []
+    ea = start_ea
+    while ea < end_ea:
+        mnem = idc.print_insn_mnem(ea)
+        if mnem not in ('jmp', 'je', 'jne', 'call', 'ret'):
+            instructions.append((ea, mnem, idc.print_operands(ea)))
+        ea = idc.next_head(ea)
+    return instructions
+
+transforms = trace_transforms(0x401000, 0x401200)
+
+# Invert: reverse order, swap add/sub and rol/ror
+inverse_map = {'add': 'sub', 'sub': 'add', 'rol': 'ror', 'ror': 'rol', 'xor': 'xor'}
+inverted = [(mnem, op) for (_, mnem, op) in reversed(transforms)]
+inverted = [(inverse_map.get(m, m), op) for m, op in inverted]
+```
+
+```python
+# Assemble inverted instructions with Keystone, emulate with Unicorn
+from keystone import *
+from unicorn import *
+from unicorn.x86_const import *
+
+ks = Ks(KS_ARCH_X86, KS_MODE_64)
+uc = Uc(UC_ARCH_X86, UC_MODE_64)
+
+asm_src = '\n'.join(f'{mnem} {op}' for mnem, op in inverted)
+encoding, _ = ks.asm(asm_src)
+
+CODE_BASE = 0x400000
+uc.mem_map(CODE_BASE, 0x10000)
+uc.mem_write(CODE_BASE, bytes(encoding))
+
+# Set initial register state to the observed output value
+uc.reg_write(UC_X86_REG_RAX, known_output)
+uc.emu_start(CODE_BASE, CODE_BASE + len(encoding))
+flag_bytes = uc.reg_read(UC_X86_REG_RAX).to_bytes(8, 'little')
+```
+
+**PEB anti-debug note:** If the binary reads `PEB.BeingDebugged` and uses it to select between two comparison target values, the traced instructions under IDAPython may use the debug-mode target. Patch `BeingDebugged` to 0 before tracing, or identify both branches and use the non-debug target value.
+
+**Key insight:** Arithmetic-only obfuscation (no memory writes) is fully reversible by tracing, inverting the instruction sequence, and swapping inverse operations. PEB anti-debug can silently change comparison targets — always verify which branch is taken.
+
+**References:** MeePwn CTF 2017
 
 ---
 

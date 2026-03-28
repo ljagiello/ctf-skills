@@ -22,6 +22,7 @@
   - [Quick Test Script](#quick-test-script)
 - [Custom Assembly Language Sandbox Escape (EHAX 2026)](#custom-assembly-language-sandbox-escape-ehax-2026)
 - [Lua Sandbox Escape via Function Name Injection (CSAW CTF 2016)](#lua-sandbox-escape-via-function-name-injection-csaw-ctf-2016)
+- [Ruby Sandbox Escape via TracePoint.trace (HITCON 2017)](#ruby-sandbox-escape-via-tracepointtrace-hitcon-2017)
 - [References](#references)
 
 ---
@@ -449,12 +450,31 @@ io.popen("cat /flag"):read("*a")
 
 ---
 
+## Ruby Sandbox Escape via TracePoint.trace (HITCON 2017)
+
+**Pattern:** Ruby sandbox uses `set_trace_func` to monitor execution and block dangerous calls. Bypass: register a `TracePoint` hook for `:c_call` events. TracePoint fires at the C-extension level, before Ruby-level `set_trace_func` hooks activate.
+
+```ruby
+TracePoint.trace(:c_call) do |tp|
+  system('sh')
+end
+```
+
+The hook fires on the next C-level call (e.g., `puts`, any method call), executing `system('sh')` before the sandbox monitor can intercept it.
+
+**Why it works:** `TracePoint` (introduced in Ruby 2.0) operates at a lower level than `set_trace_func`. `:c_call` hooks fire when any C-implemented method is invoked, which happens before the Ruby event system that `set_trace_func` relies on processes the event.
+
+**Key insight:** `TracePoint` operates at a lower level than `set_trace_func` in Ruby — C-call hooks fire before Ruby-level event hooks, allowing sandbox escape. Any subsequent C-method call (even benign ones) triggers the payload.
+
+---
+
 ## References
 - Pragyan 2026 "Tac Tic Toe": WASM minimax patching
 - LACTF 2026 "CTFaaS": K8s RBAC bypass via hostPath
 - 0xL4ugh CTF: PyInstaller + opcode remapping
 - 0xFun 2026 "MazeRunna": Roblox version history + binary place file parsing
 - EHAX 2026 "Chusembly": Custom assembly language with Python MRO chain RCE
+- HITCON 2017: Ruby TracePoint sandbox escape
 
 ---
 

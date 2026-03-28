@@ -12,6 +12,8 @@ LFSR, RC4, and XOR-based stream cipher attacks. For block cipher attacks (AES, p
   - [Galois LFSR Tap Recovery via Autocorrelation (BSidesSF 2026)](#galois-lfsr-tap-recovery-via-autocorrelation-bsidessf-2026)
 - [RC4 Second-Byte Bias Distinguisher (Hackover CTF 2015)](#rc4-second-byte-bias-distinguisher-hackover-ctf-2015)
 - [XOR Consecutive Byte Correlation Attack (Defcamp 2015)](#xor-consecutive-byte-correlation-attack-defcamp-2015)
+- [Fibonacci Stream Cipher Position-Shifting Oracle (EKOPARTY 2017)](#fibonacci-stream-cipher-position-shifting-oracle-ekoparty-2017)
+- [Z3 Constraint Solving for Custom Stream Ciphers (Tokyo Westerns 2017)](#z3-constraint-solving-for-custom-stream-ciphers-tokyo-westerns-2017)
 
 ---
 
@@ -246,3 +248,73 @@ for i in range(len(ct2)):
 ```
 
 **Key insight:** XOR of consecutive bytes cancels key material, leaving only plaintext-dependent differences. One known plaintext breaks all subsequent messages.
+
+---
+
+## Fibonacci Stream Cipher Position-Shifting Oracle (EKOPARTY 2017)
+
+**Pattern:** Custom cipher encrypts byte at position `k` as `Fib(seed + k) + plaintext_byte`. The seed is encoded in the first byte of each query. Incrementing the first byte by N shifts the Fibonacci starting position by 1, turning the server into an oracle: given any 2-byte query, the server returns the Fibonacci value at an arbitrary position XOR'd with the corresponding plaintext byte.
+
+**Attack (flag recovery via oracle):**
+1. Send queries of the form `[seed_offset][target_byte_position]` to request specific positions in the target ciphertext
+2. For each position, try all 256 candidate plaintext values: `candidate_byte + Fib(adjusted_seed + pos)` should match the observed server output
+3. Compare against the known target ciphertext byte to identify the correct plaintext
+
+```python
+# Oracle: server returns Fib(seed + k) XOR plaintext[k]
+# Shift seed by 1 per byte offset increment
+for pos in range(flag_length):
+    for candidate in range(256):
+        # Query with adjusted seed to reach this position
+        oracle_output = query(seed_offset=pos, position=0)
+        fib_val = oracle_output ^ candidate
+        if matches_target_ciphertext(fib_val, pos):
+            flag_bytes.append(candidate)
+            break
+```
+
+**Key insight:** When keystream depends on position in a predictable mathematical way and the starting position is controllable, the server becomes a decryption oracle. Complexity is O(n * 256) queries where n is the flag length — linear in the target size.
+
+**References:** EKOPARTY CTF 2017
+
+---
+
+## Z3 Constraint Solving for Custom Stream Ciphers (Tokyo Westerns 2017)
+
+**Pattern:** Custom stream cipher with algebraic mixing: `encrypted[i] = (message[i] + key[i%13] + encrypted[i-1]) % 128`. Known plaintext prefix (e.g., `TWCTF{`) anchors the first several constraints. Z3 solver encodes each step as an integer constraint and directly recovers both the unknown key and the remaining flag characters.
+
+```python
+from z3 import *
+
+key_len = 13
+flag_len = len(encrypted)
+
+key = [Int(f'k{i}') for i in range(key_len)]
+flag = [Int(f'f{i}') for i in range(flag_len)]
+
+s = Solver()
+
+# Cipher recurrence: enc[i] = (flag[i] + key[i%13] + enc[i-1]) % 128
+for i in range(flag_len):
+    prev = encrypted[i-1] if i > 0 else 0
+    s.add(encrypted[i] == (flag[i] + key[i % key_len] + prev) % 128)
+
+# Key and flag must be printable ASCII
+for k in key:
+    s.add(k >= 32, k <= 126)
+for f in flag:
+    s.add(f >= 32, f <= 126)
+
+# Anchor with known plaintext prefix
+for i, c in enumerate(b'TWCTF{'):
+    s.add(flag[i] == c)
+
+if s.check() == sat:
+    m = s.model()
+    recovered = bytes([m[flag[i]].as_long() for i in range(flag_len)])
+    print(recovered)
+```
+
+**Key insight:** Stream ciphers with algebraic (addition-based) mixing are directly amenable to Z3 constraint solving. Encode each step as an integer constraint, add known-plaintext anchors for the flag prefix, and let the solver recover key and remaining plaintext simultaneously. This avoids any manual analysis of the cipher structure.
+
+**References:** Tokyo Westerns CTF 2017

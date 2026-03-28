@@ -14,6 +14,8 @@
 - [FAT16 Deleted File Recovery via Sleuth Kit (MetaCTF Flash 2026)](#fat16-deleted-file-recovery-via-sleuth-kit-metactf-flash-2026)
 - [Ext2 Orphaned Inode Recovery via fsck (BSidesSF 2026)](#ext2-orphaned-inode-recovery-via-fsck-bsidessf-2026)
 - [Corrupted ZIP Repair via Header Field Manipulation (PlaidCTF 2017)](#corrupted-zip-repair-via-header-field-manipulation-plaidctf-2017)
+- [Recovering Deleted .git Repository from FAT Image (Square CTF 2017)](#recovering-deleted-git-repository-from-fat-image-square-ctf-2017)
+- [DNSSEC Key Recovery from Git Commit History (Hack.lu 2017)](#dnssec-key-recovery-from-git-commit-history-hacklu-2017)
 - [See Also](#see-also)
 
 ---
@@ -487,6 +489,68 @@ for offset in range(0x1E, 0x100):
 **Key insight:** ZIP filename length fields appear in both the Local File Header (offset 26) and Central Directory (offset 28). Both must match and reflect the actual filename. When these are corrupted to absurd values (e.g., 9001), the archive appears empty. As a fallback, brute-force raw deflate decompression at candidate data offsets.
 
 **Detection:** ZIP file that `unzip -l` reports as empty or produces errors about invalid filename lengths. `hexdump` shows valid `PK\x03\x04` and `PK\x01\x02` signatures but unreasonable values in length fields.
+
+---
+
+## Recovering Deleted .git Repository from FAT Image (Square CTF 2017)
+
+A FAT filesystem image with a deleted `.git` directory. Use TSK `fls -r` to list all files including deleted ones (marked with `*`). Extract deleted inodes with `icat`. Reconstruct the git object directory structure from the extracted files, then use `git fsck` and `git log` to recover commit history and flag.
+
+```bash
+# Step 1: List all files including deleted ones (* prefix = deleted)
+fls -r disk.img | grep '\*'
+# Example output:
+# r/r * 5:   .git/HEAD
+# r/r * 6:   .git/config
+# r/r * 7:   .git/objects/ab/cdef1234...
+
+# Step 2: Extract deleted files by inode number
+icat disk.img 5 > HEAD
+icat disk.img 6 > config
+# Repeat for all git object inodes
+
+# Step 3: Rebuild .git directory structure
+mkdir -p recovered/.git/objects/ab/
+# Place each extracted object at its correct path
+
+# Step 4: Recover commit history
+cd recovered
+git fsck --full        # Check object integrity, find dangling commits
+git log --all          # Show all commits including unreferenced ones
+git show <commit_hash> # Inspect specific commit for flag
+```
+
+**Key insight:** FAT marks deleted files by changing the first byte of the directory entry to `0xE5` but keeps cluster data intact until reused. TSK's `fls`/`icat` extracts deleted files by inode, making deletion forensically reversible. Git objects are content-addressed — once extracted, `git fsck` finds all reachable commits even without a valid HEAD reference.
+
+---
+
+## DNSSEC Key Recovery from Git Commit History (Hack.lu 2017)
+
+DNSSEC private signing keys committed to a git repository and later deleted remain permanently in the commit history. Recover the keys to set up a local BIND instance and forge DNSSEC-signed DNS responses.
+
+```bash
+# Step 1: Find commits that deleted key files
+git log --all --diff-filter=D -- '*.private' '*.key' 'Kexample.*.+*.+*.key'
+
+# Step 2: Recover the deleted key files from the commit before deletion
+git show <commit_hash>^:<path/to/Kzone.+005+12345.private> > recovered.private
+git show <commit_hash>^:<path/to/Kzone.+005+12345.key> > recovered.key
+
+# Alternative: search all commits for key material
+git log --all -p -- '*.private' | grep -A 20 'Private-key-format'
+
+# Step 3: Verify key contents
+cat recovered.private
+# Private-key-format: v1.3
+# Algorithm: 5 (RSASHA1)
+# ...
+
+# Step 4: Use recovered keys to forge DNSSEC-signed responses
+# Configure BIND with the recovered signing keys and sign the zone
+dnssec-signzone -K /path/to/keys -o example.com zone.db
+```
+
+**Key insight:** Sensitive cryptographic key material in git history is permanently recoverable — `git log --diff-filter=D` finds all commits that deleted files, and `git show <commit>^:<path>` retrieves the file's state just before deletion. DNSSEC private keys enable forging any DNS record for the zone, allowing DNS cache poisoning or redirecting traffic to attacker-controlled servers.
 
 ---
 

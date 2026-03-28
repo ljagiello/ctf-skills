@@ -21,6 +21,7 @@
 - [RDP Session Event IDs](#rdp-session-event-ids)
 - [Windows Defender MPLog Analysis](#windows-defender-mplog-analysis)
 - [Anti-Forensics Detection Checklist](#anti-forensics-detection-checklist)
+- [Windows Memory Forensics: certutil Base64 ZIP Recovery (SEC-T CTF 2017)](#windows-memory-forensics-certutil-base64-zip-recovery-sec-t-ctf-2017)
 
 ---
 
@@ -490,3 +491,51 @@ When event logs are cleared (attacker used `wevtutil cl` or `Clear-EventLog`):
 10. **Registry timestamps** - Key last_modified times reveal activity
 
 **Security.evtx EventID 1102** = "The audit log was cleared" (ironically logged even during clearing)
+
+---
+
+## Windows Memory Forensics: certutil Base64 ZIP Recovery (SEC-T CTF 2017)
+
+Volatility memory dump analysis where `psxview` reveals hidden cmd/powershell processes. A malware batch script uses `bitsadmin` to download and `certutil -decode` to base64-decode payloads. Search memory for `UEsD` (the base64 encoding of ZIP magic `PK\x03`) to find in-transit base64 archives, then decode to recover ZIP contents including registry entries.
+
+```bash
+# Step 1: Find hidden processes (psxview compares multiple process lists)
+vol.py -f dump.raw --profile=Win7SP1x64 psxview
+
+# Step 2: Dump suspicious process memory
+vol.py -f dump.raw --profile=Win7SP1x64 procdump -p <PID> -D ./dumps/
+
+# Step 3: Scan raw memory for base64-encoded ZIP archives
+# UEsD = base64("PK\x03") — ZIP magic bytes encoded in base64
+strings dump.raw | grep -o 'UEsD[A-Za-z0-9+/=]*' > candidates.txt
+
+# Step 4: Decode each candidate
+python3 -c "
+import base64, sys
+with open('candidates.txt') as f:
+    for line in f:
+        line = line.strip()
+        # Pad to valid base64 length
+        padded = line + '=' * (-len(line) % 4)
+        try:
+            data = base64.b64decode(padded)
+            if data[:4] == b'PK\x03\x04':
+                with open('recovered.zip', 'wb') as out:
+                    out.write(data)
+                print('ZIP recovered')
+                break
+        except Exception:
+            pass
+"
+
+# Step 5: Extract ZIP contents
+unzip recovered.zip
+```
+
+**Malware indicators to look for:**
+- `bitsadmin /transfer` — background download without browser
+- `certutil -decode input.b64 output.exe` — base64 decode abuse
+- Batch files (`.bat`, `.cmd`) in unusual locations (`%TEMP%`, `%APPDATA%`)
+- Registry exports (`.reg` files) inside ZIP payloads
+
+**Key insight:** `certutil` is commonly abused by malware for base64 decoding as a living-off-the-land technique. `UEsD` is the base64 encoding of ZIP magic bytes `PK\x03` — use it as a memory scanning signature to find in-transit ZIP archives before they are written to disk or after they are deleted.

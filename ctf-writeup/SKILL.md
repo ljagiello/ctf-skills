@@ -1,6 +1,6 @@
 ---
 name: ctf-writeup
-description: Generates a single standardized submission-style CTF writeup for competition handoff and organizer review.
+description: Generates a single standardized submission-style CTF writeup for competition handoff and organizer review. Use after solving a CTF challenge to document the solution steps, tools used, and lessons learned in a structured format.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash and Python 3.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch

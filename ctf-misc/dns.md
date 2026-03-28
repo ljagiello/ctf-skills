@@ -7,6 +7,7 @@
 - [DNS Rebinding](#dns-rebinding)
 - [DNS Tunneling / Exfiltration](#dns-tunneling--exfiltration)
 - [DNS Enumeration Quick Reference](#dns-enumeration-quick-reference)
+- [DNS Round-Robin A Record Enumeration (EKOPARTY 2017)](#dns-round-robin-a-record-enumeration-ekoparty-2017)
 
 ---
 
@@ -139,6 +140,28 @@ print(decoded)
 tshark -r capture.pcap -Y "dns.qry.type == 16" \
     -T fields -e dns.qry.name -e dns.txt
 ```
+
+---
+
+## DNS Round-Robin A Record Enumeration (EKOPARTY 2017)
+
+**Pattern:** Domain configured with many rotating A records pointing to different backend IPs. Only some serve the relevant HTTP content. Query repeatedly to collect all IPs, then scan and make direct virtual-host requests.
+
+```bash
+# Get all A records (query multiple times for round-robin)
+for i in $(seq 1 100); do dig +short target.com A; done | sort -u > ips.txt
+
+# Scan each IP for open port 80 and request with correct Host header
+while read ip; do
+    response=$(curl -s -m 3 -H "Host: target.com" "http://$ip/")
+    if echo "$response" | grep -q "flag"; then
+        echo "Found on $ip"
+        echo "$response"
+    fi
+done < ips.txt
+```
+
+**Key insight:** DNS round-robin with heterogeneous backends can hide content across many IPs. A single DNS query may not return all records — query repeatedly (50-100 times) and deduplicate to exhaust the record set. Then make direct virtual-host requests (`-H "Host: target.com"`) to each IP for complete coverage.
 
 ---
 

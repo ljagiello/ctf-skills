@@ -14,6 +14,7 @@
 - [RSA with Small Prime Factors and CRT Decomposition (Hack The Vote 2016)](#rsa-with-small-prime-factors-and-crt-decomposition-hack-the-vote-2016)
 - [RSA Timing Attack on Montgomery Reduction (DEF CON 2017)](#rsa-timing-attack-on-montgomery-reduction-def-con-2017)
 - [Bleichenbacher Low-Exponent RSA Signature Forgery (Google CTF 2017)](#bleichenbacher-low-exponent-rsa-signature-forgery-google-ctf-2017)
+- [Coppersmith Small Roots for Linearly Related Primes (Tokyo Westerns 2017)](#coppersmith-small-roots-for-linearly-related-primes-tokyo-westerns-2017)
 
 See also: [rsa-attacks.md](rsa-attacks.md) for foundational RSA attacks (small e, Wiener, Fermat, Pollard, Hastad, common modulus, Manger oracle, Coppersmith).
 
@@ -400,3 +401,37 @@ forged_sig = gmpy2.iroot(target, 3)[0] + 1  # +1 to round up
 **Key insight:** PKCS#1 v1.5 signature verification checks that `sig^e mod n` starts with `00 01 FF...FF 00 DigestInfo Hash`. With e=3, an attacker computes the cube root of a carefully constructed value with the correct prefix and ignores trailing bytes. Implementations that don't verify the padding extends to the full block length (CVE-2006-4339) accept the forgery.
 
 **References:** Google CTF 2017
+
+---
+
+## Coppersmith Small Roots for Linearly Related Primes (Tokyo Westerns 2017)
+
+**Pattern:** RSA where `q = k*p + delta` for a known small constant `k` and unknown small `delta`. Since `p ≈ sqrt(N/k)`, approximate `q_approx = k * isqrt(N // k) + 2^512` as an upper bound. The univariate polynomial `F(x) = q_approx - x` has `delta` as a small root modulo `q` (which divides N). Coppersmith's method finds this root when `delta < N^(1/4)`.
+
+```python
+from sage.all import *
+
+N, e, c = ...  # RSA parameters
+k = 19  # known relationship: q = k*p + delta
+
+# Approximate q from sqrt(N/k)
+q_approx = k * isqrt(N // k) + 2**512
+
+# Build univariate polynomial with q_approx as approximate root of N mod q
+R.<x> = PolynomialRing(Zmod(N))
+f = q_approx - x  # root is delta = q_approx - q
+
+# Coppersmith: find small root x = delta < N^0.25
+roots = f.small_roots(X=2**512, beta=0.5)
+if roots:
+    q = int(q_approx - roots[0])
+    p = N // q
+    assert p * q == N
+    phi = (p - 1) * (q - 1)
+    d = pow(e, -1, phi)
+    flag = long_to_bytes(pow(c, d, N))
+```
+
+**Key insight:** When `q ≈ k*p`, approximately half the bits of `p` (and `q`) are recoverable from `sqrt(N/k)`. The remaining unknown `delta` is small enough for Coppersmith when `delta < N^(1/4)`. The upper bound `q_approx` must exceed `q`; add a safety margin of `2^(bitlen/2)` to ensure the root is captured.
+
+**References:** Tokyo Westerns CTF 2017

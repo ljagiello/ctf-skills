@@ -20,6 +20,8 @@ Block cipher attacks, MAC forgery, padding oracles, and authenticated encryption
 - [Birthday Attack / Meet-in-the-Middle](#birthday-attack--meet-in-the-middle)
 - [CRC32 Collision-Based Signature Forgery (iCTF 2013)](#crc32-collision-based-signature-forgery-ictf-2013)
 - [AES Key Recovery via Byte-by-Byte Zeroing Oracle (CONFidence CTF 2017)](#aes-key-recovery-via-byte-by-byte-zeroing-oracle-confidence-ctf-2017)
+- [AES-CTR Constant Counter / Repeating Keystream (SHA2017)](#aes-ctr-constant-counter--repeating-keystream-sha2017)
+- [Custom SPN Column-Wise XOR Brute-Force (Hack Dat Kiwi 2017)](#custom-spn-column-wise-xor-brute-force-hack-dat-kiwi-2017)
 
 See also [modern-ciphers-2.md](modern-ciphers-2.md) for CRC32 forgery, Blum-Goldwasser, hash length extension, compression oracle, hash time reversal, OFB invertible RNG, weak key derivation, HMAC-CRC, DES weak keys, SRP bypass, modified AES S-Box, square attack, AES-ECB byte-at-a-time, AES-ECB cut-and-paste, AES-CBC IV bit-flip, Rabin LSB parity oracle, PBKDF2 pre-hash bypass, MD5 multi-collision, custom hash state reversal, and CRC32 brute-force.
 
@@ -476,3 +478,48 @@ for byte_pos in range(16):
 **Key insight:** Integer overflow in `index * ENTRY_SIZE` calculations can target arbitrary memory offsets. By selectively zeroing all-but-one key bytes, the key becomes trivially brute-forceable one byte at a time (256 attempts per byte, 4096 total vs 2^128 for the full key).
 
 **References:** CONFidence CTF 2017
+
+---
+
+## AES-CTR Constant Counter / Repeating Keystream (SHA2017)
+
+**Pattern:** When an AES-CTR implementation uses `counter=lambda: secret` (a constant function), the counter never increments. AES-CTR with a fixed counter produces the same 16-byte block on every call — equivalent to Vigenère cipher at the byte level with a 16-byte repeating key.
+
+```python
+# Constant counter makes CTR equivalent to repeating-key XOR
+key_byte = ciphertext_byte ^ known_plaintext_byte
+# Apply recovered key bytes across all 16-byte-aligned blocks
+for i, ct_byte in enumerate(ciphertext):
+    plaintext_byte = ct_byte ^ keystream[i % 16]
+```
+
+**Exploit using file format headers:**
+1. Identify the file format from context (e.g., `%PDF-1.` for PDF files)
+2. XOR the known header bytes against the ciphertext to recover `keystream[0:len(header)]`
+3. Iteratively extend: use recovered plaintext to guess the next structural keyword (`endobj`, `/Page`, `stream`, etc.), verify XOR produces consistent ASCII, and extend the keystream further
+4. Tool: `otp_pwn` supports interactive block-aligned crib-dragging for this workflow
+
+**Key insight:** Constant AES-CTR counter = repeating 16-byte Vigenère key. Known file format magic bytes bootstrap iterative key recovery via crib-dragging. Any known-plaintext at block-aligned positions reveals the full keystream byte at that position.
+
+**References:** SHA2017
+
+---
+
+## Custom SPN Column-Wise XOR Brute-Force (Hack Dat Kiwi 2017)
+
+**Pattern:** SPN (Substitution-Permutation Network) cipher with a seed-based sbox/pbox and a final XOR key layer. If the XOR key is applied column-wise (each key byte affects one column position independently), each key byte can be brute-forced separately using printable-text consistency as an oracle.
+
+**Attack:**
+1. Collect multiple ciphertext blocks (same key, different plaintexts)
+2. For each column position `c` (0-15), try all 256 candidate key bytes `k`
+3. Apply the inverse pbox and sbox to undo the SPN rounds, then XOR with candidate `k`
+4. Keep only candidates where ALL blocks produce printable ASCII at position `c`
+5. The intersection of valid candidates across blocks recovers each key byte
+
+**Multi-round variant:** Peel one round at a time. After recovering the outermost XOR key, apply the inverse pbox/sbox for that round using the recovered bytes, then repeat for the next inner round.
+
+**Seed-based permutation dependency:** When sbox and pbox are generated from a shared seed, recovering partial key bytes constrains the seed (and thus the remaining permutation entries). Use this to propagate partial solutions across columns with cross-column dependencies.
+
+**Key insight:** Column-aligned XOR layers in SPN ciphers allow independent per-byte brute-force using printable-text consistency as an oracle. Cross-column key reuse from seed-based permutations propagates partial solutions.
+
+**References:** Hack Dat Kiwi 2017

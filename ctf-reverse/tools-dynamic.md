@@ -34,6 +34,7 @@
 - [Triton (Dynamic Symbolic Execution)](#triton-dynamic-symbolic-execution)
 - [Intel Pin Instruction-Counting Side Channel (Hackover CTF 2015)](#intel-pin-instruction-counting-side-channel-hackover-ctf-2015)
 - [Opcode-Only Trace Reconstruction (0CTF 2016)](#opcode-only-trace-reconstruction-0ctf-2016)
+- [LD_PRELOAD time() Freeze for Deterministic Analysis (EKOPARTY 2017)](#ld_preload-time-freeze-for-deterministic-analysis-ekoparty-2017)
 
 ---
 
@@ -645,3 +646,41 @@ Given an execution trace with only opcodes (no register/memory values), reconstr
 4. For sorting algorithms, partition comparisons reveal relative ordering of all input elements
 
 **Key insight:** Execution traces without data values still leak information through branch decisions. Quicksort partition comparisons reveal which element is greater/lesser at each step, enabling full recovery of the sorted input from branch direction alone.
+
+---
+
+## LD_PRELOAD time() Freeze for Deterministic Analysis (EKOPARTY 2017)
+
+Override `time()` via LD_PRELOAD to return a constant value, freezing any timestamp-seeded PRNG. Once the binary's cipher becomes deterministic, brute-force each output byte without understanding the VM or cipher internals.
+
+```c
+// freeze_time.c — compile: gcc -shared -fPIC -o freeze.so freeze_time.c
+#include <time.h>
+
+time_t time(time_t *t) {
+    if (t) *t = 1234567890;
+    return 1234567890;
+}
+```
+
+```bash
+# Build and use:
+gcc -shared -fPIC -o freeze.so freeze_time.c
+LD_PRELOAD=./freeze.so ./binary
+
+# Byte-at-a-time oracle: run with frozen time, try each candidate byte,
+# observe output — correct byte produces expected output character.
+for byte in $(seq 0 255); do
+    output=$(echo -n "$(printf '\x%02x' $byte)" | LD_PRELOAD=./freeze.so ./binary)
+    # Check output against known/expected
+done
+```
+
+If `srand()` or `rand()` is also involved, override `rand()` too:
+```c
+int rand(void) { return 42; }
+```
+
+**Key insight:** LD_PRELOAD function interception freezes non-determinism sources (time, rand). Once deterministic, even complex VMs become tractable byte-at-a-time oracles.
+
+**References:** EKOPARTY CTF 2017
