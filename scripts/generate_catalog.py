@@ -145,15 +145,20 @@ def build_html(skills: list[dict]) -> str:
                 )
             tech_list = f'<ul class="technique-list">{"".join(items)}</ul>'
 
+        repo = _get_repo_url()
+        skill_link = f"{repo}/blob/main/{s['dir_name']}/SKILL.md"
         cards.append(f"""
     <div class="card" style="border-top: 4px solid {color}">
-      <div class="card-header">
-        <span class="icon">{icon}</span>
-        <h2>{html.escape(s["dir_name"])}</h2>
-        <span class="badge" style="background:{color}">\
+      <a class="card-link" href="{skill_link}"
+         target="_blank" rel="noopener noreferrer">
+        <div class="card-header">
+          <span class="icon">{icon}</span>
+          <h2>{html.escape(s["dir_name"])}</h2>
+          <span class="badge" style="background:{color}">\
 {tech_count} file{"s" if tech_count != 1 else ""}</span>
-      </div>
-      <p class="description">{desc}</p>
+        </div>
+        <p class="description">{desc}</p>
+      </a>
       {tech_list}
     </div>""")
 
@@ -234,6 +239,12 @@ def build_html(skills: list[dict]) -> str:
       transition: transform 0.15s ease;
     }}
     .card:hover {{ transform: translateY(-2px); }}
+    .card-link {{
+      display: block;
+      color: inherit;
+      text-decoration: none;
+    }}
+    .card-link:hover h2 {{ color: var(--link); }}
     .card-header {{
       display: flex;
       align-items: center;
