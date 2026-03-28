@@ -13,6 +13,8 @@
 - [Linux input_event Keylogger Dump Parsing (Pwn2Win 2016)](#linux-input_event-keylogger-dump-parsing-pwn2win-2016)
 - [I2C Bus Protocol Decoding (EKOPARTY CTF 2016)](#i2c-bus-protocol-decoding-ekoparty-ctf-2016)
 - [IBM-29 Punched Card OCR (EKOPARTY CTF 2016)](#ibm-29-punched-card-ocr-ekoparty-ctf-2016)
+- [Serial UART Data Decoding from WAV Audio (EasyCTF 2017)](#serial-uart-data-decoding-from-wav-audio-easyctf-2017)
+- [USB MIDI Launchpad Traffic Reconstruction (Sthack 2017)](#usb-midi-launchpad-traffic-reconstruction-sthack-2017)
 
 ---
 
@@ -548,3 +550,87 @@ for i in range(14):
 ```
 
 **Key insight:** IBM punched cards use a 12-row x 80-column grid. Each character is encoded by 1-3 holes in a column. The grid spacing varies by card reader/scanner resolution -- calibrate by measuring the distance between known reference holes. White/light pixels indicate punched holes.
+
+---
+
+## Serial UART Data Decoding from WAV Audio (EasyCTF 2017)
+
+Audio files can contain serial (UART) data encoded as square wave signals. Decode by sampling amplitude levels and parsing bit timing.
+
+```python
+import struct
+
+with open('signal.wav', 'rb') as f:
+    f.read(44)  # skip WAV header
+    samples = []
+    while True:
+        data = f.read(2)
+        if not data: break
+        samples.append(struct.unpack('<h', data)[0])
+
+# Parameters: 9600 baud, 1 start bit, 8 data bits, no parity, 2 stop bits
+SAMPLES_PER_BIT = len(samples) // expected_bits  # ~40 for 9600 baud @ 384kHz
+THRESHOLD = 0  # above = 1, below = 0
+
+# Convert samples to bits
+bits = [1 if s > THRESHOLD else 0 for s in samples]
+
+# Find frames: start bit (0) + 8 data bits + stop bits (1,1)
+output = []
+i = 0
+while i < len(bits) - 11:
+    if bits[i] == 0:  # start bit
+        byte_bits = bits[i+1:i+9]  # LSB first
+        byte_val = sum(b << j for j, b in enumerate(byte_bits))
+        output.append(byte_val)
+        i += 11  # skip start + 8 data + 2 stop
+    else:
+        i += 1
+
+print(bytes(output))
+```
+
+**Key insight:** UART serial data in audio appears as a square wave with well-defined bit timing. Key parameters to determine: baud rate (samples per bit), frame format (start/stop bits, parity), and bit endianness (UART is LSB-first). The start bit (low) provides synchronization for each byte frame.
+
+**Detection:** WAV file with a clean square wave pattern visible in Audacity. Two distinct amplitude levels with regular timing. Challenge mentions "serial", "UART", "baud", or "RS-232".
+
+---
+
+## USB MIDI Launchpad Traffic Reconstruction (Sthack 2017)
+
+USB traffic from MIDI controller devices (e.g., Novation Launchpad) encodes button presses as MIDI Note On/Off messages that can be reconstructed into visual patterns.
+
+```python
+from scapy.all import rdpcap
+
+pkts = rdpcap('capture.pcapng')
+# Filter USB bulk transfer packets for MIDI data
+# Launchpad MIDI: 0x90 = Note On, 0x80 = Note Off
+# Format: [status, key, velocity]
+# Key encodes (row, col): key = row*16 + col
+
+characters = []
+current_grid = [[0]*8 for _ in range(8)]
+
+for pkt in pkts:
+    data = bytes(pkt)
+    # Find MIDI messages in USB payload
+    if len(data) >= 4:
+        status = data[-3]
+        key = data[-2]
+        velocity = data[-1]
+
+        if status == 0x90 and velocity > 0:  # Note On
+            row, col = key // 16, key % 16
+            if 0 <= row < 8 and 0 <= col < 8:
+                current_grid[row][col] = 1
+        elif status == 0x80 or (status == 0x90 and velocity == 0):  # Note Off
+            # All-off sequence = character separator
+            if all(current_grid[r][c] == 0 for r in range(8) for c in range(8)):
+                characters.append(current_grid)
+                current_grid = [[0]*8 for _ in range(8)]
+```
+
+**Key insight:** MIDI devices use standardized message formats. Novation Launchpad maps its 8x8 grid to MIDI notes where `key = row*16 + col`. Note On (0x90) with velocity > 0 = button lit, Note Off (0x80) = button off. Sequences of all-off messages separate characters displayed on the grid.
+
+**Detection:** USB PCAP with bulk transfer packets containing 3-byte or 4-byte payloads. USB device descriptor shows MIDI class (Audio class, subclass MIDI Streaming). Challenge mentions "MIDI", "Launchpad", "music controller", or "grid".

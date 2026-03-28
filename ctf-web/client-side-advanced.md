@@ -14,6 +14,7 @@ Unicode bypass, CSS-only exfiltration, behavioral JS frameworks, timing oracles,
 - [XSSI via JSONP Callback with Cloud Function Exfiltration (BSidesSF 2026)](#xssi-via-jsonp-callback-with-cloud-function-exfiltration-bsidessf-2026)
 - [CSP Bypass via link prefetch (Boston Key Party 2016)](#csp-bypass-via-link-prefetch-boston-key-party-2016)
 - [Cross-Origin XSS via Shared Parent Domain Cookie Injection (0CTF 2017)](#cross-origin-xss-via-shared-parent-domain-cookie-injection-0ctf-2017)
+- [Chrome Unicode URL Normalization Bypass (RCTF 2017)](#chrome-unicode-url-normalization-bypass-rctf-2017)
 - [XSS Dot-Filter Bypass via Decimal IP and Bracket Notation (33C3 CTF 2016)](#xss-dot-filter-bypass-via-decimal-ip-and-bracket-notation-33c3-ctf-2016)
 
 ---
@@ -301,6 +302,60 @@ window.XMLHttpRequest = iframe.contentWindow.XMLHttpRequest;
 ```
 
 **Key insight:** Domain-scoped cookies cross subdomain boundaries. If any subdomain reflects cookie values without sanitization, setting a malicious cookie from a different subdomain achieves XSS on the target. The iframe trick restores `XMLHttpRequest` when the sandbox environment overrides it.
+
+---
+
+## Chrome Unicode URL Normalization Bypass (RCTF 2017)
+
+**Pattern:** Chrome normalizes certain Unicode characters to ASCII equivalents during URL processing (IDNA/punycode normalization). This can bypass length restrictions or character filters imposed by the application on domain names or URL components.
+
+**Fuzzing for Unicode-to-ASCII mappings:**
+```python
+# Fuzz Unicode chars that Chrome normalizes to specific ASCII
+import unicodedata
+
+target_char = 'a'  # Find Unicode chars that normalize to 'a'
+results = []
+for cp in range(0x100, 0xffff):
+    c = chr(cp)
+    # NFKC normalization (what browsers use for IDNA)
+    normalized = unicodedata.normalize('NFKC', c)
+    if normalized == target_char:
+        results.append(f"U+{cp:04X} ({c}) -> {target_char}")
+
+for r in results:
+    print(r)
+```
+
+**Known useful mappings:**
+```text
+# Characters that normalize to ASCII equivalents:
+U+FF41 (ａ) -> a    # Fullwidth Latin Small Letter A
+U+FF42 (ｂ) -> b    # Fullwidth Latin Small Letter B
+...
+U+FF5A (ｚ) -> z    # Fullwidth Latin Small Letter Z
+U+2100 (℀) -> a/c   # Account Of
+U+2101 (℁) -> a/s   # Addressed to the Subject
+U+FF0F (／) -> /    # Fullwidth Solidus
+U+FF1A (：) -> :    # Fullwidth Colon
+```
+
+**Exploit scenario:**
+```python
+# Application enforces max 6-character domain
+# Unicode domain uses 6 chars but normalizes to 8+ ASCII chars
+unicode_domain = "\uff41\uff42\uff43\uff44\uff45\uff46"  # 6 fullwidth chars
+# Chrome normalizes to: "abcdef" (6 ASCII chars)
+# But some checks see: 6 Unicode code points
+
+# Bypass character filter on domain
+# Application blocks 'x' in domain names
+# Use fullwidth 'ｘ' (U+FF58) instead
+url = "http://e\uff58ample.com/payload"
+# Chrome normalizes to http://example.com/payload
+```
+
+**Key insight:** Chrome's IDNA/punycode normalization converts certain Unicode characters to ASCII equivalents. A 6-character Unicode domain may resolve to an 8-character ASCII domain, bypassing length checks imposed by the application. Fullwidth Latin characters (U+FF00-U+FF5E) are particularly useful as they have 1:1 ASCII mappings. This applies to any client-side URL validation that doesn't apply the same normalization as the browser.
 
 ---
 

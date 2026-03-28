@@ -14,6 +14,8 @@
 - [Instruction Counter as Cryptographic State (MetaCTF Flash 2026)](#instruction-counter-as-cryptographic-state-metactf-flash-2026)
 - [Thread Race Condition with Signed Integer Overflow (Codegate 2017)](#thread-race-condition-with-signed-integer-overflow-codegate-2017)
 - [ESP32/Xtensa Firmware Reversing with ROM Symbol Map (Insomni'hack 2017)](#esp32xtensa-firmware-reversing-with-rom-symbol-map-insomnihack-2017)
+- [Batch Crackme Automation via objdump Pattern Extraction (DEF CON 2017)](#batch-crackme-automation-via-objdump-pattern-extraction-def-con-2017)
+- [Fork + Pipe + Dead Branch Anti-Analysis (RCTF 2017)](#fork--pipe--dead-branch-anti-analysis-rctf-2017)
 
 ---
 
@@ -496,6 +498,61 @@ r2 -a xtensa -b 32 firmware.bin
 ```
 
 **Key insight:** ESP32's Xtensa architecture lacks mainstream RE tool support, but the ESP-IDF SDK provides ROM linker scripts mapping every ROM function address to its name. Loading these as symbols in radare2 immediately resolves hundreds of function calls. Cross-referencing with public ESP-IDF example code identifies application-level patterns (HTTP handlers, WiFi callbacks) even in stripped firmware.
+
+---
+
+## Batch Crackme Automation via objdump Pattern Extraction (DEF CON 2017)
+
+Solve hundreds of identical-structure crackmes by scripting `objdump` to extract comparison values and arithmetic operations, computing keys without execution.
+
+```bash
+# Simple variant: extract CMP immediates directly
+objdump -M intel -d $binary | grep -P "cmp\s+rdi" | \
+    grep -oP "0x\w{1,2}" | xxd -r -p
+
+# Complex variant: parse add/sub/cmp chains and reverse-compute
+# Each binary: series of add/sub rdi,N then cmp rdi,target
+# Reverse: start from target, undo operations in reverse order
+python3 <<'EOF'
+import subprocess, re, glob
+for binary in sorted(glob.glob("crackmes/*")):
+    asm = subprocess.check_output(["objdump", "-M", "intel", "-d", binary]).decode()
+    ops = re.findall(r'(add|sub)\s+rdi,(0x\w+)', asm)
+    target = int(re.search(r'cmp\s+rdi,(0x\w+)', asm).group(1), 16)
+    # Reverse operations
+    for op, val in reversed(ops):
+        val = int(val, 16)
+        target = (target - val) if op == 'add' else (target + val)
+    print(chr(target & 0xff), end='')
+EOF
+```
+
+**Key insight:** Mass crackme challenges (100s-1000s of binaries) have identical structure with per-binary constants. Script `objdump` disassembly parsing to extract immediates and arithmetic sequences, then reverse-compute the key algebraically. No execution or emulation needed.
+
+---
+
+## Fork + Pipe + Dead Branch Anti-Analysis (RCTF 2017)
+
+Binary uses fork/pipe IPC where the parent writes data and exits, child reads from pipe and continues. Key validation is in a dead branch (always-false comparison) that requires binary patching to reach.
+
+```bash
+# Detection: fork() + pipe() + read()/write() in main
+# The child process reads from pipe, needs to know its own PID
+
+# Dead branch pattern:
+# cmp DWORD PTR [ebp-0xc], 0x1  ; compares 0 with 1, always false
+# je  real_flag_computation      ; never taken
+
+# Patch: change comparison value from 0x1 to 0x0
+# Find: 83 7d f4 01 → change to: 83 7d f4 00
+python3 -c "
+data = open('binary','rb').read()
+data = data.replace(b'\x83\x7d\xf4\x01', b'\x83\x7d\xf4\x00')
+open('binary_patched','wb').write(data)
+"
+```
+
+**Key insight:** Fork+pipe creates a parent-child relationship where the parent provides data and exits. Dead branches (comparisons that always evaluate to false) hide the real validation logic. `strace` reveals the fork/pipe/read pattern; patching the comparison constant reaches the hidden code path.
 
 ---
 

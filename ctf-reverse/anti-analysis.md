@@ -36,6 +36,7 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
   - [Control Flow Flattening (Advanced)](#control-flow-flattening-advanced)
   - [Mixed Boolean-Arithmetic (MBA) Identification & Simplification](#mixed-boolean-arithmetic-mba-identification--simplification)
 - [SIGILL Handler for Execution Mode Switching (Hack.lu 2015)](#sigill-handler-for-execution-mode-switching-hacklu-2015)
+- [SIGFPE Signal Handler Side-Channel via strace Counting (PlaidCTF 2017)](#sigfpe-signal-handler-side-channel-via-strace-counting-plaidctf-2017)
 - [Comprehensive Bypass Strategies](#comprehensive-bypass-strategies)
   - [Universal Bypass Checklist](#universal-bypass-checklist)
   - [Layered Anti-Debug (Real-World Pattern)](#layered-anti-debug-real-world-pattern)
@@ -610,6 +611,24 @@ void sigill_handler(int sig, siginfo_t *info, void *ucontext) {
 
 ---
 
+## SIGFPE Signal Handler Side-Channel via strace Counting (PlaidCTF 2017)
+
+Binary uses SIGFPE signal handlers for control flow, making static analysis unreliable. Brute-force by counting SIGFPE signals via strace — correct input characters produce more signals.
+
+```bash
+# Count SIGFPE signals per input character guess
+for c in {a..z} {A..Z} {0..9}; do
+    count=$(echo -n "${c}AAAAAAA" | strace -e signal=SIGFPE ./binary 2>&1 | grep -c SIGFPE)
+    echo "$c: $count"
+done
+# Character producing the most SIGFPEs is correct
+# Repeat for each position, extending the known prefix
+```
+
+**Key insight:** Signal handlers (SIGFPE, SIGSEGV, SIGILL) create implicit control flow invisible to static analysis. The number of signals raised correlates with validation progress. Counting signals via `strace -e signal=SIGFPE` turns opaque signal-based validation into a measurable side-channel for character-by-character brute-force.
+
+---
+
 ## Comprehensive Bypass Strategies
 
 ### Universal Bypass Checklist
@@ -645,6 +664,7 @@ Many CTF challenges stack multiple checks:
 | `/proc/self/status` | Linux | Mount namespace, hook fopen |
 | `alarm(N)` | Linux | `handle SIGALRM ignore` in GDB |
 | `SIGTRAP` handler | Linux | `handle SIGTRAP nostop pass` |
+| `SIGFPE` handler side-channel | Linux | `strace -e signal=SIGFPE` count per input |
 | TLS callback | Windows | Break on TLS in x64dbg, patch |
 | DR register scan | Windows | Use software BPs, hook GetThreadContext |
 | INT3 scan / CRC | Both | Hardware BPs, patch CRC comparison |

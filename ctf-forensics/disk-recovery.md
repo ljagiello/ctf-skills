@@ -13,6 +13,8 @@
 - [FAT16 Free Space Data Recovery (BSidesSF 2026)](#fat16-free-space-data-recovery-bsidessf-2026)
 - [FAT16 Deleted File Recovery via Sleuth Kit (MetaCTF Flash 2026)](#fat16-deleted-file-recovery-via-sleuth-kit-metactf-flash-2026)
 - [Ext2 Orphaned Inode Recovery via fsck (BSidesSF 2026)](#ext2-orphaned-inode-recovery-via-fsck-bsidessf-2026)
+- [Corrupted ZIP Repair via Header Field Manipulation (PlaidCTF 2017)](#corrupted-zip-repair-via-header-field-manipulation-plaidctf-2017)
+- [See Also](#see-also)
 
 ---
 
@@ -437,6 +439,54 @@ cp /mnt/lost+found/\#13 recovered_flag.png
 - `icat` (Sleuth Kit) — extract file by inode number: `icat disk.img 13 > recovered`
 
 **References:** BSidesSF 2026 "orphan"
+
+---
+
+## Corrupted ZIP Repair via Header Field Manipulation (PlaidCTF 2017)
+
+ZIP archives with corrupted filename length fields can be repaired by hex-editing both the Local File Header and Central Directory Entry.
+
+```python
+# ZIP Local File Header format (at offset 0x04 from PK\x03\x04):
+# Offset 26: filename length (2 bytes, little-endian)
+# ZIP Central Directory Entry (at PK\x01\x02):
+# Offset 28: filename length (2 bytes, little-endian)
+
+# Fix: set both filename lengths to actual filename size
+import struct
+with open('broken.zip', 'rb') as f:
+    data = bytearray(f.read())
+
+# Find and fix Local File Header filename length
+lfh = data.index(b'PK\x03\x04')
+struct.pack_into('<H', data, lfh + 26, 8)  # set to 8 bytes
+
+# Find and fix Central Directory filename length
+cde = data.index(b'PK\x01\x02')
+struct.pack_into('<H', data, cde + 28, 8)  # must match
+
+# Write fixed bytes as filename
+data[lfh+30:lfh+38] = b'flag.txt'
+
+with open('fixed.zip', 'wb') as f:
+    f.write(data)
+
+# Alternative: brute-force deflate at candidate offsets
+import zlib
+with open('broken.zip', 'rb') as f:
+    raw = f.read()
+for offset in range(0x1E, 0x100):
+    try:
+        result = zlib.decompress(raw[offset:], -15)
+        print(f"Offset {offset:#x}: {result}")
+        break
+    except zlib.error:
+        continue
+```
+
+**Key insight:** ZIP filename length fields appear in both the Local File Header (offset 26) and Central Directory (offset 28). Both must match and reflect the actual filename. When these are corrupted to absurd values (e.g., 9001), the archive appears empty. As a fallback, brute-force raw deflate decompression at candidate data offsets.
+
+**Detection:** ZIP file that `unzip -l` reports as empty or produces errors about invalid filename lengths. `hexdump` shows valid `PK\x03\x04` and `PK\x01\x02` signatures but unreasonable values in length fields.
 
 ---
 

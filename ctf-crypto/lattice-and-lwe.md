@@ -3,13 +3,23 @@
 ## Table of Contents
 - [Quick Triage: Is This a Lattice Problem?](#quick-triage-is-this-a-lattice-problem)
 - [Core Tools: LLL, BKZ, Babai, CVP, SVP](#core-tools-lll-bkz-babai-cvp-svp-asis-ctf-finals-2015-ctfzone-2017)
+  - [LLL](#lll)
+  - [BKZ](#bkz)
+  - [Babai nearest plane](#babai-nearest-plane)
+  - [CVP vs SVP](#cvp-vs-svp)
 - [Hidden Number Problem (HNP): Partial Nonce / Biased Nonce](#hidden-number-problem-hnp-partial-nonce--biased-nonce-nullcon-hackim-2020-ledger-donjon-ctf-2020)
+  - [Minimal ECDSA partial-nonce workflow](#minimal-ecdsa-partial-nonce-workflow)
 - [LCG and Truncated Output as a Lattice Problem](#lcg-and-truncated-output-as-a-lattice-problem-x-mas-ctf-2018-fwordctf-2020)
+  - [Minimal truncated-LCG workflow](#minimal-truncated-lcg-workflow)
 - [LWE via Embedding and CVP](#lwe-via-embedding-and-cvp-plaidctf-2016-aero-ctf-2020)
+  - [Embedding-style lattice](#embedding-style-lattice)
+  - [For ternary or sparse secrets](#for-ternary-or-sparse-secrets)
 - [Ring-LWE / Module-LWE Recognition Notes](#ring-lwe--module-lwe-recognition-notes-plaidctf-2016-dicectf-2022)
+  - [Flattening Ring-LWE to plain LWE](#flattening-ring-lwe-to-plain-lwe)
 - [Orthogonal Lattices: HSSP / AHSSP Style Recovery](#orthogonal-lattices-hssp--ahssp-style-recovery-zer0pts-ctf-2022)
 - [Subset Sum / Knapsack via Lattice Reduction](#subset-sum--knapsack-via-lattice-reduction-hitcon-ctf-2017-backdoorctf-2023)
 - [Common Failure Modes](#common-failure-modes)
+- [Quick Checklist Before You Commit to Lattices](#quick-checklist-before-you-commit-to-lattices)
 
 ---
 

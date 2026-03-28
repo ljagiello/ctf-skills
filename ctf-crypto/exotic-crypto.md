@@ -11,6 +11,7 @@
 - [Format-Preserving Encryption Feistel Brute-Force (BSidesSF 2026)](#format-preserving-encryption-feistel-brute-force-bsidessf-2026)
 - [Icosahedral Symmetry Group Cipher (BSidesSF 2026)](#icosahedral-symmetry-group-cipher-bsidessf-2026)
 - [Goldwasser-Micali Ciphertext Replication Oracle (BSidesSF 2026)](#goldwasser-micali-ciphertext-replication-oracle-bsidessf-2026)
+- [BB-84 Quantum Key Distribution MITM Attack (PlaidCTF 2017)](#bb-84-quantum-key-distribution-mitm-attack-plaidctf-2017)
 
 ---
 
@@ -523,3 +524,32 @@ plaintext = AES.new(aes_key, AES.MODE_CBC, captured_iv).decrypt(captured_ct)
 **Broader principle:** Any protocol that (1) encrypts a key bit-by-bit and (2) provides an oracle on the reconstructed key is vulnerable to bit-by-bit recovery via replication. The specific oracle (hash, decryption check, timing) varies but the attack structure is the same.
 
 **References:** BSidesSF 2026 "kproof"
+
+---
+
+## BB-84 Quantum Key Distribution MITM Attack (PlaidCTF 2017)
+
+**Pattern:** In simulated BB-84 QKD without authentication, perform a full man-in-the-middle by independently negotiating with both Alice and Bob.
+
+```python
+# Strategy: Always use basis Z, always send value 1 to Bob
+# Alice side: measure in random bases, record results
+# Bob side: always receives 1 in basis Z
+# Bob's key = all 1s (known to attacker)
+# Alice's key = attacker's measured qbit values
+
+# Heuristic: throttle Bob's correct-guess count to match Alice's
+# Both parties verify by comparing subset of bits — attacker controls both sides
+for qbit in alice_qbits:
+    my_basis = 'Z'  # always measure in Z basis
+    my_value = measure(qbit, my_basis)
+    send_to_bob(basis='Z', value=1)  # always send 1
+
+# After basis reconciliation:
+# key_with_alice = [measured values where bases matched]
+# key_with_bob = [all 1s]
+```
+
+**Key insight:** BB-84 QKD is secure only with authenticated classical channels. Without authentication, an attacker can independently negotiate keys with both parties. Forcing a constant value to one party makes their key entirely predictable, while the other party's key is captured through measurement.
+
+**References:** PlaidCTF 2017

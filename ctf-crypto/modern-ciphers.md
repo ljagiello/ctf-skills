@@ -19,6 +19,7 @@ Block cipher attacks, MAC forgery, padding oracles, and authenticated encryption
 - [Bleichenbacher / PKCS#1 v1.5 RSA Padding Oracle](#bleichenbacher--pkcs1-v15-rsa-padding-oracle)
 - [Birthday Attack / Meet-in-the-Middle](#birthday-attack--meet-in-the-middle)
 - [CRC32 Collision-Based Signature Forgery (iCTF 2013)](#crc32-collision-based-signature-forgery-ictf-2013)
+- [AES Key Recovery via Byte-by-Byte Zeroing Oracle (CONFidence CTF 2017)](#aes-key-recovery-via-byte-by-byte-zeroing-oracle-confidence-ctf-2017)
 
 See also [modern-ciphers-2.md](modern-ciphers-2.md) for CRC32 forgery, Blum-Goldwasser, hash length extension, compression oracle, hash time reversal, OFB invertible RNG, weak key derivation, HMAC-CRC, DES weak keys, SRP bypass, modified AES S-Box, square attack, AES-ECB byte-at-a-time, AES-ECB cut-and-paste, AES-CBC IV bit-flip, Rabin LSB parity oracle, PBKDF2 pre-hash bypass, MD5 multi-collision, custom hash state reversal, and CRC32 brute-force.
 
@@ -445,3 +446,33 @@ def crc32_forge(data, target_crc):
 ```
 
 **When to use:** Any protocol using CRC32 as a message authentication code (MAC). CRC32 is a checksum, not a cryptographic hash — it provides no integrity guarantees against adversarial modification.
+
+---
+
+## AES Key Recovery via Byte-by-Byte Zeroing Oracle (CONFidence CTF 2017)
+
+**Pattern:** When a service allows selective zeroing of key bytes (e.g., via integer overflow in key slot indexing), recover the full AES key by testing one byte at a time.
+
+```python
+# Service has key slots and a "regenerate" function with integer overflow
+# offset = index * ENTRY_SIZE wraps around, allowing arbitrary byte zeroing
+
+# Strategy: zero bytes progressively, brute-force each unknown byte
+for byte_pos in range(16):
+    # Zero all bytes EXCEPT byte_pos (by overflowing index calculation)
+    zero_index = (target_offset * modinv(ENTRY_SIZE, 2**32)) % 2**32
+    regenerate(zero_index)
+
+    # Key is now: [0,0,...,key[byte_pos],...,0,0]
+    # Brute-force the single non-zero byte (256 possibilities)
+    known_ct = encrypt(known_pt)
+    for guess in range(256):
+        test_key = bytes([0]*byte_pos + [guess] + [0]*(15-byte_pos))
+        if AES.new(test_key, AES.MODE_ECB).encrypt(known_pt) == known_ct:
+            recovered_key[byte_pos] = guess
+            break
+```
+
+**Key insight:** Integer overflow in `index * ENTRY_SIZE` calculations can target arbitrary memory offsets. By selectively zeroing all-but-one key bytes, the key becomes trivially brute-forceable one byte at a time (256 attempts per byte, 4096 total vs 2^128 for the full key).
+
+**References:** CONFidence CTF 2017

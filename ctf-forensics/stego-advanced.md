@@ -17,6 +17,9 @@
 - [Reversed Audio Hidden Message (ASIS CTF Finals 2013)](#reversed-audio-hidden-message-asis-ctf-finals-2013)
 - [Video Frame Averaging for Hidden Content (SECCON 2015)](#video-frame-averaging-for-hidden-content-seccon-2015)
 - [JPEG XL TOC Permutation Steganography (BSidesSF 2026)](#jpeg-xl-toc-permutation-steganography-bsidessf-2026)
+- [Arnold's Cat Map Image Descrambling (Nuit du Hack 2017)](#arnolds-cat-map-image-descrambling-nuit-du-hack-2017)
+- [High-Resolution SSTV Custom FM Demodulation (PlaidCTF 2017)](#high-resolution-sstv-custom-fm-demodulation-plaidctf-2017)
+- [MJPEG Extra Bytes After FFD9 Steganography (PoliCTF 2017)](#mjpeg-extra-bytes-after-ffd9-steganography-polictf-2017)
 
 ---
 
@@ -569,3 +572,96 @@ print('Flag:', ''.join(flag_chars))
 **Detection:** JXL file where progressive rendering shows tiles appearing in an unusual order (e.g., spelling text). Challenge mentions "progressive", "convergence", or "order matters".
 
 **References:** BSidesSF 2026 "image-progress"
+
+---
+
+## Arnold's Cat Map Image Descrambling (Nuit du Hack 2017)
+
+Arnold's Cat Map is a chaotic area-preserving transformation that is periodic -- iterating it enough times restores the original image. When an image appears scrambled with a noise-like pattern but retains the correct dimensions and color histogram, suspect a Cat Map scramble.
+
+```python
+from PIL import Image
+import numpy as np
+
+img = np.array(Image.open('scrambled.png'))
+N = img.shape[0]  # Must be square
+
+def arnold_cat_map(image, n):
+    """Apply Arnold's Cat Map transformation"""
+    result = np.zeros_like(image)
+    for x in range(n):
+        for y in range(n):
+            nx = (2*x + y) % n
+            ny = (x + y) % n
+            result[nx, ny] = image[x, y]
+    return result
+
+# Iterate until original image reappears (period depends on N)
+current = img.copy()
+for i in range(1, N * N):
+    current = arnold_cat_map(current, N)
+    Image.fromarray(current).save(f'frame_{i:04d}.png')
+    # Check if we've returned to original (or visually inspect)
+```
+
+**Key insight:** Arnold's Cat Map is periodic with period dividing `3*N` for most image sizes. Iterating the forward transform eventually restores the original. For large images, compute the period analytically via `lcm` of matrix eigenvalue orders in `Z/NZ` rather than brute-forcing all iterations.
+
+**Detection:** Square image that looks like uniformly scrambled noise but has a plausible color distribution. Challenge mentions "cat", "Arnold", "chaotic", or "permutation".
+
+---
+
+## High-Resolution SSTV Custom FM Demodulation (PlaidCTF 2017)
+
+When a WAV file contains an SSTV signal at higher-than-standard sample rate (e.g., 96kHz vs standard 2.3kHz bandwidth), standard SSTV decoders fail on the high-frequency content. Use custom FM demodulation.
+
+```python
+# Method 1: GNU Radio
+# Hilbert Transform -> Quadrature Demod -> low-pass filter
+
+# Method 2: Manual arccos + derivative (handles clipping)
+import numpy as np
+from scipy.io import wavfile
+
+rate, data = wavfile.read('signal.wav')
+# Normalize to [-1, 1]
+data = data / np.max(np.abs(data))
+# Clamp to valid arccos range
+data = np.clip(data, -0.999, 0.999)
+# Instantaneous frequency via arccos derivative
+phase = np.arccos(data)
+freq = np.diff(phase) * rate / (2 * np.pi)
+# Map frequency to pixel intensity (1500-2300Hz typical SSTV range)
+pixels = np.clip((freq - 1500) / 800 * 255, 0, 255).astype(np.uint8)
+```
+
+**Key insight:** Standard SSTV decoders (QSSTV, MMSSTV) assume standard bandwidth (~2.3kHz). High-sample-rate recordings may contain wider-bandwidth signals that these decoders truncate. Manual FM demodulation via `arccos` + differentiation (avoiding Hilbert transform artifacts on clipped signals) recovers the full frequency range.
+
+**Detection:** WAV file at unusually high sample rate (48kHz, 96kHz) where standard SSTV decoders produce garbled or partial output. Spectrogram shows frequency-modulated signal structure.
+
+---
+
+## MJPEG Extra Bytes After FFD9 Steganography (PoliCTF 2017)
+
+MJPEG video frames that contain extra bytes after the JPEG end-of-image marker (FFD9) hide data in the padding.
+
+```python
+# Split MJPEG into individual frames
+frames = open('video.mjpeg', 'rb').read().split(b'\xff\xd8')
+
+hidden = b""
+for frame in frames:
+    if not frame: continue
+    frame = b'\xff\xd8' + frame
+    # Find JPEG EOI marker
+    eoi = frame.find(b'\xff\xd9')
+    if eoi != -1:
+        extra = frame[eoi + 2:]  # bytes after FFD9
+        if extra:
+            hidden += extra
+
+print(hidden.decode(errors='ignore'))
+```
+
+**Key insight:** JPEG decoders stop at the FFD9 (End of Image) marker and ignore trailing bytes. In MJPEG streams, each frame is a complete JPEG -- appending 1+ extra bytes after each frame's FFD9 creates a covert channel invisible to video players.
+
+**Detection:** MJPEG file where individual frames are slightly larger than expected. `binwalk` on raw MJPEG may show repeated JPEG headers. Hex dump shows non-zero data between FFD9 and the next FFD8.

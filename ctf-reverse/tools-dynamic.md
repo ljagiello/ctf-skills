@@ -11,7 +11,7 @@
   - [r2frida (Radare2 + Frida Integration)](#r2frida-radare2--frida-integration)
   - [Frida for Android/iOS](#frida-for-androidios)
 - [angr (Symbolic Execution)](#angr-symbolic-execution)
-  - [Installation](#installation-1)
+  - [angr Installation](#angr-installation)
   - [Basic Path Exploration](#basic-path-exploration)
   - [Symbolic Input with Constraints](#symbolic-input-with-constraints)
   - [Hook Functions to Simplify Analysis](#hook-functions-to-simplify-analysis)
@@ -27,7 +27,7 @@
   - [Scripting](#scripting)
   - [Common CTF Workflow](#common-ctf-workflow)
 - [Qiling Framework (Cross-Platform Emulation)](#qiling-framework-cross-platform-emulation)
-  - [Installation](#installation-2)
+  - [Qiling Installation](#qiling-installation)
   - [Basic Usage](#basic-usage)
   - [Anti-Debug Bypass via Emulation](#anti-debug-bypass-via-emulation)
   - [Input Fuzzing with Qiling](#input-fuzzing-with-qiling)
@@ -219,7 +219,7 @@ Java.perform(function() {
 
 angr automatically explores program paths to find inputs satisfying constraints. Solves many flag-checking binaries in minutes that take hours manually.
 
-### Installation
+### angr Installation
 
 ```bash
 pip install angr
@@ -495,7 +495,7 @@ StepOver                       # Step over
 
 Qiling emulates binaries with OS-level support (syscalls, filesystem, registry). Built on Unicorn but adds the OS layer that Unicorn lacks.
 
-### Installation
+### Qiling Installation
 
 ```bash
 pip install qiling

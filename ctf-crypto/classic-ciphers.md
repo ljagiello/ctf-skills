@@ -17,6 +17,8 @@
 - [Variable-Length Homophonic Substitution (ASIS CTF Finals 2013)](#variable-length-homophonic-substitution-asis-ctf-finals-2013)
 - [Grid Permutation Cipher Keyspace Reduction (BSidesSF 2026)](#grid-permutation-cipher-keyspace-reduction-bsidessf-2026)
 - [Image-Based Caesar Shift Ciphers (BSidesSF 2026)](#image-based-caesar-shift-ciphers-bsidessf-2026)
+  - [Variant A — Vertical Strip Shift (caesar1)](#variant-a--vertical-strip-shift-caesar1)
+  - [Variant B — Horizontal Shift with ASCII Encoding (caesar2)](#variant-b--horizontal-shift-with-ascii-encoding-caesar2)
 - [XOR Key Recovery via File Format Headers (MetaCTF Flash 2026)](#xor-key-recovery-via-file-format-headers-metactf-flash-2026)
 
 ---

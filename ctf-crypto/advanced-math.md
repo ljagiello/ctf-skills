@@ -17,6 +17,7 @@
 - [Manger's RSA Padding Oracle Attack (Nullcon 2026)](#mangers-rsa-padding-oracle-attack-nullcon-2026)
 - [LWE Lattice Attack via CVP (EHAX 2026)](#lwe-lattice-attack-via-cvp-ehax-2026)
 - [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
+- [Introspective CRC via GF(2) Linear Algebra (Google CTF 2017)](#introspective-crc-via-gf2-linear-algebra-google-ctf-2017)
 
 ---
 
@@ -685,3 +686,29 @@ x5 = gauss_elim(A5, b5, mod=5)
 x13 = gauss_elim(A13, b13, mod=13)
 x = [crt2(x5[i], 5, x13[i], 13) for i in range(len(x5))]
 ```
+
+---
+
+## Introspective CRC via GF(2) Linear Algebra (Google CTF 2017)
+
+**Pattern:** Find an ASCII string whose CRC-N value equals the string itself (self-referential CRC). Model CRC as a linear function over GF(2) and solve the resulting system.
+
+```python
+# CRC is linear over GF(2): CRC(a XOR b) = CRC(a) XOR CRC(b)
+# Goal: find x where CRC(x) = x (as ASCII hex)
+# 1. Compute CRC of all-zeros baseline
+# 2. For each bit position, compute the CRC difference (remainder)
+# 3. Set up GF(2) linear system: CRC(x) XOR x = 0
+# 4. Solve with Gaussian elimination over GF(2)
+from sage.all import *
+F = GF(2)
+# Build matrix where each column represents flipping one bit
+# Rows represent the CRC output bits XOR input bits
+M = Matrix(F, n_bits, n_bits)
+# ... fill with CRC remainders ...
+solution = M.solve_right(target_vector)
+```
+
+**Key insight:** CRC is a linear function over GF(2). The self-referential constraint CRC(x)=x becomes a system of linear equations over GF(2), solvable by Gaussian elimination. The ASCII constraint requires choosing free variables to keep all bytes in the printable range.
+
+**References:** Google CTF 2017

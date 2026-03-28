@@ -15,6 +15,7 @@
 - [Polynomial Hash with Trivial Root (Pragyan 2026)](#polynomial-hash-with-trivial-root-pragyan-2026)
 - [Polynomial CRT in GF(2)[x] (Nullcon 2026)](#polynomial-crt-in-gf2x-nullcon-2026)
 - [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
+- [Hastad Broadcast Attack with Linear Padding -- Coppersmith (PlaidCTF 2017)](#hastad-broadcast-attack-with-linear-padding----coppersmith-plaidctf-2017)
 - [rsa-attacks-2.md: RSA p=q Validation Bypass (BearCatCTF 2026)](rsa-attacks-2.md#rsa-pq-validation-bypass-bearcatctf-2026)
 - [rsa-attacks-2.md: RSA Cube Root CRT when gcd(e, phi) > 1 (BearCatCTF 2026)](rsa-attacks-2.md#rsa-cube-root-crt-when-gcde-phi--1-bearcatctf-2026)
 - [rsa-attacks-2.md: Factoring n from Multiple of phi(n) (BearCatCTF 2026)](rsa-attacks-2.md#factoring-n-from-multiple-of-phin-bearcatctf-2026)
@@ -204,6 +205,36 @@ print(bytes.fromhex(hex(m)[2:]))
 ```
 
 **Key insight:** CRT reconstructs `m^e` exactly (no modular reduction) because `m < min(n_i)` and therefore `m^e < n_1 * n_2 * ... * n_e`. Taking the integer eth root recovers `m`.
+
+---
+
+## Hastad Broadcast Attack with Linear Padding -- Coppersmith (PlaidCTF 2017)
+
+**Pattern:** Extension of Hastad's broadcast attack when each recipient applies a known linear transform `c_i = (a_i * m + b_i)^e mod n_i` before encryption.
+
+```python
+# Standard Hastad requires identical plaintext
+# With linear padding: each ciphertext encrypts a_i*m + b_i
+# Use CRT + Coppersmith's small_roots on the resulting polynomial
+
+from sage.all import *
+# Combine via CRT
+N = prod(n_values)
+T = [crt_coefficient(i, n_values) for i in range(e)]
+
+P = PolynomialRing(Zmod(N), 'x')
+x = P.gen()
+poly = sum(T[i] * ((a[i]*x + b[i])**e - c[i]) for i in range(e))
+poly = poly.monic()
+
+# Coppersmith's method finds small root
+roots = poly.small_roots(epsilon=1/30)
+flag = int(roots[0])
+```
+
+**Key insight:** When the same message is encrypted with `e` different moduli but each applies a known affine transform `a_i * m + b_i`, CRT combines the congruences into a single polynomial of degree `e` over `Z/NZ`. Coppersmith's method recovers `m` as a small root, generalizing Hastad's attack beyond identical plaintexts.
+
+**References:** PlaidCTF 2017
 
 ---
 

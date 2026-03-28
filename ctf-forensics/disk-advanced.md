@@ -13,6 +13,9 @@
 - [Minidump ISO 9660 Recovery + XOR Key (srdnlenCTF 2026)](#minidump-iso-9660-recovery--xor-key-srdnlenctf-2026)
 - [APFS Snapshot Historical File Recovery (srdnlenCTF 2026)](#apfs-snapshot-historical-file-recovery-srdnlenctf-2026)
 - [RAID 5 Disk Recovery via XOR (Crypto-Cat)](#raid-5-disk-recovery-via-xor-crypto-cat)
+- [HFS+ Resource Fork Hidden Binary Recovery (CONFidence CTF 2017)](#hfs-resource-fork-hidden-binary-recovery-confidence-ctf-2017)
+- [SQLite Edit History Reconstruction from Diff Table (Google CTF 2017)](#sqlite-edit-history-reconstruction-from-diff-table-google-ctf-2017)
+- [See Also](#see-also)
 
 ---
 
@@ -369,6 +372,70 @@ mount -o loop,ro disk2.img /mnt/recovered
 **Key insight:** RAID 5 uses XOR parity across all disks in each stripe. XOR is self-inverse: if `A XOR B XOR C = 0`, then `B = A XOR C`. For N-disk RAID 5, XOR all N-1 working disks together to recover the missing one.
 
 **Detection:** Challenge provides multiple disk images of identical size, mentions "array", "redundancy", or "parity". `file` command may identify them as filesystem images or raw data.
+
+---
+
+## HFS+ Resource Fork Hidden Binary Recovery (CONFidence CTF 2017)
+
+HFS+ files can have a Resource Fork containing hidden data invisible to most tools. Use HFSExplorer to inspect the catalog and 010 Editor with HFS template to extract.
+
+```bash
+# 1. Mount or open the HFS+ image
+# Standard tools miss Resource Forks:
+binwalk image.dmg    # Won't find resource fork contents
+strings image.dmg    # May show fragments
+
+# 2. Use HFSExplorer to browse the catalog
+# Look for files with non-zero Resource Fork size
+# Suspicious: nodeID 1337 or similar CTF-typical IDs
+
+# 3. Check .fseventsd logs for historical file operations
+pip install FSEventsParser
+python FSEventsParser.py -s image.dmg -o events.csv
+# Reveals creation/deletion of files across the volume
+
+# 4. Extract Resource Fork data with 010 Editor:
+# - Load disk image with HFS+ template
+# - Navigate to catalog -> target file -> resource fork extents
+# - Note start block and length from extent records
+# - If split across multiple extents, extract and concatenate:
+dd if=image.dmg bs=4096 skip=$BLOCK1 count=$LEN1 of=part1.bin
+dd if=image.dmg bs=4096 skip=$BLOCK2 count=$LEN2 of=part2.bin
+cat part1.bin part2.bin > recovered_binary
+```
+
+**Key insight:** HFS+ Resource Forks are a second data stream attached to files, invisible to most forensic tools that only examine the Data Fork. `binwalk`, `foremost`, and `strings` miss them. HFSExplorer shows both forks in the catalog; 010 Editor with the HFS template reveals extent records for manual extraction. `.fseventsd` logs can reveal that hidden files were created/deleted.
+
+**Detection:** DMG or HFS+ disk image where standard carving finds nothing. `file` identifies as "Apple HFS+" or "Apple Partition Map". Challenge mentions "Mac", "Apple", or "hidden data".
+
+---
+
+## SQLite Edit History Reconstruction from Diff Table (Google CTF 2017)
+
+SQLite databases storing note/document edit history as diff entries (operation, position, text, diffset) can be replayed to reconstruct content at any point in time.
+
+```python
+import sqlite3
+
+db = sqlite3.connect('notes.db')
+# Table structure: diffs(id, type, position, text, diffset)
+# type: 'insert' or 'remove'
+diffs = db.execute("SELECT type, position, text FROM diffs ORDER BY id").fetchall()
+
+document = ""
+for op_type, position, text in diffs:
+    if op_type == 'insert':
+        document = document[:position] + text + document[position:]
+    elif op_type == 'remove':
+        document = document[:position] + document[position + len(text):]
+    # Check for flag at each step (may have been typed then deleted)
+    if 'CTF{' in document or 'flag{' in document:
+        print(f"Flag found: {document}")
+```
+
+**Key insight:** Collaborative editing tools store incremental diffs. Replaying all operations sequentially reveals content that existed at any point in the edit history, including secrets that were later deleted. Check for flags at every intermediate state, not just the final document.
+
+**Detection:** SQLite database with tables containing `type`/`operation`, `position`, `text` columns. Challenge mentions "notes", "editor", "collaboration", or "history". Schema inspection via `.schema` or `sqlite3 db.sqlite ".tables"` reveals diff-style tables.
 
 ---
 

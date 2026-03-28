@@ -15,6 +15,7 @@
 - [Groth16 Proof Replay — Unconstrained Nullifier (DiceCTF 2026)](#groth16-proof-replay--unconstrained-nullifier-dicectf-2026)
 - [DV-SNARG Forgery via Verifier Oracle (DiceCTF 2026)](#dv-snarg-forgery-via-verifier-oracle-dicectf-2026)
 - [KZG Pairing Oracle for Permutation Recovery (UNbreakable 2026)](#kzg-pairing-oracle-for-permutation-recovery-unbreakable-2026)
+- [Shamir Secret Sharing with Reused Polynomial Coefficients (PoliCTF 2017)](#shamir-secret-sharing-with-reused-polynomial-coefficients-polictf-2017)
 
 ---
 
@@ -434,3 +435,22 @@ for P in shuffled_points:
 ```
 
 **Key insight:** Bilinear pairings reveal additive relationships between exponents without solving discrete log. The pairing `e(P_i, psi(P_j))` depends on `alpha^(a_i + a_j)`, so comparing against known pairing values identifies which shuffled point has which exponent. This turns a cryptographic shuffle into a solvable ordering problem.
+
+---
+
+## Shamir Secret Sharing with Reused Polynomial Coefficients (PoliCTF 2017)
+
+**Pattern:** When a Shamir SSS implementation reuses the same random polynomial coefficients for every character of the secret, share subtraction cancels the higher-order terms.
+
+```python
+# Standard Shamir: y_i = f_i + a1*x + a2*x^2 + ... (different a_j per character)
+# Broken: y_i = f_i + a1*x + a2*x^2 + ... (SAME a_j for all characters)
+# Since higher-order terms are identical:
+# y_1[i] - y_1[0] = f[i] - f[0]  (for share x=1)
+# If f[0] is known (e.g., 'f' from flag prefix):
+flag = ''.join(chr(shares[i] - shares[0] + ord('f')) for i in range(len(shares)))
+```
+
+**Key insight:** In correct Shamir SSS, each secret byte uses independent random coefficients. When coefficients are reused, subtracting any two shares at the same evaluation point cancels all randomness, leaving only the difference between the corresponding secret bytes.
+
+**References:** PoliCTF 2017

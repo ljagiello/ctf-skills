@@ -5,6 +5,7 @@
 - [Godot Game Asset Extraction](#godot-game-asset-extraction)
 - [Rust serde_json Schema Recovery](#rust-serde_json-schema-recovery)
 - [Android JNI RegisterNatives Obfuscation (HTB WonderSMS)](#android-jni-registernatives-obfuscation-htb-wondersms)
+- [Android DEX Runtime Bytecode Patching via /proc/self/maps (Google CTF 2017)](#android-dex-runtime-bytecode-patching-via-procselfmaps-google-ctf-2017)
 - [Frida Firebase Cloud Functions Bypass (BSidesSF 2026)](#frida-firebase-cloud-functions-bypass-bsidessf-2026)
 - [Verilog/Hardware Reverse Engineering (srdnlenCTF 2026)](#veriloghardware-reverse-engineering-srdnlenctf-2026)
 - [Prefix-by-Prefix Hash Reversal (Nullcon 2026)](#prefix-by-prefix-hash-reversal-nullcon-2026)
@@ -113,6 +114,33 @@ ls extracted/lib/x86_64/  # Prefer this over arm64-v8a for static analysis
 **Key insight:** `RegisterNatives` is a deliberate obfuscation technique — it decouples Java method names from native symbol names, making it impossible to find handlers by string search alone. Always check `JNI_OnLoad` first when reversing Android native libraries with stripped symbols.
 
 **Detection:** Native method declared in Java + no matching JNI symbol in `.so` + `JNI_OnLoad` present. The library is typically stripped (no debug symbols).
+
+---
+
+## Android DEX Runtime Bytecode Patching via /proc/self/maps (Google CTF 2017)
+
+Native JNI library patches Dalvik bytecode in memory at runtime: reads `/proc/self/maps` to find loaded DEX, `mprotect`s it writable, then XOR-patches specific bytecode offsets.
+
+```python
+# Reconstruct the patched DEX offline:
+# 1. Extract the embedded DEX from the APK
+# 2. Find the XOR key and patch offsets in the native .so (IDA/Ghidra)
+# 3. Apply the same patches to the static DEX
+import struct
+
+with open('classes.dex', 'rb') as f:
+    dex = bytearray(f.read())
+
+# Patch 144 bytes starting at offset found in .so
+xor_key = 0x5A
+for i in range(patch_offset, patch_offset + 144):
+    dex[i] ^= xor_key
+
+# 4. Recompute DEX checksum and SHA-1 hash
+# 5. Decompile with jadx or baksmali
+```
+
+**Key insight:** Native libraries can modify DEX bytecode in memory via `/proc/self/maps` + `mprotect`, making static analysis of the APK alone insufficient. The XOR key and patch offsets must be extracted from the native `.so` to reconstruct the actual runtime DEX. Only works on Dalvik (API < 21), not ART.
 
 ---
 

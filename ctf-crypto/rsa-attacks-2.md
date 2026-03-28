@@ -12,6 +12,8 @@
 - [RSA-CRT Fault Attack / Bit-Flip Recovery (CSAW CTF 2016)](#rsa-crt-fault-attack--bit-flip-recovery-csaw-ctf-2016)
 - [RSA Homomorphic Decryption Oracle Bypass (ECTF 2016)](#rsa-homomorphic-decryption-oracle-bypass-ectf-2016)
 - [RSA with Small Prime Factors and CRT Decomposition (Hack The Vote 2016)](#rsa-with-small-prime-factors-and-crt-decomposition-hack-the-vote-2016)
+- [RSA Timing Attack on Montgomery Reduction (DEF CON 2017)](#rsa-timing-attack-on-montgomery-reduction-def-con-2017)
+- [Bleichenbacher Low-Exponent RSA Signature Forgery (Google CTF 2017)](#bleichenbacher-low-exponent-rsa-signature-forgery-google-ctf-2017)
 
 See also: [rsa-attacks.md](rsa-attacks.md) for foundational RSA attacks (small e, Wiener, Fermat, Pollard, Hastad, common modulus, Manger oracle, Coppersmith).
 
@@ -341,3 +343,60 @@ m = chinese_remainder_theorem(moduli, remainders)[0]
 ```
 
 **Key insight:** When n has many small prime factors, compute `d mod phi(p^k)` for each prime power independently, decrypt mod each, then combine via CRT. Much faster than computing `d mod phi(n)` directly.
+
+---
+
+## RSA Timing Attack on Montgomery Reduction (DEF CON 2017)
+
+**Pattern:** Recover RSA private key bits via Kocher's timing attack when the number of modular subtractions during Montgomery reduction is leaked.
+
+```python
+# Montgomery multiplication: extra subtraction when result >= modulus
+# Leaked: count of extra subtractions per signature operation
+# Attack: predict subtraction count for each private key bit guess
+
+# For each bit position i (MSB to LSB):
+#   Guess bit = 0: predict timing for square only
+#   Guess bit = 1: predict timing for square + multiply
+#   Compare predictions against observed timing data
+#   Correct guess produces statistically significant correlation
+
+# ~200K signatures needed for 768-bit key recovery
+# Attacking squaring reduction is more effective than multiply
+import numpy as np
+for bit_pos in range(key_bits):
+    for guess in [0, 1]:
+        predicted = predict_reductions(known_bits + [guess], messages)
+        correlation = np.corrcoef(predicted, observed)[0, 1]
+    known_bits.append(0 if corr_0 > corr_1 else 1)
+```
+
+**Key insight:** Montgomery multiplication performs an extra conditional subtraction when the intermediate result exceeds the modulus. If this count leaks (via timing, power, or as in this CTF -- directly), each bit of the private exponent can be determined by comparing predicted vs. observed subtraction patterns across many operations.
+
+**References:** DEF CON 2017
+
+---
+
+## Bleichenbacher Low-Exponent RSA Signature Forgery (Google CTF 2017)
+
+**Pattern:** Forge PKCS#1 v1.5 RSA signatures when e=3 by constructing a value whose cube root produces valid padding without knowing the private key.
+
+```python
+# PKCS#1 v1.5 signature format:
+# 00 01 FF FF ... FF 00 [DigestInfo] [Hash]
+# With e=3, forge signature s where s^3 has correct prefix
+
+# Construct target block (2048-bit key, SHA-256):
+# 00 01 FF ... FF 00 [SHA-256 DigestInfo] [hash] [garbage]
+import gmpy2
+prefix = b'\x00\x01' + b'\xff' * padding_len + b'\x00' + digest_info + hash_value
+# Convert to integer, append zeros for garbage bytes
+target = int.from_bytes(prefix + b'\x00' * garbage_len, 'big')
+# Cube root (rounds down, garbage absorbs the remainder)
+forged_sig = gmpy2.iroot(target, 3)[0] + 1  # +1 to round up
+# Verify: forged_sig^3 starts with correct PKCS#1 prefix
+```
+
+**Key insight:** PKCS#1 v1.5 signature verification checks that `sig^e mod n` starts with `00 01 FF...FF 00 DigestInfo Hash`. With e=3, an attacker computes the cube root of a carefully constructed value with the correct prefix and ignores trailing bytes. Implementations that don't verify the padding extends to the full block length (CVE-2006-4339) accept the forgery.
+
+**References:** Google CTF 2017

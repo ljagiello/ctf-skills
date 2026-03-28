@@ -9,7 +9,7 @@ Advanced tooling for commercial packers/protectors, binary diffing, deobfuscatio
   - [Tools](#tools)
   - [CTF Strategy](#ctf-strategy)
 - [Themida / WinLicense Analysis](#themida--winlicense-analysis)
-  - [Recognition](#recognition-1)
+  - [Themida Recognition](#themida-recognition)
   - [Approach for CTF](#approach-for-ctf)
 - [Binary Diffing](#binary-diffing)
   - [BinDiff](#bindiff)
@@ -23,6 +23,7 @@ Advanced tooling for commercial packers/protectors, binary diffing, deobfuscatio
 - [Manticore (Symbolic Execution)](#manticore-symbolic-execution)
 - [Rizin / Cutter](#rizin--cutter)
 - [RetDec (Retargetable Decompiler)](#retdec-retargetable-decompiler)
+- [Custom VM Bytecode Lifting to LLVM IR (Google CTF 2017)](#custom-vm-bytecode-lifting-to-llvm-ir-google-ctf-2017)
 - [Advanced GDB Techniques](#advanced-gdb-techniques)
   - [Python Scripting](#python-scripting)
   - [Brute-Force with GDB Script](#brute-force-with-gdb-script)
@@ -108,7 +109,7 @@ Interceptor.attach(vm_dispatch, {
 
 Similar to VMProtect but with additional anti-debug layers.
 
-### Recognition
+### Themida Recognition
 - Sections: `.themida`, `.winlice`
 - Extremely heavy anti-debug (kernel-level checks, driver installation)
 - Code mutation + virtualization + packing combined
@@ -392,6 +393,27 @@ retdec-decompiler --select-ranges 0x401000-0x401100 binary
 ```
 
 **Strengths:** Multi-arch support (x86, ARM, MIPS, PowerPC, PIC32), free, produces compilable C. Good for architectures not well-supported by Ghidra.
+
+---
+
+## Custom VM Bytecode Lifting to LLVM IR (Google CTF 2017)
+
+For complex custom VMs, transpile the VM bytecode to LLVM IR and use LLVM's optimization passes to simplify the code, then decompile the optimized IR.
+
+```python
+# Pipeline: VM bytecode → custom disassembler → LLVM IR → optimize → decompile
+# 1. Write disassembler for the custom VM opcodes
+# 2. Emit LLVM IR for each opcode:
+#    INC reg  → %reg = add i32 %reg, 1
+#    CDEC reg → conditional decrement
+#    CALL fn  → call void @fn()
+# 3. Use MCJIT or llc to optimize:
+#    opt -O3 -S vm_lifted.ll -o vm_optimized.ll
+# 4. Load optimized IR in IDA or decompile with RetDec
+# Result: 1300 lines → 150 lines after inlining + constant folding
+```
+
+**Key insight:** LLVM's optimization passes (inlining, constant folding, dead code elimination) dramatically simplify lifted VM bytecode. A custom VM with 26 registers and 3 opcodes that produces 1300 lines of IL reduces to ~150 lines after `-O3`, revealing the underlying algorithm (e.g., Collatz sequence computation).
 
 ---
 

@@ -12,6 +12,7 @@
 - [DSA Nonce Reuse for Private Key Recovery (VolgaCTF 2016)](#dsa-nonce-reuse-for-private-key-recovery-volgactf-2016)
 - [DSA Limited k-Value Brute Force (ASIS CTF Finals 2016)](#dsa-limited-k-value-brute-force-asis-ctf-finals-2016)
 - [ECC Shared Prime Factor via GCD (ASIS CTF Finals 2016)](#ecc-shared-prime-factor-via-gcd-asis-ctf-finals-2016)
+- [DSA Key Recovery via MD5 Collision on k-Generation (CONFidence CTF 2017)](#dsa-key-recovery-via-md5-collision-on-k-generation-confidence-ctf-2017)
 
 ---
 
@@ -280,3 +281,31 @@ for i in range(len(moduli)):
 ```
 
 **Key insight:** When a prime generator excludes primes based on modular conditions (e.g., `p % 3 == 2`), the reduced keyspace makes GCD collisions between independently generated keys much more likely. Always try pairwise GCD across multiple public keys.
+
+---
+
+## DSA Key Recovery via MD5 Collision on k-Generation (CONFidence CTF 2017)
+
+**Pattern:** When DSA nonce `k` is derived from `MD5(prefix + counter)`, generate MD5 prefix collisions to force two different counter values to produce the same `k`, enabling the standard nonce-reuse private key recovery.
+
+```python
+# k = int(MD5("K = {n: " + str(counter) + ...))
+# Use fastcoll to find MD5 collision on prefix "K = {n: "
+# Two different counter values -> same MD5 -> same k -> nonce reuse
+
+import subprocess
+# Generate collision pair
+subprocess.run(["fastcoll", "-p", prefix_file, "-o", "col1", "col2"])
+
+# Get two signatures with same k (same r value)
+sig1 = sign(msg1, counter1)  # uses MD5(prefix + counter1)
+sig2 = sign(msg2, counter2)  # uses MD5(prefix + counter2) = same hash!
+
+# Standard DSA nonce reuse recovery
+k = (hash1 - hash2) * modinv(sig1.s - sig2.s, q) % q
+private_key = (sig1.s * k - hash1) * modinv(sig1.r, q) % q
+```
+
+**Key insight:** MD5 collision generators like `fastcoll` produce pairs of inputs with identical hashes from a chosen prefix. When a signature scheme derives its nonce from an MD5 hash of controllable data, manufacturing a collision produces nonce reuse, enabling standard private key recovery.
+
+**References:** CONFidence CTF 2017

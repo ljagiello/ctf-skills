@@ -39,13 +39,14 @@ go install github.com/ffuf/ffuf/v2@latest
 
 ## Additional Resources
 
-- [server-side.md](server-side.md) - Core server-side injection attacks: SQLi (EXIF metadata injection, MySQL column truncation, backslash/hex bypass, second-order, LIKE brute-force, processList trick, XML entity WAF bypass, Shift-JIS encoding bypass), SSTI (Jinja2, Go, EJS, ERB Sequel bypass, Mako, Twig, `__dict__.update()` quote bypass), SSRF (Host header, DNS rebinding, curl redirect), XXE, XML injection via X-Forwarded-For header, command injection (newline, blocklist bypass, sendmail, multi-barcode, git CLI newline injection), PHP type juggling, PHP file inclusion / php://filter
-- [server-side-exec.md](server-side-exec.md) - Code execution and server-side access attacks: Ruby/Perl/JS code injection, LaTeX injection RCE, PHP preg_replace /e RCE, Prolog injection, Common Lisp #.() reader macro injection, ReDoS timing oracle, file upload→RCE (.htaccess, log poisoning, Python .so hijack, Gogs symlink, ZipSlip), PHP deserialization from cookies, PHP extract() variable overwrite, XPath blind injection, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, SQLi keyword fragmentation bypass, SQL WHERE ORDER BY bypass, SQL injection via DNS records, bash brace expansion space-free injection, API filter injection, WebSocket mass assignment, PHP7 OPcache binary webshell + LD_PRELOAD disable_functions bypass, wget GET parameter filename trick, tar filename command injection, PNG/PHP polyglot upload + double extension + disable_functions bypass
+- [sql-injection.md](sql-injection.md) - SQL injection techniques: backslash/hex bypass, second-order SQLi, LIKE brute-force, MySQL column truncation, SQLi→SSTI chain, processList trick, XML entity WAF bypass, EXIF metadata injection, Shift-JIS encoding bypass, QR code input injection, double-keyword filter bypass, MySQL session variable dual-value injection, PHP PCRE backtrack WAF bypass, processlist race condition leak
+- [server-side.md](server-side.md) - Core server-side injection attacks: SSTI (Jinja2, Go, EJS, ERB Sequel bypass, Mako, Twig, `__dict__.update()` quote bypass), Python str.format() attribute traversal, SSRF (Host header, DNS rebinding, curl redirect), XXE, XML injection via X-Forwarded-For header, command injection (newline, blocklist bypass, sendmail, multi-barcode, git CLI newline injection), PHP type juggling, PHP file inclusion / php://filter, GraphQL injection (introspection, query batching/aliasing, string interpolation)
+- [server-side-exec.md](server-side-exec.md) - Code execution and server-side access attacks: Ruby/Perl/JS code injection, LaTeX injection RCE, PHP preg_replace /e RCE, PHP backtick eval under character limit, Prolog injection, Common Lisp #.() reader macro injection, ReDoS timing oracle, file upload→RCE (.htaccess, log poisoning, Python .so hijack, Gogs symlink, ZipSlip), PHP deserialization from cookies, PHP extract() variable overwrite, XPath blind injection, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, SQLi keyword fragmentation bypass, SQL WHERE ORDER BY bypass, SQL injection via DNS records, bash brace expansion space-free injection, API filter injection, WebSocket mass assignment, PHP7 OPcache binary webshell + LD_PRELOAD disable_functions bypass, wget GET parameter filename trick, tar filename command injection, PNG/PHP polyglot upload + double extension + disable_functions bypass
 - [server-side-deser.md](server-side-deser.md) - Deserialization and execution attacks: Java deserialization (ysoserial gadget chains, JNDI injection, blind detection), Python pickle RCE (`__reduce__`, restricted unpickler bypass, STOP opcode chaining), PHP serialization length manipulation via filter word expansion, race conditions (TOCTOU async exploits, double-spend, coupon reuse)
-- [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182)
-- [server-side-advanced-2.md](server-side-advanced-2.md) - Advanced server-side techniques (Part 2): SSRF to Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB), SQLite file path traversal to bypass string equality, HQL injection via non-breaking space, base64-encoded path traversal, Windows 8.3 short filename bypass, URL parse_url @ symbol bypass, PHP zip:// wrapper LFI via PNG/ZIP polyglot, XSS to SSTI chain via Flask error pages, INSERT INTO dual-field SQLi column shift, session cookie forgery via timestamp-seeded PRNG, SSRF via parse_url/curl double-@ URL parsing discrepancy, LaTeX RCE via mpost restricted write18 bypass
-- [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, admin bot javascript: URL scheme bypass, shadow DOM XSS, DOM clobbering, HTTP request smuggling, JPEG+HTML polyglot XSS, JSFuck decoding, CSS/JS paywall bypass
-- [client-side-advanced.md](client-side-advanced.md) - Advanced client-side attacks: Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle, client-side HMAC bypass via leaked JS secret, terminal control character obfuscation, CSP bypass via cloud function whitelisted domain, CSP nonce bypass via base tag hijacking, XSSI via JSONP callback exfiltration, CSP bypass via link prefetch, cross-origin XSS via shared parent domain cookie injection, XSS dot-filter bypass via decimal IP and bracket notation
+- [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), /dev/fd symlink to bypass /proc filter, Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182)
+- [server-side-advanced-2.md](server-side-advanced-2.md) - Advanced server-side techniques (Part 2): SSRF to Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB), SQLite file path traversal to bypass string equality, HQL injection via non-breaking space, base64-encoded path traversal, Windows 8.3 short filename bypass, URL parse_url @ symbol bypass, PHP zip:// wrapper LFI via PNG/ZIP polyglot, XSS to SSTI chain via Flask error pages, INSERT INTO dual-field SQLi column shift, session cookie forgery via timestamp-seeded PRNG, SSRF via parse_url/curl double-@ URL parsing discrepancy, LaTeX RCE via mpost restricted write18 bypass, ElasticSearch Groovy script_fields RCE via SSRF
+- [client-side.md](client-side.md) - Client-side attacks: XSS, CSRF, CSPT, cache poisoning, DOM tricks, React input filling, hidden elements, XS-Leak timing oracle, GraphQL CSRF, admin bot javascript: URL scheme bypass, AngularJS 1.x sandbox escape via charAt/trim override, shadow DOM XSS, DOM clobbering, HTTP request smuggling, JPEG+HTML polyglot XSS, JSFuck decoding, CSS/JS paywall bypass
+- [client-side-advanced.md](client-side-advanced.md) - Advanced client-side attacks: Unicode case folding XSS bypass (long-s U+017F), CSS font glyph container query exfiltration, Hyperscript CDN CSP bypass, PBKDF2 prefix timing oracle, client-side HMAC bypass via leaked JS secret, terminal control character obfuscation, CSP bypass via cloud function whitelisted domain, CSP nonce bypass via base tag hijacking, XSSI via JSONP callback exfiltration, CSP bypass via link prefetch, cross-origin XSS via shared parent domain cookie injection, Chrome Unicode URL normalization bypass, XSS dot-filter bypass via decimal IP and bracket notation
 - [auth-and-access.md](auth-and-access.md) - Auth/authz attacks: password inference, weak validation, client-side gates, NoSQL auth bypass, cookie manipulation, admin login route cookie seeding, host header bypass, always-true hash check, affine cipher OTP brute-force, /proc/self/mem via HTTP Range requests, custom linear MAC forgery, hidden API endpoints, HAProxy/Express.js bypass, IDOR on WIP endpoints, HTTP TRACE method bypass, LLM/AI chatbot jailbreak, LLM safety model category gaps, open redirect chains (OAuth token theft), subdomain takeover, Apache mod_status info disclosure + session forging, JA4/JA4H TLS fingerprint matching
 - [auth-jwt.md](auth-jwt.md) - JWT/JWE token attacks: algorithm none, RS256→HS256 confusion, weak secret, unverified signature, JWK/JKU header injection, KID path traversal, balance replay, JWE forgery with exposed public key
 - [auth-infra.md](auth-infra.md) - Infrastructure auth: OAuth/OIDC exploitation (redirect_uri bypass, token manipulation, state CSRF), CORS misconfiguration, git history credential leakage, CI/CD variable theft, identity provider API takeover (authentik/Keycloak), SAML SSO flow automation, Guacamole parameter extraction, login page poisoning, TeamCity REST API RCE, base64 decode leniency signature bypass
@@ -89,13 +90,19 @@ XML entity encoding: `&#x55;&#x4e;&#x49;&#x4f;&#x4e;` → `UNION` after XML pars
 
 EXIF metadata injection: embed SQL in image EXIF fields (`exiftool -Comment="' UNION SELECT flag FROM flags--" image.jpg`) to bypass WAFs that only inspect HTTP parameters.
 
-Shift-JIS encoding bypass: `\u00a5` (yen sign) maps to `0x5c` (backslash) in SJIS, defeating Unicode-layer escape functions. See [server-side.md](server-side.md#shift-jis-encoding-sql-injection-boston-key-party-2016).
+Shift-JIS encoding bypass: `\u00a5` (yen sign) maps to `0x5c` (backslash) in SJIS, defeating Unicode-layer escape functions. See [sql-injection.md](sql-injection.md#shift-jis-encoding-sql-injection-boston-key-party-2016).
 
-SQL via QR codes: embed SQLi payload in QR image data; server decodes and queries without sanitization. See [server-side.md](server-side.md#sql-injection-via-qr-code-input-h4ckit-ctf-2016).
+SQL via QR codes: embed SQLi payload in QR image data; server decodes and queries without sanitization. See [sql-injection.md](sql-injection.md#sql-injection-via-qr-code-input-h4ckit-ctf-2016).
 
-SQL double-keyword filter bypass: nest stripped keyword inside itself (`selselectect`) so single-pass removal reconstructs it. See [server-side.md](server-side.md#sql-double-keyword-filter-bypass-defcamp-ctf-2016).
+SQL double-keyword filter bypass: nest stripped keyword inside itself (`selselectect`) so single-pass removal reconstructs it. See [sql-injection.md](sql-injection.md#sql-double-keyword-filter-bypass-defcamp-ctf-2016).
 
-See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, MySQL column truncation, SQLi→SSTI chains, XML entity WAF bypass, EXIF metadata injection. See [server-side-exec.md](server-side-exec.md) for SQLi via DNS records, SQLi keyword fragmentation, PHP preg_replace /e RCE, Prolog injection.
+MySQL session variable dual-value injection: `CASE WHEN @var IS NULL THEN @var:=2 ELSE @var:=@var-1 END` returns different values when the same injection is evaluated in sequential queries within one connection. See [sql-injection.md](sql-injection.md#mysql-session-variable-for-dual-value-injection-meepwn-ctf-2017).
+
+PHP PCRE backtrack limit WAF bypass: append 1M+ characters to exceed `pcre.backtrack_limit` -- `preg_match()` returns `false` (not `0`), and `!false === true` bypasses the WAF. See [sql-injection.md](sql-injection.md#php-pcre-backtrack-limit-waf-bypass-secuinside-2017).
+
+information_schema.processlist race condition leak: race an injection query against concurrent application queries to capture secrets (AES keys, passwords) from `information_schema.processlist.INFO`. See [sql-injection.md](sql-injection.md#information_schemaprocesslist-race-condition-leak-secuinside-2017).
+
+See [sql-injection.md](sql-injection.md) for second-order SQLi, LIKE brute-force, MySQL column truncation, SQLi→SSTI chains, XML entity WAF bypass, EXIF metadata injection. See [server-side-exec.md](server-side-exec.md) for SQLi via DNS records, SQLi keyword fragmentation, PHP preg_replace /e RCE, Prolog injection.
 
 ## XSS Quick Reference
 
@@ -108,6 +115,7 @@ See [server-side.md](server-side.md) for second-order SQLi, LIKE brute-force, My
 Filter bypass: hex `\x3cscript\x3e`, entities `&#60;script&#62;`, case mixing `<ScRiPt>`, event handlers.
 - **XSS dot-filter bypass:** Decimal IP (`1558071511` = `92.123.45.67`) eliminates dots from URLs. JavaScript bracket notation (`document["cookie"]`) replaces dot property access. See [client-side-advanced.md](client-side-advanced.md#xss-dot-filter-bypass-via-decimal-ip-and-bracket-notation-33c3-ctf-2016).
 - **Cross-origin cookie XSS:** Set cookie with `domain=.parent.tld` from one subdomain to inject XSS payload rendered on a sibling subdomain. See [client-side-advanced.md](client-side-advanced.md#cross-origin-xss-via-shared-parent-domain-cookie-injection-0ctf-2017).
+- **AngularJS 1.x sandbox escape:** Override `String.prototype.charAt` with `trim` to bypass AngularJS expression sandbox, then `$eval` arbitrary JS. See [client-side.md](client-side.md#angularjs-1x-sandbox-escape-via-charattrim-override-google-ctf-2017).
 
 See [client-side.md](client-side.md) for DOMPurify bypass, cache poisoning, CSPT, React input tricks.
 
@@ -129,6 +137,8 @@ JSONP endpoint (`?callback=func`) wraps sensitive data in a function call. Load 
 
 **URL parse_url @ bypass:** `http://valid@attacker.com/` -- PHP `parse_url()` extracts `attacker.com` as host, bypassing domain checks. See [server-side-advanced-2.md](server-side-advanced-2.md#url-parse_url--symbol-bypass-ekoparty-ctf-2016).
 - **SSRF double-@ parse discrepancy:** `http://x:x@127.0.0.1:80@allowed.host/path` — `parse_url()` sees `allowed.host`, curl connects to `127.0.0.1`. Distinct from single-@ bypass. See [server-side-advanced-2.md](server-side-advanced-2.md#ssrf-via-parse_urlcurl-url-parsing-discrepancy-33c3-ctf-2016).
+
+**/dev/fd symlink bypass:** When `/proc` is blacklisted, use `/dev/fd/../environ` -- `/dev/fd` symlinks to `/proc/self/fd`, so `../` reaches `/proc/self/`. See [server-side-advanced.md](server-side-advanced.md#devfd-symlink-to-bypass-proc-filter-google-ctf-2017).
 
 **Python footgun:** `os.path.join('/app/public', '/etc/passwd')` returns `/etc/passwd`
 
@@ -167,6 +177,10 @@ See [auth-jwt.md](auth-jwt.md) for full JWT/JWE attacks and session manipulation
 
 **ERB SSTI (Ruby/Sinatra):** `<%= Sequel::DATABASES.first[:table].all %>` bypasses ERBSandbox variable-name restrictions via the global `Sequel::DATABASES` array. See [server-side.md](server-side.md#erb-ssti--sequeldatabases-bypass-bearcatctf-2026).
 
+## Python str.format() Attribute Traversal (PlaidCTF 2017)
+
+Python `str.format()` allows dot-notation attribute traversal (`{0.attr.subattr}`) and bracket indexing (`{0[key]}`). When user input reaches `.format(obj)`, leak arbitrary attributes without a template engine. Distinct from SSTI. See [server-side.md](server-side.md#python-strformat-attribute-traversal-plaidctf-2017).
+
 **Thymeleaf SpEL SSTI (Java/Spring):** `${T(org.springframework.util.FileCopyUtils).copyToByteArray(new java.io.File("/flag.txt"))}` reads files via Spring utility classes when standard I/O is WAF-blocked. Works in distroless containers (no shell). See [server-side-exec.md](server-side-exec.md#thymeleaf-spel-ssti--spring-filecopyutils-waf-bypass-apoorvctf-2026).
 
 ## SSRF Quick Reference
@@ -179,6 +193,8 @@ See [auth-jwt.md](auth-jwt.md) for full JWT/JWE attacks and session manipulation
 DNS rebinding for TOCTOU: https://lock.cmpxchg8b.com/rebinder.html
 
 **Host header SSRF:** Server builds internal request URL from `Host` header (e.g., `http.Get("http://" + request.Host + "/validate")`). Set Host to attacker domain → validation request goes to attacker server. See [server-side.md](server-side.md#host-header-ssrf-mireactf).
+
+**ElasticSearch Groovy RCE via SSRF:** SSRF to internal ES on port 9200 enables RCE through `script_fields` Groovy scripting (pre-5.0). See [server-side-advanced-2.md](server-side-advanced-2.md#elasticsearch-groovy-script_fields-rce-via-ssrf-volgactf-2017).
 
 ## Command Injection Quick Reference
 
@@ -225,6 +241,7 @@ See [server-side.md](server-side.md#php-file-inclusion--phpfilter) for filter ch
 **PHP deserialization:** Craft serialized object in cookie → LFI/RCE
 **LaTeX injection:** `\input{|"cat /flag.txt"}` — shell command via pipe syntax in PDF generation services. `\@@input"/etc/passwd"` for file reads without shell.
 - **LaTeX restricted write18 bypass:** When `write18` is restricted, `mpost -ini "-tex=bash -c (cmd)" file.mp` uses mpost's whitelisted status to execute arbitrary commands. `${IFS}` replaces spaces. See [server-side-advanced-2.md](server-side-advanced-2.md#latex-rce-via-mpost-restricted-write18-bypass-33c3-ctf-2016).
+**PHP backtick eval (character limit):** `` echo`cat *`; `` -- PHP backticks = `shell_exec()`, fits RCE in as few as 8 chars. Use `` `$_GET[0]`; `` to move payload to URL parameter. See [server-side-exec.md](server-side-exec.md#php-backtick-eval-under-character-limit-easyctf-2017).
 **PHP assert() injection:** `assert("strpos('$input', '..') === false")` — inject `') || system('cmd');//` for RCE (PHP < 7.2). See [server-side-exec.md](server-side-exec.md#php-assert-string-evaluation-injection-csaw-ctf-2016).
 **Common Lisp `read` injection:** `#.(run-shell-command "cat /flag")` — reader macro evaluates at parse time. See [server-side-exec.md](server-side-exec.md#common-lisp-injection-via-reader-macro-insomnihack-2016).
 **Ruby ObjectSpace scanning:** `ObjectSpace.each_object(String)` dumps all in-memory strings including flag. See [server-side-exec.md](server-side-exec.md#ruby-objectspace-memory-scanning-for-flag-extraction-tokyo-westerns-2016).
@@ -435,6 +452,10 @@ Identify via `Next-Action` + `Accept: text/x-component` headers. CVE-2025-55182:
 ## Solidity Transient Storage Clearing Collision (0.8.28-0.8.33)
 
 **Pattern:** Solidity IR pipeline (`--via-ir`) generates identically-named Yul helpers for `delete` on persistent and transient variables of the same type. One uses `sstore`, the other should use `tstore`, but deduplication picks only one. Exploits: overwrite `owner` (slot 0) via transient `delete`, or make persistent `delete` (revoke approvals) ineffective. Workaround: use `_lock = address(0)` instead of `delete _lock`. See [web3.md](web3.md#solidity-transient-storage-clearing-helper-collision-solidity-0828-0833).
+
+## Chrome Unicode URL Normalization Bypass (RCTF 2017)
+
+Chrome's IDNA/punycode normalization converts fullwidth Unicode characters (U+FF00-U+FF5E) to ASCII equivalents, bypassing length checks and character filters on domain names. See [client-side-advanced.md](client-side-advanced.md#chrome-unicode-url-normalization-bypass-rctf-2017).
 
 ## CSP Nonce Bypass via base Tag Hijacking (BSidesSF 2026)
 

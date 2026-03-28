@@ -10,7 +10,7 @@
   - [Go Binary Reversing Workflow](#go-binary-reversing-workflow)
   - [Go Binary UUID Patching for C2 Client Enumeration (BSidesSF 2026)](#go-binary-uuid-patching-for-c2-client-enumeration-bsidessf-2026)
 - [Rust Binary Reversing](#rust-binary-reversing)
-  - [Recognition](#recognition-1)
+  - [Rust Recognition](#rust-recognition)
   - [Symbol Demangling](#symbol-demangling)
   - [Common Rust Patterns in Decompilation](#common-rust-patterns-in-decompilation)
   - [Rust-Specific Analysis Tools](#rust-specific-analysis-tools)
@@ -232,7 +232,7 @@ chmod +x client_patched
 
 Rust binaries are common in modern CTFs, especially for crypto, systems, and security tooling challenges.
 
-### Recognition
+### Rust Recognition
 
 ```bash
 # Detect Rust binary

