@@ -1,0 +1,40 @@
+---
+name: Link Checker
+
+'on':
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.github/workflows/link-checker.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.md'
+      - '.github/workflows/link-checker.yml'
+  schedule:
+    - cron: '0 8 * * 1' # Weekly on Monday at 08:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: link-checker-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-links:
+    name: Check links
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Lychee link checker
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --exclude-path .pytest_cache
+            '**/*.md'
+          fail: true

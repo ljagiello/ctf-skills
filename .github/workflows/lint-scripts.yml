@@ -1,0 +1,55 @@
+---
+name: Lint Scripts
+
+'on':
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/lint-scripts.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/lint-scripts.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: lint-scripts-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run ShellCheck
+        run: shellcheck scripts/*.sh
+
+  ruff:
+    name: Ruff
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Ruff check
+        run: ruff check scripts/
+
+      - name: Ruff format check
+        run: ruff format --check scripts/

@@ -184,7 +184,7 @@ If `lib/arm64-v8a/libapp.so` + `libflutter.so` present, use [Blutter](https://gi
 ```bash
 upx -d packed -o unpacked
 ```
-If unpacking fails, inspect UPX metadata first: verify UPX section names, header fields, and version markers are intact. If metadata looks tampered or uncertain, review UPX source on GitHub to identify likely modification points. 
+If unpacking fails, inspect UPX metadata first: verify UPX section names, header fields, and version markers are intact. If metadata looks tampered or uncertain, review UPX source on GitHub to identify likely modification points.
 
 ### Tauri Packed Desktop Apps
 Tauri embeds Brotli-compressed frontend assets in the executable. Find `index.html` xrefs to locate asset index table, dump blobs, Brotli decompress. Reference: `tauri-codegen/src/embedded_assets.rs`.

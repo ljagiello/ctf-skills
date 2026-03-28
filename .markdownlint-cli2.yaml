@@ -1,0 +1,45 @@
+config:
+  # Allow long lines — technique files have long URLs, code references, tables
+  MD013: false
+  # Allow inline HTML — used for <details>, <summary>, etc.
+  MD033: false
+  # Allow duplicate headings — different technique files reuse section names
+  MD024: false
+  # Allow trailing punctuation in headings — technique names include parens, etc.
+  MD026: false
+  # Allow multiple top-level headings — some files have structural reasons
+  MD025: false
+  # Allow bare URLs — common in CTF writeup references
+  MD034: false
+  # Fenced code blocks in technique files often lack blank lines around them
+  MD031: false
+  # Lists inside technique sections often lack surrounding blank lines
+  MD032: false
+  # Table column style varies across files
+  MD060: false
+  # Heading blank lines — technique files use compact formatting
+  MD022: false
+  # Strong style — both ** and __ used across files
+  MD050: false
+  # Ordered list numbering — files use both sequential and all-1s styles
+  MD029: false
+  # Table pipe spacing
+  MD058: false
+  # Emphasis used instead of heading — common in technique pattern descriptions
+  MD036: false
+  # Reversed link syntax — false positives from shell/CTF notation
+  MD011: false
+  # Spaces in emphasis — false positives from math expressions and Python dunders
+  MD037: false
+  # Spaces in code spans — false positives from escaped chars in CTF payloads
+  MD038: false
+  # Image alt text — false positives from CTF payload patterns containing ![
+  MD045: false
+  # Link fragments — false positives on headings with special chars (colons, dunders)
+  MD051: false
+  # Table column count — false positives from pipes in code spans within table cells
+  MD056: false
+
+ignores:
+  - .pytest_cache/**
+  - "**/node_modules/**"

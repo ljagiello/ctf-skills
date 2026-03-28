@@ -568,4 +568,3 @@ cansend can0 7DF#0201000000000000          # Send single frame (OBD-II request)
 - Seed-key bypass: Reverse the key derivation algorithm from ECU firmware
 - CAN message replay: Capture legitimate command, replay to unlock feature
 - Firmware extraction from ECU via UDS/KWP2000
-

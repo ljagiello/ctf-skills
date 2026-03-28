@@ -31,6 +31,20 @@ bash scripts/install_ctf_tools.sh go
 bash scripts/install_ctf_tools.sh manual
 ```
 
+Preview what would be installed (skips already-present packages):
+
+```bash
+bash scripts/install_ctf_tools.sh --dry-run all
+```
+
+Verify what's already installed:
+
+```bash
+bash scripts/install_ctf_tools.sh --verify
+```
+
+Use `--force` to reinstall everything regardless of what's already present. Install logs are saved to `~/.ctf-tools/`.
+
 The full package lists now live in [scripts/install_ctf_tools.sh](scripts/install_ctf_tools.sh).
 
 ### On-demand (during challenges)

@@ -23,7 +23,6 @@ Comprehensive SQL injection techniques for CTF challenges. For other server-side
 
 ---
 
-
 ## Backslash Escape Quote Bypass
 ```bash
 # Query: SELECT * FROM users WHERE username='$user' AND password='$pass'

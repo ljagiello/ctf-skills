@@ -592,4 +592,3 @@ throw Object.assign(new Error('NEXT_REDIRECT'),
 **Full exploit chain:** Identify RSC headers → craft fake Flight chunk → bypass WAF → achieve RCE → enumerate filesystem → discover internal services → lateral movement via `nc` to retrieve flag.
 
 **Detection:** `Accept: text/x-component` + `Next-Action` header in requests, `createServerReference()` in client JS, Next.js Server Actions with user-controlled form data.
-

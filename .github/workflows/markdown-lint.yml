@@ -1,0 +1,34 @@
+---
+name: Markdown Lint
+
+'on':
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.markdownlint-cli2.yaml'
+      - '.github/workflows/markdown-lint.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.md'
+      - '.markdownlint-cli2.yaml'
+      - '.github/workflows/markdown-lint.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: markdown-lint-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  markdownlint:
+    name: Markdown lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@v19

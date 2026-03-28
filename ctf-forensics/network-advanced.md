@@ -60,6 +60,7 @@ print(data.decode(errors='replace'))
 **Key insight:** When identical packets appear on a single interface with only two practical interval values, it's almost certainly binary encoding via timing. The content is noise — the signal is in the gaps. Filter by interface and count unique intervals first.
 
 **Scale tip:** Large PCAPs (millions of packets) often have the signal in a tiny subset. Triage with `tshark -q -z io,phs` to find which interface has the fewest packets — that's likely the data carrier.
+
 ---
 
 ## USB HID Mouse/Pen Drawing Recovery (EHAX 2026)
