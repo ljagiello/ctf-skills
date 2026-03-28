@@ -3,9 +3,6 @@ name: Lint Scripts
 
 'on':
   pull_request:
-    paths:
-      - 'scripts/**'
-      - '.github/workflows/lint-scripts.yml'
   push:
     branches:
       - main
@@ -44,6 +41,7 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.14'
+          cache: 'pip'
 
       - name: Install Ruff
         run: pip install ruff

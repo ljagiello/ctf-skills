@@ -3,10 +3,6 @@ name: Link Checker
 
 'on':
   pull_request:
-    paths:
-      - '**/*.md'
-      - '.github/workflows/link-checker.yml'
-      - '.lychee.toml'
   push:
     branches:
       - main

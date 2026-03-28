@@ -31,6 +31,11 @@ apt install gdb radare2 binutils strace ltrace apktool upx
 brew install gdb radare2 binutils apktool upx ghidra
 ```
 
+**radare2 plugins:**
+```bash
+r2pm -ci r2ghidra   # Native Ghidra decompiler for radare2
+```
+
 **Manual install:**
 - pwndbg — Linux: [GitHub](https://github.com/pwndbg/pwndbg), macOS: `brew install pwndbg/tap/pwndbg-gdb`
 
@@ -103,14 +108,7 @@ chmod +x binary       # Make executable
 
 ## Decoy Flag Detection
 
-**Pattern:** Multiple fake targets before real check.
-
-**Identification:**
-1. Look for multiple comparison targets in sequence
-2. Check for different success messages
-3. Trace which comparison is checked LAST
-
-**Solution:** Set breakpoint at FINAL comparison, not earlier ones.
+**Pattern:** Multiple fake targets before real check. Look for multiple comparison targets in sequence with different success messages. Set breakpoint at FINAL comparison, not earlier ones.
 
 ## GDB PIE Debugging
 
@@ -124,11 +122,7 @@ run
 
 ## Comparison Direction (Critical!)
 
-**Two patterns:**
-1. `transform(flag) == stored_target` - Reverse the transform
-2. `transform(stored_target) == flag` - Flag IS the transformed data!
-
-**Pattern 2 solution:** Don't reverse - just apply transform to stored target.
+Two patterns: (1) `transform(flag) == stored_target` — reverse the transform. (2) `transform(stored_target) == flag` — flag IS the transformed data, just apply transform to stored target.
 
 ## Common Encryption Patterns
 
@@ -240,12 +234,7 @@ Flip `JNZ`/`JZ` (0x75/0x74), change sleep values, patch environment checks in Gh
 
 ## Expected Values Tables
 
-**Locating:**
-```bash
-objdump -s -j .rodata binary | less
-# Look near comparison instructions
-# Size matches flag length
-```
+Locate with `objdump -s -j .rodata binary | less` — look near comparison instructions, size matches flag length.
 
 ## x86-64 Gotchas
 
@@ -277,15 +266,7 @@ Query Asset Delivery API for version history; parse `.rbxlbin` chunks (INST/PROP
 
 ## Unstripped Binary Information Leaks
 
-**Pattern (Bad Opsec):** Debug info and file paths leak author identity.
-
-**Quick checks:**
-```bash
-strings binary | grep "/home/"    # Home directory paths
-strings binary | grep "/Users/"   # macOS paths
-file binary                       # Check if stripped
-readelf -S binary | grep debug    # Debug sections present?
-```
+**Pattern:** Debug info and file paths leak author identity. Quick checks: `strings binary | grep "/home/"` (home dirs), `file binary` (stripped?), `readelf -S binary | grep debug` (debug sections).
 
 ## Custom Mangle Function Reversing
 

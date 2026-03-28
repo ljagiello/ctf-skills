@@ -63,6 +63,30 @@ gem install one_gadget seccomp-tools
 - If the service is really a restricted shell, encoding puzzle, or sandbox language challenge, switch to `/ctf-misc`.
 - If the exploit path depends on a web endpoint, session bug, or upload primitive more than memory corruption, switch to `/ctf-web`.
 
+## Quick Start Commands
+
+```bash
+# Binary analysis
+checksec --file=binary
+file binary
+readelf -h binary
+
+# Find gadgets
+ROPgadget --binary binary | grep "pop rdi"
+ropper -f binary --search "pop rdi"
+one_gadget /lib/x86_64-linux-gnu/libc.so.6
+
+# Debug
+gdb -q binary -ex 'start' -ex 'checksec'
+
+# Pattern for offset finding
+python3 -c "from pwn import *; print(cyclic(200))"
+python3 -c "from pwn import *; print(cyclic_find(0x61616168))"
+
+# libc identification
+./libc-database/find puts <leaked_addr_last_3_nibbles>
+```
+
 ## Source Code Red Flags
 
 - Threading/`pthread` -> race conditions
@@ -104,15 +128,7 @@ bash -c '{ echo "cmd1"; echo "cmd2"; sleep 1; } | nc host port'
 4. Canary leak via format string or partial overwrite
 5. Canary brute-force byte-by-byte on forking servers (7*256 attempts max)
 
-**ret2win with magic value:** Overflow -> `ret` (alignment) -> `pop rdi; ret` -> magic -> win(). See [overflow-basics.md](overflow-basics.md) for full exploit code.
-
-**Stack alignment:** Modern glibc needs 16-byte alignment; SIGSEGV in `movaps` = add extra `ret` gadget. See [overflow-basics.md](overflow-basics.md).
-
-**Offset calculation:** Buffer at `rbp - N`, return at `rbp + 8`, total = N + 8. See [overflow-basics.md](overflow-basics.md).
-
-**Input filtering:** `memmem()` checks block certain byte sequences; assert payload doesn't contain banned strings. See [overflow-basics.md](overflow-basics.md).
-
-**Finding gadgets:** `ROPgadget --binary binary | grep "pop rdi"`, or use pwntools `ROP()` which also finds hidden gadgets in CMP immediates. See [overflow-basics.md](overflow-basics.md).
+**ret2win with magic value:** Overflow -> `ret` (alignment) -> `pop rdi; ret` -> magic -> win(). **Stack alignment:** SIGSEGV in `movaps` = add extra `ret` gadget. **Offset:** buffer at `rbp - N`, return at `rbp + 8`, total = N + 8. **Input filtering:** assert payload avoids `memmem()` banned strings. **Gadgets:** `ROPgadget --binary binary | grep "pop rdi"`, or pwntools `ROP()` for hidden gadgets in CMP immediates. See [overflow-basics.md](overflow-basics.md) for full exploit code.
 
 ## Parser Stack Overflow (Unchecked memcpy)
 
@@ -448,16 +464,7 @@ See [advanced-exploits-2.md](advanced-exploits-2.md#signed-int-overflow-to-negat
 
 ## Custom Shadow Stack Bypass via Pointer Overflow (Midnight 2026)
 
-**Pattern (Revenant):** Userland shadow stack in `.bss` with unbounded pointer. Recurse to advance `shadow_stack_ptr` past the array into user-controlled memory (e.g., `username` buffer), write `win()` there, then overflow the hardware stack return address to match. Both checks pass.
-
-```python
-# Iterate (target_addr - shadow_stack_base) // 8 times to overflow pointer
-for i in range(512):
-    io.sendlineafter(b"Survivor name:\n", fit(exe.symbols["win"]))
-    io.sendlineafter(b"[0] Flee", b"4")  # recurse
-```
-
-See [advanced-exploits-2.md](advanced-exploits-2.md#custom-shadow-stack-bypass-via-pointer-overflow-midnight-2026) for full exploit and `.bss` layout analysis.
+**Pattern (Revenant):** Userland shadow stack in `.bss` with unbounded pointer. Recurse to advance `shadow_stack_ptr` past the array into user-controlled memory (e.g., `username` buffer), write `win()` there, then overflow the hardware stack return address to match. Both checks pass. See [advanced-exploits-2.md](advanced-exploits-2.md#custom-shadow-stack-bypass-via-pointer-overflow-midnight-2026) for full exploit and `.bss` layout analysis.
 
 ## Windows SEH Overwrite + VirtualAlloc ROP (RainbowTwo HTB)
 

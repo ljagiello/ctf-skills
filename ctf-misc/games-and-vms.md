@@ -478,6 +478,6 @@ The hook fires on the next C-level call (e.g., `puts`, any method call), executi
 
 ---
 
-See also: [games-and-vms-2.md](games-and-vms-2.md) for ML weight perturbation negation, cookie checkpoint brute-forcing, Flask cookie game state leakage, WebSocket game manipulation, server time-only validation bypass, LoRA adapter merging, De Bruijn sequences, Brainfuck instrumentation, WASM memory manipulation, and neural network encoder collisions.
+See also: [games-and-vms-2.md](games-and-vms-2.md) for cookie checkpoint brute-forcing, Flask cookie game state leakage, WebSocket game manipulation, server time-only validation bypass, De Bruijn sequences, Brainfuck instrumentation, and WASM memory manipulation.
 
 See also: [games-and-vms-3.md](games-and-vms-3.md) for memfd_create packed binaries, multi-phase crypto games with HMAC commitment-reveal and GF(256) Nim, emulator ROM-switching state preservation, Python marshal code injection, Benford's Law bypass, parallel connection oracle relay, nonogram solver pipelines, 100 prisoners problem, C code jail escape via emoji identifiers, and BuildKit daemon build secret exploitation.

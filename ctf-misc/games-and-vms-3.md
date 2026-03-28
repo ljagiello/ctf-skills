@@ -576,4 +576,4 @@ sudo -u secretuser rvim -u /tmp/evil_vimrc /dev/null
 
 See also: [games-and-vms.md](games-and-vms.md) for WASM patching, Roblox place file reversing, PyInstaller extraction, marshal analysis, Python env RCE, Z3 constraint solving, K8s RBAC bypass, floating-point precision exploitation, and custom assembly language sandbox escape.
 
-See also: [games-and-vms-2.md](games-and-vms-2.md) for ML weight perturbation negation, cookie checkpoint brute-forcing, Flask cookie game state leakage, WebSocket game manipulation, server time-only validation bypass, LoRA adapter merging, De Bruijn sequences, Brainfuck instrumentation, WASM memory manipulation, and neural network encoder collisions.
+See also: [games-and-vms-2.md](games-and-vms-2.md) for cookie checkpoint brute-forcing, Flask cookie game state leakage, WebSocket game manipulation, server time-only validation bypass, De Bruijn sequences, Brainfuck instrumentation, and WASM memory manipulation.

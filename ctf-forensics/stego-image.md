@@ -1,6 +1,6 @@
 # CTF Forensics - Image Steganography
 
-Techniques specific to hiding data in image formats (JPEG, PNG, BMP, GIF). For non-image steganography (PDF, audio, terminal, text), see [steganography.md](steganography.md). For advanced techniques (FFT, SSTV, audio, video, JPEG XL), see [stego-advanced.md](stego-advanced.md).
+Techniques specific to hiding data in image formats (JPEG, PNG, BMP, GIF). For non-image steganography (PDF, audio, terminal, text), see [steganography.md](steganography.md). For advanced techniques (FFT, SSTV, audio, video, JPEG XL), see [stego-advanced.md](stego-advanced.md) and [stego-advanced-2.md](stego-advanced-2.md).
 
 ## Table of Contents
 - [JPEG Unused Quantization Table LSB Steganography (EHAX 2026)](#jpeg-unused-quantization-table-lsb-steganography-ehax-2026)

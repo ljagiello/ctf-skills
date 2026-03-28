@@ -59,6 +59,30 @@ brew install hashcat
 - If the challenge is mostly packet carving, disk recovery, or stego extraction before any decryption starts, switch to `/ctf-forensics`.
 - If the task is just implementing an exploit against a vulnerable network service after the crypto part is solved, switch to `/ctf-pwn` or `/ctf-web`.
 
+## Quick Start Commands
+
+```bash
+# Identify cipher type
+python3 -c "from Crypto.Util.number import *; n=<N>; print(f'bits={n.bit_length()}')"
+
+# RSA quick check
+python3 -c "from sympy import factorint; print(factorint(<n>))"  # Small factors?
+openssl rsa -pubin -in key.pub -text -noout  # Extract n, e from PEM
+
+# Quick factorization tools
+python3 RsaCtfTool.py -n <n> -e <e> --uncipher <c>
+
+# XOR analysis
+python3 -c "from pwn import xor; print(xor(bytes.fromhex('<hex>'), b'flag{'))"
+
+# Hash identification
+hashid '<hash>'
+hashcat --identify '<hash>'
+
+# SageMath (for lattice/ECC)
+sage -c "print(factor(<n>))"
+```
+
 ## Classic Ciphers
 
 - **Caesar:** Frequency analysis or brute force 26 keys

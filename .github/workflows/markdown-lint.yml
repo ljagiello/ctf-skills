@@ -3,10 +3,6 @@ name: Markdown Lint
 
 'on':
   pull_request:
-    paths:
-      - '**/*.md'
-      - '.markdownlint-cli2.yaml'
-      - '.github/workflows/markdown-lint.yml'
   push:
     branches:
       - main

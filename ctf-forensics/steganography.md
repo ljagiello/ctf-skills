@@ -1,6 +1,6 @@
 # CTF Forensics - Steganography
 
-Non-image steganography techniques (PDF, SVG, terminal, text, compression, spreadsheet) and general-purpose image stego patterns (PNG structure, file overlays, GIF, autostereograms, interleaving). For image-specific steganography (JPEG DQT/F5/slack, BMP bitplane, PNG palette, pixel permutation, edge matching), see [stego-image.md](stego-image.md). For advanced techniques (FFT, SSTV, audio, video, JPEG XL), see [stego-advanced.md](stego-advanced.md).
+Non-image steganography techniques (PDF, SVG, terminal, text, compression, spreadsheet) and general-purpose image stego patterns (PNG structure, file overlays, GIF, autostereograms, interleaving). For image-specific steganography (JPEG DQT/F5/slack, BMP bitplane, PNG palette, pixel permutation, edge matching), see [stego-image.md](stego-image.md). For advanced techniques (FFT, SSTV, audio, video, JPEG XL), see [stego-advanced.md](stego-advanced.md) and [stego-advanced-2.md](stego-advanced-2.md).
 
 ## Table of Contents
 - [Quick Tools](#quick-tools)

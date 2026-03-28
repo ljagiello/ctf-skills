@@ -43,6 +43,30 @@ brew install whois bind nmap exiftool imagemagick curl
 - If the task becomes active exploitation of a live HTTP service, switch to `/ctf-web`.
 - If you uncover malware samples, beacons, or suspicious binaries during attribution, switch to `/ctf-malware`.
 
+## Quick Start Commands
+
+```bash
+# DNS recon
+dig -t any target.com
+dig -t txt target.com
+dig axfr @ns.target.com target.com
+whois target.com
+
+# Image metadata
+exiftool image.jpg
+identify -verbose image.jpg | head -30
+
+# Web archive
+curl "https://web.archive.org/web/20230101*/target.com"
+
+# Username lookup
+curl -s "https://whatsmyname.app/api/lookup?username=<user>"
+
+# Shodan
+shodan search "hostname:target.com"
+shodan host <ip>
+```
+
 ## String Identification
 
 - 40 hex chars -> SHA-1 (Tor fingerprint)
