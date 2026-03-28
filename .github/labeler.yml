@@ -1,0 +1,49 @@
+# Auto-labeling configuration for actions/labeler
+# Maps file path patterns to labels applied on PRs
+
+skill:web:
+  - changed-files:
+      - any-glob-to-any-file: 'ctf-web/**'
+
+skill:pwn:
+  - changed-files:
+      - any-glob-to-any-file: 'ctf-pwn/**'
+
+skill:crypto:
+  - changed-files:
+      - any-glob-to-any-file: 'ctf-crypto/**'
+
+skill:reverse:
+  - changed-files:
+      - any-glob-to-any-file: 'ctf-reverse/**'
+
+skill:forensics:
+  - changed-files:
+      - any-glob-to-any-file: 'ctf-forensics/**'
+
+skill:osint:
+  - changed-files:
+      - any-glob-to-any-file: 'ctf-osint/**'
+
+skill:malware:
+  - changed-files:
+      - any-glob-to-any-file: 'ctf-malware/**'
+
+skill:misc:
+  - changed-files:
+      - any-glob-to-any-file: 'ctf-misc/**'
+
+skill:ai-ml:
+  - changed-files:
+      - any-glob-to-any-file: 'ctf-ai-ml/**'
+
+infrastructure:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'scripts/**'
+          - 'tests/**'
+          - '.pre-commit-config.yaml'
+          - '.markdownlint-cli2.yaml'
+          - '.lychee.toml'
+          - 'pyproject.toml'

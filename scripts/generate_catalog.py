@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+"""Generate a static HTML skill catalog for GitHub Pages."""
+
+import html
+import re
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OUT_DIR = REPO_ROOT / "_site"
+
+CATEGORY_COLORS = {
+    "ctf-web": "#1d76db",
+    "ctf-pwn": "#d93f0b",
+    "ctf-crypto": "#0e8a16",
+    "ctf-reverse": "#5319e7",
+    "ctf-forensics": "#006b75",
+    "ctf-osint": "#fbca04",
+    "ctf-malware": "#b60205",
+    "ctf-misc": "#c5def5",
+    "ctf-ai-ml": "#f9d0c4",
+    "ctf-writeup": "#888888",
+    "solve-challenge": "#555555",
+}
+
+CATEGORY_ICONS = {
+    "ctf-web": "&#127760;",
+    "ctf-pwn": "&#128163;",
+    "ctf-crypto": "&#128272;",
+    "ctf-reverse": "&#128270;",
+    "ctf-forensics": "&#128269;",
+    "ctf-osint": "&#127758;",
+    "ctf-malware": "&#129440;",
+    "ctf-misc": "&#129513;",
+    "ctf-ai-ml": "&#129302;",
+    "ctf-writeup": "&#128221;",
+    "solve-challenge": "&#127919;",
+}
+
+
+def parse_frontmatter(text: str) -> dict[str, str]:
+    """Parse YAML frontmatter into a flat dict."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    end = None
+    for i, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            end = i
+            break
+    if end is None:
+        return {}
+    result: dict[str, str] = {}
+    block: str | None = None
+    for line in lines[1:end]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.endswith(":") and ":" not in stripped[:-1]:
+            block = stripped[:-1]
+            continue
+        if ":" not in stripped:
+            continue
+        key, _, value = stripped.partition(":")
+        key = key.strip()
+        value = value.strip().strip('"')
+        if block:
+            result[f"{block}.{key}"] = value
+        else:
+            result[key] = value
+    return result
+
+
+def discover_skills() -> list[Path]:
+    """Find all directories containing a SKILL.md."""
+    return sorted(p.parent for p in REPO_ROOT.glob("*/SKILL.md"))
+
+
+def count_techniques(skill_dir: Path) -> list[dict[str, str]]:
+    """List technique files in a skill directory."""
+    techniques = []
+    for md in sorted(skill_dir.glob("*.md")):
+        if md.name == "SKILL.md":
+            continue
+        name = md.stem.replace("-", " ").replace("_", " ").title()
+        techniques.append({"name": name, "file": md.name})
+    return techniques
+
+
+def extract_h2_sections(filepath: Path) -> list[str]:
+    """Extract ## headings from a markdown file (after frontmatter)."""
+    text = filepath.read_text(encoding="utf-8")
+    # Skip frontmatter
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        if end != -1:
+            text = text[end + 3 :]
+    sections = []
+    for line in text.splitlines():
+        m = re.match(r"^##\s+(.+)$", line)
+        if m:
+            sections.append(m.group(1).strip())
+    return sections
+
+
+def build_html(skills: list[dict]) -> str:
+    """Build the full HTML catalog page."""
+    total_techniques = sum(len(s["techniques"]) for s in skills)
+    total_categories = len([s for s in skills if s["techniques"]])
+
+    cards = []
+    for s in skills:
+        color = CATEGORY_COLORS.get(s["dir_name"], "#666")
+        icon = CATEGORY_ICONS.get(s["dir_name"], "&#128196;")
+        tech_count = len(s["techniques"])
+        desc = html.escape(s.get("description", ""))
+
+        tech_list = ""
+        if s["techniques"]:
+            items = []
+            for t in s["techniques"]:
+                gh_link = f"https://github.com/ljagiello/ctf-skills/blob/main/{s['dir_name']}/{t['file']}"
+                items.append(
+                    f'<li><a href="{gh_link}" target="_blank">{html.escape(t["name"])}</a></li>'
+                )
+            tech_list = f'<ul class="technique-list">{"".join(items)}</ul>'
+
+        cards.append(f"""
+    <div class="card" style="border-top: 4px solid {color}">
+      <div class="card-header">
+        <span class="icon">{icon}</span>
+        <h2>{html.escape(s["dir_name"])}</h2>
+        <span class="badge" style="background:{color}">{tech_count} file{"s" if tech_count != 1 else ""}</span>
+      </div>
+      <p class="description">{desc}</p>
+      {tech_list}
+    </div>""")
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CTF Skills Catalog</title>
+  <style>
+    :root {{
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --link: #58a6ff;
+    }}
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }}
+    .container {{ max-width: 1200px; margin: 0 auto; }}
+    header {{
+      text-align: center;
+      margin-bottom: 2rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }}
+    header h1 {{ font-size: 2rem; margin-bottom: 0.5rem; }}
+    header p {{ color: var(--text-muted); font-size: 1.1rem; }}
+    .stats {{
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin-top: 1rem;
+    }}
+    .stat {{
+      text-align: center;
+      padding: 0.5rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }}
+    .stat-value {{ font-size: 1.5rem; font-weight: bold; }}
+    .stat-label {{ color: var(--text-muted); font-size: 0.85rem; }}
+    .install-box {{
+      text-align: center;
+      margin: 1.5rem 0;
+      padding: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }}
+    .install-box code {{
+      background: var(--bg);
+      padding: 0.4rem 0.8rem;
+      border-radius: 4px;
+      font-size: 1rem;
+      color: var(--link);
+    }}
+    .grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }}
+    .card {{
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      transition: transform 0.15s ease;
+    }}
+    .card:hover {{ transform: translateY(-2px); }}
+    .card-header {{
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }}
+    .card-header h2 {{ font-size: 1.1rem; flex: 1; }}
+    .icon {{ font-size: 1.3rem; }}
+    .badge {{
+      color: #fff;
+      font-size: 0.75rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 10px;
+      font-weight: 600;
+    }}
+    .description {{
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-bottom: 0.75rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }}
+    .technique-list {{
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }}
+    .technique-list li {{
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.15rem 0.5rem;
+      font-size: 0.8rem;
+    }}
+    .technique-list a {{
+      color: var(--link);
+      text-decoration: none;
+    }}
+    .technique-list a:hover {{ text-decoration: underline; }}
+    footer {{
+      text-align: center;
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }}
+    footer a {{ color: var(--link); text-decoration: none; }}
+    footer a:hover {{ text-decoration: underline; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>CTF Skills Catalog</h1>
+      <p>Agent Skills for solving Capture The Flag challenges</p>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-value">{total_categories}</div>
+          <div class="stat-label">Categories</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">{total_techniques}</div>
+          <div class="stat-label">Technique Files</div>
+        </div>
+      </div>
+      <div class="install-box">
+        <code>npx skills add ljagiello/ctf-skills</code>
+      </div>
+    </header>
+    <div class="grid">
+      {"".join(cards)}
+    </div>
+    <footer>
+      <a href="https://github.com/ljagiello/ctf-skills">GitHub Repository</a>
+      &middot;
+      <a href="https://agentskills.io">Agent Skills</a>
+      &middot;
+      MIT License
+    </footer>
+  </div>
+</body>
+</html>"""
+
+
+def main() -> None:
+    skills = []
+    for skill_dir in discover_skills():
+        text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        fm = parse_frontmatter(text)
+        techniques = count_techniques(skill_dir)
+        skills.append(
+            {
+                "dir_name": skill_dir.name,
+                "description": fm.get("description", ""),
+                "techniques": techniques,
+            }
+        )
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    catalog_html = build_html(skills)
+    (OUT_DIR / "index.html").write_text(catalog_html, encoding="utf-8")
+    print(f"Catalog generated: {OUT_DIR / 'index.html'}")
+    print(f"  {len(skills)} skills, {sum(len(s['techniques']) for s in skills)} technique files")
+
+
+if __name__ == "__main__":
+    main()

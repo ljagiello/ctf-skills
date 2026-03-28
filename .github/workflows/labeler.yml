@@ -1,0 +1,25 @@
+---
+name: Labeler
+
+'on':
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: labeler-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    name: Auto-label PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label PR based on changed files
+        uses: actions/labeler@v5
+        with:
+          configuration-path: .github/labeler.yml
+          sync-labels: true

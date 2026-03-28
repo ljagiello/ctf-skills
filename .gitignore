@@ -16,6 +16,9 @@ venv/
 *.swo
 *~
 
+# Generated
+_site/
+
 # OS
 .DS_Store
 Thumbs.db
