@@ -2,7 +2,6 @@
 """Generate a static HTML skill catalog for GitHub Pages."""
 
 import html
-import re
 import subprocess
 from pathlib import Path
 
@@ -138,8 +137,10 @@ def build_html(skills: list[dict]) -> str:
             items = []
             for t in s["techniques"]:
                 gh_link = f"{_get_repo_url()}/blob/main/{s['dir_name']}/{t['file']}"
+                label = html.escape(t["name"])
                 items.append(
-                    f'<li><a href="{gh_link}" target="_blank" rel="noopener noreferrer">{html.escape(t["name"])}</a></li>'
+                    f'<li><a href="{gh_link}" target="_blank"'
+                    f' rel="noopener noreferrer">{label}</a></li>'
                 )
             tech_list = f'<ul class="technique-list">{"".join(items)}</ul>'
 
@@ -148,7 +149,8 @@ def build_html(skills: list[dict]) -> str:
       <div class="card-header">
         <span class="icon">{icon}</span>
         <h2>{html.escape(s["dir_name"])}</h2>
-        <span class="badge" style="background:{color}">{tech_count} file{"s" if tech_count != 1 else ""}</span>
+        <span class="badge" style="background:{color}">\
+{tech_count} file{"s" if tech_count != 1 else ""}</span>
       </div>
       <p class="description">{desc}</p>
       {tech_list}
@@ -171,7 +173,8 @@ def build_html(skills: list[dict]) -> str:
     }}
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont,\
+ 'Segoe UI', Helvetica, Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
       line-height: 1.6;
@@ -336,7 +339,8 @@ def main() -> None:
     catalog_html = build_html(skills)
     (OUT_DIR / "index.html").write_text(catalog_html, encoding="utf-8")
     print(f"Catalog generated: {OUT_DIR / 'index.html'}")
-    print(f"  {len(skills)} skills, {sum(len(s['techniques']) for s in skills)} technique files")
+    total = sum(len(s["techniques"]) for s in skills)
+    print(f"  {len(skills)} skills, {total} technique files")
 
 
 if __name__ == "__main__":
