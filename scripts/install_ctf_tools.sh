@@ -401,6 +401,8 @@ Manual installs (cannot be automated reliably):
                macOS: brew install --cask sage
   steghide   — Linux: apt install steghide
                Homebrew not available
+  pycdc      — git clone https://github.com/zrax/pycdc && cmake . && make
+               (Python 3.9+ bytecode decompiler; uncompyle6 only supports <=3.8)
   dnSpy      — https://github.com/dnSpy/dnSpy (Windows/.NET only)
 EOF
 }

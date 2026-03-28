@@ -506,6 +506,6 @@ for name, obj in globals().items():
 print(globals())  # May contain flags, keys, etc.
 ```
 
-**Key insight:** `pyrasite` injects a Python shell into a running process via `ptrace`. All code objects and global variables remain in memory even after the source file is deleted. `uncompyle6` decompiles `func_code` objects back to readable Python source.
+**Key insight:** `pyrasite` injects a Python shell into a running process via `ptrace`. All code objects and global variables remain in memory even after the source file is deleted. `uncompyle6` decompiles `func_code` objects back to readable Python source. For Python 3.9+ processes, use [`pycdc`](https://github.com/zrax/pycdc) instead (`pycdc` operates on `.pyc` files — write code objects to disk with `marshal.dump` first).
 
 **Detection:** Challenge provides access to a running system where a Python process is active but the `.py` source file has been deleted. `ls -l /proc/<PID>/exe` shows the Python interpreter; `/proc/<PID>/fd/` may still reference the deleted file. Check `ptrace` permissions (`/proc/sys/kernel/yama/ptrace_scope`).
