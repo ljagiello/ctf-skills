@@ -381,7 +381,7 @@ def scan_skill(skill_dir: Path) -> dict:
                             "line": 0,
                             "rule": "description_not_third_person",
                             "message": (
-                                f'Description should start with a'
+                                f"Description should start with a"
                                 f' third-person verb (e.g., "Provides..."),'
                                 f' got "{first_word.capitalize()}..."'
                             ),
