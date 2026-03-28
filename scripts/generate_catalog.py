@@ -42,6 +42,7 @@ def _get_repo_url() -> str:
         _repo_url = _detect_repo_url()
     return _repo_url
 
+
 CATEGORY_COLORS = {
     "ctf-web": "#1d76db",
     "ctf-pwn": "#d93f0b",
