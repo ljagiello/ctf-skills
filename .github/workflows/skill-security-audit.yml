@@ -2,17 +2,23 @@
 name: Skill Security Audit
 
 'on':
-  pull_request:
-    types: [opened, synchronize, reopened]
   pull_request_target:
     types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '.github/**'
+      - 'scripts/**'
+      - 'tests/**'
   push:
     branches:
       - main
+    paths-ignore:
+      - '.github/**'
+      - 'scripts/**'
+      - 'tests/**'
   workflow_dispatch:
 
 concurrency:
-  group: security-audit-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  group: security-audit-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -29,8 +35,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          # For pull_request_target (fork PRs), checkout the PR code
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || '' }}
+          ref: ${{ github.event.pull_request.head.sha || '' }}
 
       - name: Find skills to audit
         id: list
@@ -43,8 +48,7 @@ jobs:
             SKILL_FILES=$(find . -name SKILL.md -not -path './.git/*' | sort)
             LABEL="All skills"
           else
-            if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "pull_request_target" ]; then
-              # For both PR types, compare against base branch
+            if [ "$EVENT_NAME" = "pull_request_target" ]; then
               CHANGED=$(git diff --name-only "origin/$BASE_REF"...HEAD 2>/dev/null || echo "")
             else
               BEFORE="$PUSH_BEFORE"
@@ -102,8 +106,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # For pull_request_target (fork PRs), checkout the PR code
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || '' }}
+          ref: ${{ github.event.pull_request.head.sha || '' }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -123,105 +126,72 @@ jobs:
           echo "## 🔒 Skill Security Audit Results" > "$REPORT_FILE"
           echo "" >> "$REPORT_FILE"
 
-          # Parse JSON array of skill dirs safely, one directory per line
           while IFS= read -r skill_dir; do
             [ -z "$skill_dir" ] && continue
             echo "::group::Auditing $skill_dir"
-            echo "Scanning: $skill_dir"
 
-            JSON_STDOUT=$(mktemp)
-            JSON_STDERR=$(mktemp)
+            JSON_OUT=$(python3 "$AUDITOR" "$skill_dir" --strict --json 2>/dev/null) || true
 
-            # Run auditor in strict mode with JSON output
-            if python3 "$AUDITOR" "$skill_dir" --strict --json >"$JSON_STDOUT" 2>"$JSON_STDERR"; then
-              EXIT_CODE=0
-            else
-              EXIT_CODE=$?
-            fi
-
-            JSON_OUT=$(cat "$JSON_STDOUT")
-            STDERR_OUT=$(cat "$JSON_STDERR")
-
-            if [ -n "$STDERR_OUT" ]; then
-              echo "$STDERR_OUT" >&2
-            fi
-
-            # Try to parse JSON output
-            VERDICT=$(echo "$JSON_OUT" | python3 -c "
-          import sys, json
+            # Single Python call: parse JSON, produce verdict + report section
+            SECTION=$(python3 -c "
+          import json, sys
+          raw = sys.stdin.read()
           try:
-              d = json.load(sys.stdin)
-              v = d.get('verdict', 'UNKNOWN')
-              c = d.get('summary', {}).get('critical', 0)
-              h = d.get('summary', {}).get('high', 0)
-              i = d.get('summary', {}).get('info', 0)
-              t = d.get('summary', {}).get('total', 0)
-              print(f'{v}|{c}|{h}|{i}|{t}')
-          except:
-              print('ERROR|0|0|0|0')
-          " 2>/dev/null || echo "ERROR|0|0|0|0")
+              d = json.loads(raw)
+          except Exception:
+              print('STATUS:ERROR')
+              print('REPORT:### ❓ \`$skill_dir\` — ERROR\n\nAuditor did not return valid JSON.\n')
+              sys.exit(0)
 
-            IFS='|' read -r V CRIT HIGH INFO TOTAL <<< "$VERDICT"
+          v = d.get('verdict', 'UNKNOWN')
+          s = d.get('summary', {})
+          crit, high, info, total = s.get('critical',0), s.get('high',0), s.get('info',0), s.get('total',0)
+          icons = {'PASS':'✅','WARN':'⚠️','FAIL':'❌'}
+          icon = icons.get(v, '❓')
 
-            if [ "$V" = "ERROR" ]; then
-              echo "::error::Auditor did not return valid JSON for $skill_dir"
-              [ -n "$STDERR_OUT" ] && echo "::error::$STDERR_OUT"
+          status = 'FAIL' if v not in ('PASS','WARN') else v
+          print(f'STATUS:{status}')
+
+          lines = [f'### {icon} \`$skill_dir\` — {v}\n']
+          if total > 0:
+              lines.append('| Severity | Count |')
+              lines.append('|----------|-------|')
+              if crit > 0: lines.append(f'| 🔴 Critical | {crit} |')
+              if high > 0: lines.append(f'| 🟡 High | {high} |')
+              if info > 0: lines.append(f'| ⚪ Info | {info} |')
+              lines.append('')
+              if v not in ('PASS',):
+                  lines.append('<details><summary>Findings detail</summary>\n')
+                  lines.append('\`\`\`json')
+                  for f in d.get('findings', []):
+                      if f.get('severity') in ('CRITICAL','HIGH'):
+                          lines.append(json.dumps(f, indent=2))
+                  lines.append('\`\`\`')
+                  lines.append('</details>\n')
+          else:
+              lines.append('No findings.\n')
+
+          print('REPORT:' + '\n'.join(lines))
+          " <<< "$JSON_OUT")
+
+            STATUS=$(echo "$SECTION" | grep '^STATUS:' | head -1 | cut -d: -f2)
+            REPORT=$(echo "$SECTION" | sed -n 's/^REPORT://p')
+
+            if [ "$STATUS" = "FAIL" ] || [ "$STATUS" = "ERROR" ]; then
               OVERALL_EXIT=1
+              [ "$STATUS" = "ERROR" ] && echo "::error::Auditor did not return valid JSON for $skill_dir"
             fi
 
-            # Map verdict to emoji
-            case "$V" in
-              PASS) ICON="✅" ;;
-              WARN) ICON="⚠️" ;;
-              FAIL) ICON="❌"; OVERALL_EXIT=1 ;;
-              *)    ICON="❓"; OVERALL_EXIT=1 ;;
-            esac
-
-            echo "### $ICON \`$skill_dir\` — $V" >> "$REPORT_FILE"
+            echo "$REPORT" >> "$REPORT_FILE"
             echo "" >> "$REPORT_FILE"
-
-            if [ "$TOTAL" -gt 0 ]; then
-              echo "| Severity | Count |" >> "$REPORT_FILE"
-              echo "|----------|-------|" >> "$REPORT_FILE"
-              [ "$CRIT" -gt 0 ] && echo "| 🔴 Critical | $CRIT |" >> "$REPORT_FILE"
-              [ "$HIGH" -gt 0 ] && echo "| 🟡 High | $HIGH |" >> "$REPORT_FILE"
-              [ "$INFO" -gt 0 ] && echo "| ⚪ Info | $INFO |" >> "$REPORT_FILE"
-              echo "" >> "$REPORT_FILE"
-
-              # Include finding details for WARN/FAIL
-              if [ "$V" != "PASS" ]; then
-                echo "<details><summary>Findings detail</summary>" >> "$REPORT_FILE"
-                echo "" >> "$REPORT_FILE"
-                echo '```json' >> "$REPORT_FILE"
-                echo "$JSON_OUT" | python3 -c "
-          import sys, json
-          try:
-              d = json.load(sys.stdin)
-              findings = d.get('findings', [])
-              for f in findings:
-                  if f.get('severity') in ('CRITICAL', 'HIGH'):
-                      print(json.dumps(f, indent=2))
-          except:
-              pass
-          " >> "$REPORT_FILE"
-                echo '```' >> "$REPORT_FILE"
-                echo "</details>" >> "$REPORT_FILE"
-                echo "" >> "$REPORT_FILE"
-              fi
-            else
-              echo "No findings." >> "$REPORT_FILE"
-              echo "" >> "$REPORT_FILE"
-            fi
-
             echo "::endgroup::"
           done < <(echo "$SKILLS" | python3 -c "import sys, json; [print(s) for s in json.load(sys.stdin)]")
 
-          # Save report for comment step
           echo "report_file=$REPORT_FILE" >> "$GITHUB_OUTPUT"
           echo "exit_code=$OVERALL_EXIT" >> "$GITHUB_OUTPUT"
 
       - name: Post audit results as PR comment
-        if: always() && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+        if: always() && github.event_name == 'pull_request_target'
         continue-on-error: true
         uses: actions/github-script@v8
         with:
