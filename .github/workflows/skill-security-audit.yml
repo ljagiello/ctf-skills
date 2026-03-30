@@ -2,7 +2,7 @@
 name: Skill Security Audit
 
 'on':
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
   push:
     branches:
