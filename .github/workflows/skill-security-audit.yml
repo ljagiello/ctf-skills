@@ -2,6 +2,8 @@
 name: Skill Security Audit
 
 'on':
+  pull_request:
+    types: [opened, synchronize, reopened]
   pull_request_target:
     types: [opened, synchronize, reopened]
   push:
@@ -27,6 +29,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # For pull_request_target (fork PRs), checkout the PR code
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || '' }}
 
       - name: Find skills to audit
         id: list
@@ -39,7 +43,8 @@ jobs:
             SKILL_FILES=$(find . -name SKILL.md -not -path './.git/*' | sort)
             LABEL="All skills"
           else
-            if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "pull_request_target" ]; then
+              # For both PR types, compare against base branch
               CHANGED=$(git diff --name-only "origin/$BASE_REF"...HEAD 2>/dev/null || echo "")
             else
               BEFORE="$PUSH_BEFORE"
@@ -96,6 +101,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # For pull_request_target (fork PRs), checkout the PR code
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || '' }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -213,7 +221,7 @@ jobs:
           echo "exit_code=$OVERALL_EXIT" >> "$GITHUB_OUTPUT"
 
       - name: Post audit results as PR comment
-        if: always() && github.event_name == 'pull_request'
+        if: always() && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
         uses: actions/github-script@v8
         with:
           script: |
