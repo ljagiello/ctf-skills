@@ -222,6 +222,7 @@ jobs:
 
       - name: Post audit results as PR comment
         if: always() && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+        continue-on-error: true
         uses: actions/github-script@v8
         with:
           script: |
@@ -234,29 +235,37 @@ jobs:
               console.log('Could not read report file:', e.message);
             }
 
-            // Find and update existing comment or create new
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const marker = '## 🔒 Skill Security Audit';
-            const existing = comments.find(c => c.body.startsWith(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body: body,
-              });
-            } else {
-              await github.rest.issues.createComment({
+            try {
+              // Find and update existing comment or create new
+              const { data: comments } = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: body,
               });
+              const marker = '## 🔒 Skill Security Audit';
+              const existing = comments.find(c => c.body.startsWith(marker));
+
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body: body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: body,
+                });
+              }
+            } catch (error) {
+              console.log('Could not post comment (expected for fork PRs):', error.message);
+              // Save report to GITHUB_STEP_SUMMARY as fallback
+              core.summary.addHeading('Skill Security Audit', 2);
+              core.summary.addRaw(body);
+              await core.summary.write();
             }
 
       - name: Fail on critical findings
