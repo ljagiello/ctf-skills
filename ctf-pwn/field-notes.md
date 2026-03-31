@@ -2,6 +2,12 @@
 
 Detailed pwn notes that support [`SKILL.md`](SKILL.md). Read this file after confirming the challenge really needs exploitation.
 
+## Table of Contents
+
+- [Heap Exploitation](#heap-exploitation)
+- [Additional Exploit Notes](#additional-exploit-notes)
+- [Useful Commands](#useful-commands)
+
 ## Heap Exploitation
 
 - tcache poisoning (glibc 2.26+), fastbin dup / double free
@@ -149,13 +155,13 @@ Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers
 ### Leakless Libc via Multi-fgets stdout FILE Overwrite
 **Pattern:** No libc leak available. Chain multiple `fgets(addr, 7, stdin)` calls via ROP to construct fake stdout FILE struct on BSS. Set `_IO_write_base` to GOT entry, call `fflush(stdout)` → leaks GOT content → libc base. The 7-byte writes avoid null byte corruption since libc pointer MSBs are already `\x00`. See [advanced-exploits-2.md](advanced-exploits-2.md#leakless-libc-via-multi-fgets-stdout-file-overwrite-midnightflag-2026).
 
-### Signed/Unsigned Char Underflow → Heap Overflow
+### Signed/Unsigned Char Underflow to Heap Overflow
 **Pattern:** Size field stored as `signed char`, cast to `unsigned char` for use. `size = -112` → `(unsigned char)(-112) = 144`, overflowing a 127-byte buffer by 17 bytes. Combine with XOR keystream brute-force for byte-precise writes, forge chunk sizes for unsorted bin promotion (libc leak), FSOP stdout for TLS leak, and TLS destructor (`__call_tls_dtors`) overwrite for RCE. See [advanced-exploits-2.md](advanced-exploits-2.md#signedunsigned-char-underflow-to-heap-overflow-tls-destructor-hijack-midnightflag-2026).
 
 ### TLS Destructor Hijack via `__call_tls_dtors`
 **Pattern:** Alternative to House of Apple 2 on glibc 2.34+. Forge `__tls_dtor_list` entries with pointer-guard-mangled function pointers: `encoded = rol(target ^ pointer_guard, 0x11)`. Requires leaking pointer guard from TLS segment (via FSOP stdout redirection). Each node calls `PTR_DEMANGLE(func)(obj)` on exit. See [advanced-exploits-2.md](advanced-exploits-2.md#tls-destructor-overwrite-for-rce-via-calltlsdtors).
 
-### Signed Int Overflow → Negative OOB Heap Write
+### Signed Int Overflow to Negative OOB Heap Write
 **Pattern (Canvas of Fear):** Index formula `y * width + x` in signed 32-bit int overflows to negative value, passing bounds check and writing backward into heap metadata. Use to corrupt adjacent chunk sizes/pointers, leak libc via unsorted bin, redirect a data pointer to `environ` for stack leak, then write ROP chain to main's return address. When binary is behind a web API, chain XSS → Fetch API → heap exploit, and inject `\n` in API parameters for command stacking via `sendline()`. See [advanced-exploits-2.md](advanced-exploits-2.md#signed-int-overflow-to-negative-oob-heap-write-xss-to-binary-pwn-bridge-midnight-2026) for full exploit chain, XSS bridge pattern, and RGB pixel write primitive.
 
 ### Custom Shadow Stack Bypass via Pointer Overflow
@@ -164,7 +170,7 @@ Find writable paths via character devices, target `/etc/passwd` or `/etc/sudoers
 ### Windows SEH Overwrite + VirtualAlloc ROP
 Format string leak defeats ASLR. SEH (Structured Exception Handler) overwrite with stack pivot to ROP chain. `pushad` builds VirtualAlloc call frame for DEP (Data Execution Prevention) bypass. Detached process launcher for shell stability on thread-based servers. See [advanced-exploits-4.md](advanced-exploits-4.md#windows-seh-overwrite-pushad-virtualalloc-rop-rainbowtwo-htb).
 
-### SeDebugPrivilege → SYSTEM
+### SeDebugPrivilege to SYSTEM
 `SeDebugPrivilege` + Meterpreter `migrate -N winlogon.exe` -> SYSTEM. See [advanced-exploits-4.md](advanced-exploits-4.md#sedebugprivilege-to-system-rainbowtwo-htb).
 
 ### mmap/munmap Size Mismatch UAF

@@ -2,6 +2,28 @@
 
 Long-form exploit notes that were moved out of `SKILL.md` so the main skill can stay focused on routing and first-pass execution.
 
+## Table of Contents
+
+- [Reconnaissance](#reconnaissance)
+- [SQL Injection Quick Reference](#sql-injection-quick-reference)
+- [XSS Quick Reference](#xss-quick-reference)
+- [Path Traversal / LFI Quick Reference](#path-traversal--lfi-quick-reference)
+- [JWT Quick Reference](#jwt-quick-reference)
+- [SSTI Quick Reference](#ssti-quick-reference)
+- [SSRF Quick Reference](#ssrf-quick-reference)
+- [Command Injection Quick Reference](#command-injection-quick-reference)
+- [XXE Quick Reference](#xxe-quick-reference)
+- [PHP Type Juggling Quick Reference](#php-type-juggling-quick-reference)
+- [Code Injection Quick Reference](#code-injection-quick-reference)
+- [Java Deserialization](#java-deserialization)
+- [Python Pickle Deserialization](#python-pickle-deserialization)
+- [Race Conditions (TOCTOU)](#race-conditions-toctou)
+- [Node.js Quick Reference](#nodejs-quick-reference)
+- [Auth and Access Control Quick Reference](#auth--access-control-quick-reference)
+- [File Upload to RCE](#file-upload-to-rce)
+- [Multi-Stage Chain Patterns](#multi-stage-chain-patterns)
+- [Common Flag Locations](#common-flag-locations)
+
 ## Reconnaissance
 
 - View source for HTML comments, check JS/CSS files for internal APIs
@@ -232,7 +254,7 @@ Dangling CNAME → claim resource on external service (GitHub Pages, S3, Heroku)
 
 See [auth-and-access.md](auth-and-access.md) for access control bypasses, [auth-jwt.md](auth-jwt.md) for JWT/JWE attacks, and [auth-infra.md](auth-infra.md) for OAuth/SAML/CI-CD/infrastructure auth.
 
-## File Upload → RCE
+## File Upload to RCE
 
 - `.htaccess` upload: `AddType application/x-httpd-php .lol` + webshell
 - Gogs symlink: overwrite `.git/config` with `core.sshCommand` RCE
@@ -313,7 +335,7 @@ Linear XOR-based signing with secret blocks → recover from known pairs → for
 
 Content behind CSS overlay (`position: fixed; z-index: 99999`) is still in the raw HTML. `curl` or view-source bypasses it instantly. See [client-side.md](client-side.md#cssjs-paywall-bypass).
 
-## SSRF → Docker API RCE Chain
+## SSRF to Docker API RCE Chain
 
 SSRF to unauthenticated Docker daemon on port 2375. Use `/archive` for file extraction, `/exec` + `/exec/{id}/start` for command execution. Chain through internal POST relay when SSRF is GET-only. See [server-side-advanced-2.md](server-side-advanced-2.md#ssrf-to-docker-api-rce-chain-h7ctf-2025).
 

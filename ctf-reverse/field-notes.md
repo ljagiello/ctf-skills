@@ -2,6 +2,13 @@
 
 Detailed quick notes that support [`SKILL.md`](SKILL.md). Read this file after triage, not before.
 
+## Table of Contents
+
+- [Binary Types](#binary-types)
+- [Anti-Debugging Bypass](#anti-debugging-bypass)
+- [Specialized Patterns](#specialized-patterns)
+- [CTF Case Notes](#ctf-case-notes)
+
 ## Binary Types
 
 ### Python .pyc
