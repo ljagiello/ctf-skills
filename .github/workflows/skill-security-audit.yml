@@ -2,7 +2,7 @@
 name: Skill Security Audit
 
 'on':
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
     paths-ignore:
       - '.github/**'
@@ -35,8 +35,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || '' }}
-
       - name: Find skills to audit
         id: list
         env:
@@ -48,7 +46,7 @@ jobs:
             SKILL_FILES=$(find . -name SKILL.md -not -path './.git/*' | sort)
             LABEL="All skills"
           else
-            if [ "$EVENT_NAME" = "pull_request_target" ]; then
+            if [ "$EVENT_NAME" = "pull_request" ]; then
               CHANGED=$(git diff --name-only "origin/$BASE_REF"...HEAD 2>/dev/null || echo "")
             else
               BEFORE="$PUSH_BEFORE"
@@ -101,12 +99,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.sha || '' }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -190,53 +185,19 @@ jobs:
           echo "report_file=$REPORT_FILE" >> "$GITHUB_OUTPUT"
           echo "exit_code=$OVERALL_EXIT" >> "$GITHUB_OUTPUT"
 
-      - name: Post audit results as PR comment
-        if: always() && github.event_name == 'pull_request_target'
-        continue-on-error: true
-        uses: actions/github-script@v8
+      - name: Save PR number
+        if: always() && github.event_name == 'pull_request'
+        run: echo "${{ github.event.number }}" > "${{ runner.temp }}/pr_number"
+
+      - name: Upload audit report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const fs = require('fs');
-            const reportFile = '${{ steps.audit.outputs.report_file }}';
-            let body = '## 🔒 Skill Security Audit\n\nNo report generated.';
-            try {
-              body = fs.readFileSync(reportFile, 'utf8');
-            } catch (e) {
-              console.log('Could not read report file:', e.message);
-            }
-
-            try {
-              // Find and update existing comment or create new
-              const { data: comments } = await github.rest.issues.listComments({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-              });
-              const marker = '## 🔒 Skill Security Audit';
-              const existing = comments.find(c => c.body.startsWith(marker));
-
-              if (existing) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existing.id,
-                  body: body,
-                });
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  body: body,
-                });
-              }
-            } catch (error) {
-              console.log('Could not post comment (expected for fork PRs):', error.message);
-              // Save report to GITHUB_STEP_SUMMARY as fallback
-              core.summary.addHeading('Skill Security Audit', 2);
-              core.summary.addRaw(body);
-              await core.summary.write();
-            }
+          name: security-audit-report
+          path: |
+            ${{ steps.audit.outputs.report_file }}
+            ${{ runner.temp }}/pr_number
+          retention-days: 5
 
       - name: Fail on critical findings
         if: steps.audit.outputs.exit_code == '1'
