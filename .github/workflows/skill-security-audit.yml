@@ -185,18 +185,19 @@ jobs:
           echo "report_file=$REPORT_FILE" >> "$GITHUB_OUTPUT"
           echo "exit_code=$OVERALL_EXIT" >> "$GITHUB_OUTPUT"
 
-      - name: Save PR number
+      - name: Stage audit artifacts
         if: always() && github.event_name == 'pull_request'
-        run: echo "${{ github.event.number }}" > "${{ runner.temp }}/pr_number"
+        run: |
+          mkdir -p "${{ runner.temp }}/audit-stage"
+          cp "${{ steps.audit.outputs.report_file }}" "${{ runner.temp }}/audit-stage/report.md"
+          echo "${{ github.event.number }}" > "${{ runner.temp }}/audit-stage/pr_number"
 
       - name: Upload audit report
         if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: security-audit-report
-          path: |
-            ${{ steps.audit.outputs.report_file }}
-            ${{ runner.temp }}/pr_number
+          path: ${{ runner.temp }}/audit-stage/
           retention-days: 5
 
       - name: Fail on critical findings

@@ -68,11 +68,17 @@ jobs:
               return;
             }
 
-            // Read report (find the tmp file — it has a random name)
-            const files = fs.readdirSync(reportDir).filter(f => f !== 'pr_number');
+            // Read report
+            const reportFile = path.join(reportDir, 'report.md');
             let body = '## 🔒 Skill Security Audit\n\nNo report generated.';
-            if (files.length > 0) {
-              body = fs.readFileSync(path.join(reportDir, files[0]), 'utf8');
+            if (fs.existsSync(reportFile)) {
+              body = fs.readFileSync(reportFile, 'utf8');
+            } else {
+              // Fallback: find any file that isn't pr_number
+              const files = fs.readdirSync(reportDir).filter(f => f !== 'pr_number');
+              if (files.length > 0) {
+                body = fs.readFileSync(path.join(reportDir, files[0]), 'utf8');
+              }
             }
 
             // Find and update existing comment or create new
