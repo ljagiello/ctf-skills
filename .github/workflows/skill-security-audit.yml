@@ -118,7 +118,7 @@ jobs:
           REPORT_FILE=$(mktemp)
           OVERALL_EXIT=0
 
-          echo "## 🔒 Skill Security Audit Results" > "$REPORT_FILE"
+          echo "## Skill Security Audit Results" > "$REPORT_FILE"
           echo "" >> "$REPORT_FILE"
 
           while IFS= read -r skill_dir; do
@@ -135,14 +135,14 @@ jobs:
               d = json.loads(raw)
           except Exception:
               print('STATUS:ERROR')
-              print('REPORT:### ❓ \`$skill_dir\` — ERROR\n\nAuditor did not return valid JSON.\n')
+              print('REPORT:### \`$skill_dir\` — ERROR\n\nAuditor did not return valid JSON.\n')
               sys.exit(0)
 
           v = d.get('verdict', 'UNKNOWN')
           s = d.get('summary', {})
           crit, high, info, total = s.get('critical',0), s.get('high',0), s.get('info',0), s.get('total',0)
-          icons = {'PASS':'✅','WARN':'⚠️','FAIL':'❌'}
-          icon = icons.get(v, '❓')
+          icons = {'PASS':'PASS','WARN':'WARN','FAIL':'FAIL'}
+          icon = icons.get(v, '?')
 
           status = 'FAIL' if v not in ('PASS','WARN') else v
           print(f'STATUS:{status}')
@@ -151,9 +151,9 @@ jobs:
           if total > 0:
               lines.append('| Severity | Count |')
               lines.append('|----------|-------|')
-              if crit > 0: lines.append(f'| 🔴 Critical | {crit} |')
-              if high > 0: lines.append(f'| 🟡 High | {high} |')
-              if info > 0: lines.append(f'| ⚪ Info | {info} |')
+              if crit > 0: lines.append(f'| Critical | {crit} |')
+              if high > 0: lines.append(f'| High | {high} |')
+              if info > 0: lines.append(f'| Info | {info} |')
               lines.append('')
               if v not in ('PASS',):
                   lines.append('<details><summary>Findings detail</summary>\n')

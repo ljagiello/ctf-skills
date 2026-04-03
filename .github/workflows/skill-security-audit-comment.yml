@@ -70,7 +70,7 @@ jobs:
 
             // Read report
             const reportFile = path.join(reportDir, 'report.md');
-            let body = '## 🔒 Skill Security Audit\n\nNo report generated.';
+            let body = '## Skill Security Audit\n\nNo report generated.';
             if (fs.existsSync(reportFile)) {
               body = fs.readFileSync(reportFile, 'utf8');
             } else {
@@ -82,7 +82,7 @@ jobs:
             }
 
             // Find and update existing comment or create new
-            const marker = '## 🔒 Skill Security Audit';
+            const marker = '## Skill Security Audit';
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
