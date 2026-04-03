@@ -22,6 +22,9 @@ Non-image steganography techniques (PDF, SVG, terminal, text, compression, sprea
 - [Multi-Stream Video Container Steganography (BSidesSF 2026)](#multi-stream-video-container-steganography-bsidessf-2026)
 - [APNG (Animated PNG) Frame Extraction (IceCTF 2016)](#apng-animated-png-frame-extraction-icectf-2016)
 - [PNG Height/CRC Manipulation for Hidden Content (H4ckIT CTF 2016)](#png-heightcrc-manipulation-for-hidden-content-h4ckit-ctf-2016)
+- [GIF Palette Manipulation for QR Code Reconstruction (3DSCTF 2017)](#gif-palette-manipulation-for-qr-code-reconstruction-3dsctf-2017)
+- [Angecryption: AES-CBC Encrypting One Valid File into Another (34C3 CTF 2017)](#angecryption-aes-cbc-encrypting-one-valid-file-into-another-34c3-ctf-2017)
+- [SVG Micro-Coordinate Steganography (SharifCTF 8)](#svg-micro-coordinate-steganography-sharifctf-8)
 
 ---
 
@@ -577,3 +580,63 @@ xortool -c ff layer.bin
 **Shortcut:** Open the raw PNG bytes as a raw image in GraphBitStreamer (32 bpp, width matching original). Weak XOR encryption preserves visual patterns (like ECB-encrypted images), making the flag readable without full decryption.
 
 **Key insight:** Custom PNG chunks (non-standard 4-letter types) often contain hidden data. The PNG spec allows arbitrary ancillary chunks — parsers ignore unknown types. When multiple layers use different XOR keys, each must be cracked independently using frequency analysis. The shortcut works because XOR with a short repeating key preserves large-scale pixel patterns, similar to ECB mode's visual leakage.
+
+---
+
+### GIF Palette Manipulation for QR Code Reconstruction (3DSCTF 2017)
+
+GIF with 108,900 single-pixel frames. Each frame has identical pixel data but different palette entries. Map palette color to black/white to reconstruct a 330x330 QR code:
+
+```python
+from PIL import Image
+gif = Image.open('challenge.gif')
+width = int(gif.n_frames ** 0.5)  # sqrt(108900) = 330
+pixels = []
+for i in range(gif.n_frames):
+    gif.seek(i)
+    palette = gif.getpalette()
+    # First palette entry: yellow=(255,255,0) or green=(0,255,0)
+    pixels.append(0 if palette[0] > 128 else 255)  # black or white
+
+out = Image.new('L', (width, width))
+out.putdata(pixels)
+out.save('qr.png')
+# zbarimg qr.png
+```
+
+**Key insight:** GIF frames with identical pixel data but different color palettes encode binary data through palette manipulation. The number of frames is a perfect square, giving the side length of the hidden image. Each frame represents one pixel; the palette's first entry determines its color. When a GIF has an unusually large number of frames whose count is a perfect square, check for palette-based encoding.
+
+---
+
+### Angecryption: AES-CBC Encrypting One Valid File into Another (34C3 CTF 2017)
+
+Based on Ange Albertini's technique: a crafted AES-CBC key and IV can encrypt one valid image file into another valid image file:
+
+```python
+from Crypto.Cipher import AES
+key = bytes.fromhex('...')  # provided or recovered
+iv = bytes.fromhex('...')
+aes = AES.new(key, AES.MODE_CBC, iv)
+encrypted = aes.encrypt(open('flag.png', 'rb').read())
+# encrypted is ALSO a valid PNG (a mask image)
+# Overlay the mask on the original to reveal hidden content
+```
+
+**Key insight:** Angecryption exploits the fact that file format headers have enough degrees of freedom to survive AES-CBC encryption with chosen key/IV. The technique crafts the IV so that decrypting the "mask" file header produces a valid "flag" file header. When you find two valid image files and an AES key/IV in a challenge, try encrypting one — the result may be the other, and visual comparison reveals the flag.
+
+---
+
+### SVG Micro-Coordinate Steganography (SharifCTF 8)
+
+SVG contains a visible graphic plus a second `<g>` element with extremely small coordinate values (e.g., 450.xxxxx, 835.xxxxx). Apply SVG transform to zoom in:
+
+```xml
+<svg viewBox="448.75 834.69 2 2" width="2000" height="2000">
+  <!-- or apply transform: -->
+  <g transform="scale(200, 200) translate(-448.75, -834.69)">
+    <!-- hidden content becomes visible -->
+  </g>
+</svg>
+```
+
+**Key insight:** SVG coordinates with many decimal places hide micro-scale drawings invisible at normal zoom. Check for `<g>` elements with coordinate values that cluster in a tiny range. The fractional parts of the coordinates define the hidden image. Scale up by 100-1000x and translate to the cluster center to reveal. When SVG file size is unexpectedly large for the visible content, inspect coordinate precision in `<path>`, `<line>`, or `<g>` elements.

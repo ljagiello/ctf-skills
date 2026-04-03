@@ -54,6 +54,7 @@ go install github.com/ffuf/ffuf/v2@latest
 - [node-and-prototype.md](node-and-prototype.md) - Prototype pollution, JS sandbox escape, Node.js attack chains
 - [web3.md](web3.md) - Solidity and Web3 challenge notes
 - [cves.md](cves.md) - CVE-driven techniques you can match against challenge banners, headers, dependency leaks, or version strings
+- [field-notes.md](field-notes.md) - Long-form exploit notes: quick references for SQLi, XSS, LFI, JWT, SSTI, SSRF, command injection, XXE, deserialization, race conditions, auth bypass, and multi-stage chains
 
 ## When to Pivot
 

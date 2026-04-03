@@ -10,6 +10,7 @@
   - [Tracing and Stalker](#tracing-and-stalker)
   - [r2frida (Radare2 + Frida Integration)](#r2frida-radare2--frida-integration)
   - [Frida for Android/iOS](#frida-for-androidios)
+  - [Frida Memoization for Recursive Function Speedup (hxp CTF 2017)](#frida-memoization-for-recursive-function-speedup-hxp-ctf-2017)
 - [angr (Symbolic Execution)](#angr-symbolic-execution)
   - [angr Installation](#angr-installation)
   - [Basic Path Exploration](#basic-path-exploration)
@@ -33,6 +34,7 @@
   - [Input Fuzzing with Qiling](#input-fuzzing-with-qiling)
 - [Triton (Dynamic Symbolic Execution)](#triton-dynamic-symbolic-execution)
 - [Intel Pin Instruction-Counting Side Channel (Hackover CTF 2015)](#intel-pin-instruction-counting-side-channel-hackover-ctf-2015)
+- [Intel Pin Instruction Counting with Genetic Algorithm (hxp CTF 2017)](#intel-pin-instruction-counting-with-genetic-algorithm-hxp-ctf-2017)
 - [Opcode-Only Trace Reconstruction (0CTF 2016)](#opcode-only-trace-reconstruction-0ctf-2016)
 - [LD_PRELOAD time() Freeze for Deterministic Analysis (EKOPARTY 2017)](#ld_preload-time-freeze-for-deterministic-analysis-ekoparty-2017)
 
@@ -213,6 +215,57 @@ Java.perform(function() {
 **Key insight:** Frida excels where static analysis fails — obfuscated code, packed binaries, and runtime-generated data. Hook comparison functions (`strcmp`, `memcmp`, custom validators) to extract expected values without reversing the algorithm. Use `Interceptor.attach` for observation, `Interceptor.replace` for modification.
 
 **When to use:** Anti-debugging bypass, extracting runtime-computed keys, hooking crypto functions to dump plaintext, mobile app analysis, packed binary inspection.
+
+### Frida Memoization for Recursive Function Speedup (hxp CTF 2017)
+
+Hook a recursive function with Frida, memoize results, and replay cached values to skip redundant computation. Fibonacci-like recursive challenges with exponential complexity become instant with memoization.
+
+```javascript
+// memo_hook.js — memoize a recursive function to skip redundant calls
+var memo = {};
+var funcAddr = ptr("0x400abc");    // Address of the recursive function
+var retAddr = ptr("0x400def");     // Address of the function's ret instruction
+
+Interceptor.attach(funcAddr, {
+    onEnter: function(args) {
+        this.key = args[0].toInt32();
+        if (memo[this.key] !== undefined) {
+            // Skip computation entirely: set return value and jump to ret
+            this.context.rax = memo[this.key];
+            this.context.rip = retAddr;
+        }
+    },
+    onLeave: function(retval) {
+        // Cache the result for future calls with the same argument
+        memo[this.key] = retval.toInt32();
+    }
+});
+```
+
+```bash
+# Usage
+frida -f ./binary -l memo_hook.js --no-pause
+```
+
+For multi-argument functions, build a composite key:
+```javascript
+Interceptor.attach(funcAddr, {
+    onEnter: function(args) {
+        this.key = args[0].toInt32() + "," + args[1].toInt32();
+        if (memo[this.key] !== undefined) {
+            this.context.rax = memo[this.key];
+            this.context.rip = retAddr;
+        }
+    },
+    onLeave: function(retval) {
+        memo[this.key] = retval.toInt32();
+    }
+});
+```
+
+**Key insight:** Frida's `Interceptor` can both read and modify register state, allowing you to skip function execution entirely by setting `rax` (return value) and `rip` (to the `ret` instruction). This works on any recursive function where the same arguments produce the same result. Exponential-time recursive computations (Fibonacci, Ackermann, tree traversals) become linear with memoization.
+
+**References:** hxp CTF 2017
 
 ---
 
@@ -632,6 +685,82 @@ while True:
 ```
 
 **Key insight:** Movfuscated binaries (compiled with `movfuscator`) expand every instruction into sequences of `mov` operations, making static analysis impractical. However, character-by-character comparison still creates measurable instruction count differences. Pin's `inscount0.so` counts total executed instructions — the correct character at each position causes ~1000+ more instructions (proceeding further in the comparison). Also works for obfuscated binaries with sequential input checks.
+
+---
+
+### Intel Pin Instruction Counting with Genetic Algorithm (hxp CTF 2017)
+
+For self-modifying code that decrypts the next chunk only after each character check passes, standard character-by-character Pin counting fails because the search space is too large and characters may interact. Use a genetic algorithm instead to explore the input space more efficiently.
+
+```python
+import subprocess
+import random
+import string
+
+PIN_PATH = '/tmp/pin-3.5/pin'
+TOOL_PATH = 'source/tools/ManualExamples/obj-intel64/inscount0.so'
+
+def fitness(candidate):
+    """Run binary under Pin and return instruction count as fitness."""
+    proc = subprocess.Popen(
+        [PIN_PATH, '-t', TOOL_PATH, '--', './binary'],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = proc.communicate(candidate.encode())
+    # inscount0 writes count to stderr or inscount.out
+    try:
+        with open('inscount.out') as f:
+            return int(f.read().split()[-1])
+    except:
+        return 0
+
+def mutate(individual, rate=0.1):
+    """Randomly mutate characters in the individual."""
+    result = list(individual)
+    for i in range(len(result)):
+        if random.random() < rate:
+            result[i] = random.choice(string.printable[:62])
+    return result
+
+# Genetic algorithm parameters
+FLAG_LEN = 40
+POP_SIZE = 100
+SURVIVORS = 20
+
+# Initialize random population
+population = [random.choices(string.printable[:62], k=FLAG_LEN) for _ in range(POP_SIZE)]
+
+for generation in range(10000):
+    # Score each individual by instruction count
+    scored = [(fitness(''.join(p)), p) for p in population]
+    scored.sort(reverse=True)
+    best_score, best_individual = scored[0]
+    print(f"Gen {generation}: {best_score} {''.join(best_individual)}")
+
+    # Keep top survivors, mutate to refill population
+    survivors = [s[1] for s in scored[:SURVIVORS]]
+    population = survivors + [mutate(random.choice(survivors)) for _ in range(POP_SIZE - SURVIVORS)]
+```
+
+**Modified Pin for Go binaries (table-lookup flag checking):**
+When standard `inscount` fails because counter increments don't correlate with correctness (e.g., table-lookup comparison), modify Pin's icount tool to only count executions at the success-branch address. Brute-force character-by-character with this targeted counter:
+```cpp
+// Modified inscount0.cpp — count only executions of a specific address
+static ADDRINT target_addr = 0x401234;  // success-branch address
+static UINT64 target_count = 0;
+
+VOID CountAtTarget(ADDRINT ip) {
+    if (ip == target_addr) target_count++;
+}
+
+VOID Instruction(INS ins, VOID *v) {
+    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)CountAtTarget,
+                   IARG_INST_PTR, IARG_END);
+}
+```
+
+**Key insight:** When each correct character unlocks a new code section (self-modifying or multi-stage decryption), instruction count increases monotonically with correctness. A genetic algorithm explores the input space more efficiently than character-by-character brute-force because it can discover multiple correct characters simultaneously. Converges in approximately 30 minutes for 40-character flags. For table-lookup comparisons where total instruction count doesn't correlate, target a specific branch address instead.
+
+**References:** hxp CTF 2017
 
 ---
 

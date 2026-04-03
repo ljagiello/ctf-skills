@@ -22,6 +22,7 @@ Block cipher attacks, MAC forgery, padding oracles, and authenticated encryption
 - [AES Key Recovery via Byte-by-Byte Zeroing Oracle (CONFidence CTF 2017)](#aes-key-recovery-via-byte-by-byte-zeroing-oracle-confidence-ctf-2017)
 - [AES-CTR Constant Counter / Repeating Keystream (SHA2017)](#aes-ctr-constant-counter--repeating-keystream-sha2017)
 - [Custom SPN Column-Wise XOR Brute-Force (Hack Dat Kiwi 2017)](#custom-spn-column-wise-xor-brute-force-hack-dat-kiwi-2017)
+- [AES-CTR Bitflip + CRC Linearity Signature Forgery (hxp CTF 2017)](#aes-ctr-bitflip--crc-linearity-signature-forgery-hxp-ctf-2017)
 
 See also [modern-ciphers-2.md](modern-ciphers-2.md) for CRC32 forgery, Blum-Goldwasser, hash length extension, compression oracle, hash time reversal, OFB invertible RNG, weak key derivation, HMAC-CRC, DES weak keys, SRP bypass, modified AES S-Box, square attack, AES-ECB byte-at-a-time, AES-ECB cut-and-paste, AES-CBC IV bit-flip, Rabin LSB parity oracle, PBKDF2 pre-hash bypass, MD5 multi-collision, custom hash state reversal, and CRC32 brute-force.
 
@@ -523,3 +524,22 @@ for i, ct_byte in enumerate(ciphertext):
 **Key insight:** Column-aligned XOR layers in SPN ciphers allow independent per-byte brute-force using printable-text consistency as an oracle. Cross-column key reuse from seed-based permutations propagates partial solutions.
 
 **References:** Hack Dat Kiwi 2017
+
+---
+
+## AES-CTR Bitflip + CRC Linearity Signature Forgery (hxp CTF 2017)
+
+**Pattern:** AES-CTR allows targeted plaintext modification via XOR. CRC is linear w.r.t. XOR: `CRC(A ^ B) = CRC(A) ^ CRC(B) ^ CRC(zeros)`. Flip `{admin: 0}` to `{admin: 1}` in ciphertext and fix the encrypted CRC:
+
+```python
+import binascii
+# X = desired_plaintext XOR original_plaintext (flip bit)
+X = b'\x00' * offset + b'\x01' + b'\x00' * remaining
+crc_diff = binascii.crc32(X) ^ binascii.crc32(b'\x00' * len(X))
+# New ciphertext = old_ciphertext XOR X (for data portion)
+# New CRC ciphertext = old_CRC_ciphertext XOR pack(crc_diff)
+```
+
+**Key insight:** CRC is GF(2)-linear -- XOR-based modifications to plaintext produce predictable CRC changes without knowing the key. When a system uses AES-CTR for confidentiality + CRC for integrity (instead of a proper MAC like HMAC or GCM), you can flip arbitrary plaintext bits and fix the CRC simultaneously. This is a fundamental failure of using CRC as a MAC: CRC detects random errors but provides zero protection against adversarial modification under stream ciphers.
+
+**References:** hxp CTF 2017

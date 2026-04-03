@@ -21,6 +21,7 @@
   - [Docker Socket Escape](#docker-socket-escape)
   - [Capability-Based Escape (CAP_SYS_ADMIN)](#capability-based-escape-cap_sys_admin)
   - [Container Information Leakage](#container-information-leakage)
+- [15-Puzzle Solvability as Bit Encoder (SharifCTF 8)](#15-puzzle-solvability-as-bit-encoder-sharifctf-8)
 - [Levenshtein Distance Oracle Attack (SunshineCTF 2016)](#levenshtein-distance-oracle-attack-sunshinectf-2016)
 - [SECCOMP Bypass via High-Bit File Descriptor Trick (33C3 CTF 2016)](#seccomp-bypass-via-high-bit-file-descriptor-trick-33c3-ctf-2016)
 - [rvim Jail Escape via Custom vimrc with Python3 Execution (BKP 2017)](#rvim-jail-escape-via-custom-vimrc-with-python3-execution-bkp-2017)
@@ -500,6 +501,29 @@ Even without escape, containers leak host info:
 
 ---
 
+## 15-Puzzle Solvability as Bit Encoder (SharifCTF 8)
+
+128 15-puzzles encode 128 bits of a flag. Each bit is 1 if the puzzle is solvable, 0 if not:
+
+```python
+def is_solvable(grid):
+    # Count inversions (pairs where a > b and a appears before b)
+    flat = [x for row in grid for x in row if x != 0]
+    inversions = sum(1 for i in range(len(flat))
+                     for j in range(i+1, len(flat)) if flat[i] > flat[j])
+    # For 4x4: solvable iff inversions + blank_row_from_bottom is even
+    blank_row = next(i for i, row in enumerate(grid) if 0 in row)
+    blank_from_bottom = len(grid) - 1 - blank_row
+    return (inversions + blank_from_bottom) % 2 == 0
+
+flag_bits = ''.join('1' if is_solvable(puzzle) else '0' for puzzle in puzzles)
+flag = bytes(int(flag_bits[i:i+8], 2) for i in range(0, len(flag_bits), 8))
+```
+
+**Key insight:** The 15-puzzle has an invariant: exactly half of all permutations are solvable. A puzzle's solvability depends on the parity of inversions plus the blank tile's row from the bottom. This provides a natural 1-bit encoding per puzzle. When a challenge provides many puzzle instances with no obvious goal, check if solvability encodes binary data. The number of puzzles matching a multiple of 8 strongly suggests bit encoding.
+
+---
+
 ## References
 - EHAX 2026 "The Architect's Gambit": Multi-phase AES + HMAC + GF(256) Nim
 - BSidesSF 2026 "wromwarp": Emulator ROM-switching state preservation
@@ -507,6 +531,7 @@ Even without escape, containers leak host info:
 - Hack.lu 2015: Parallel connection oracle relay
 - SECCON 2015: Nonogram solver to QR code pipeline
 - Sharif CTF 2016: 100 prisoners problem / cycle-following strategy
+- SharifCTF 8: 15-puzzle solvability as bit encoder
 - Midnight Flag 2026: C code jail escape via emoji identifiers
 - BSidesSF 2026 "builds-as-a-service": BuildKit daemon build secret exploitation
 - SunshineCTF 2016: Levenshtein distance oracle attack

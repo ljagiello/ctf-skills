@@ -17,6 +17,7 @@ Techniques specific to hiding data in image formats (JPEG, PNG, BMP, GIF). For n
 - [RGB Parity Steganography (Break In 2016)](#rgb-parity-steganography-break-in-2016)
 - [Pixel Coordinate Chain Steganography (H4ckIT CTF 2016)](#pixel-coordinate-chain-steganography-h4ckit-ctf-2016)
 - [AVI Frame Differential Pixel Steganography (H4ckIT CTF 2016)](#avi-frame-differential-pixel-steganography-h4ckit-ctf-2016)
+- [JPEG Single-Bit-Flip Brute Force with OCR (SECCON 2017)](#jpeg-single-bit-flip-brute-force-with-ocr-seccon-2017)
 
 ---
 
@@ -535,3 +536,30 @@ def extract_frame_differential(frame_dir, num_frames):
 ```
 
 **Key insight:** Frame differential steganography hides data in the temporal domain rather than spatial. Standard image stego tools analyze single frames and miss inter-frame changes. Extract all frames, then diff consecutive pairs looking for single-pixel-value increments.
+
+---
+
+### JPEG Single-Bit-Flip Brute Force with OCR (SECCON 2017)
+
+Corrupted JPEG with a single bitflip. Generate all single-bit variants and scan with OCR:
+
+```python
+data = open('corrupted.jpg', 'rb').read()
+for byte_pos in range(len(data)):
+    for bit in range(8):
+        candidate = data[:byte_pos] + bytes([data[byte_pos] ^ (1 << bit)]) + data[byte_pos+1:]
+        with open(f'attempt_{byte_pos}_{bit}.jpg', 'wb') as f:
+            f.write(candidate)
+```
+
+```bash
+# Automated OCR scan for flag
+for f in attempt_*.jpg; do
+    result=$(tesseract "$f" stdout 2>/dev/null)
+    if echo "$result" | grep -qi "flag\|ctf\|SECCON"; then
+        echo "FOUND in $f: $result"
+    fi
+done
+```
+
+**Key insight:** For small files (< 10KB), the total search space for single-bit flips is `8 * file_size` — typically under 80,000 candidates, easily brute-forceable. Use thumbnail generation as a fast validity check (corrupt JPEGs fail to decode), then OCR on survivors. JPEG compressed data rule: `0xFF` is always followed by `0x00` (stuffed byte) or a marker — violations indicate the corruption location.

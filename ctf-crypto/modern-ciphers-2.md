@@ -30,6 +30,7 @@ Hash-based attacks, protocol-level exploits, ECB oracles, Rabin/RSA parity attac
 - [AES-CFB IV Recovery from Timestamp-Seeded PRNG (SHA2017)](#aes-cfb-iv-recovery-from-timestamp-seeded-prng-sha2017)
 - [Three-Round XOR Protocol Key Cancellation (HITB 2017)](#three-round-xor-protocol-key-cancellation-hitb-2017)
 - [AES-CBC UnicodeDecodeError Side-Channel Oracle (Kaspersky 2017)](#aes-cbc-unicodedecodeerror-side-channel-oracle-kaspersky-2017)
+- [SHA-256 Basis Attack for XOR-Aggregate Hash Bypass (34C3 CTF 2017)](#sha-256-basis-attack-for-xor-aggregate-hash-bypass-34c3-ctf-2017)
 
 ---
 
@@ -763,3 +764,25 @@ for guess in range(256):
 **Key insight:** Any error that distinguishes valid from invalid plaintext content serves as a decryption oracle — not just PKCS#7 padding errors. UTF-8 validity, base64 decodability, JSON parsability, and ASCII-only constraints are all valid oracle conditions. The only requirement is a server-side distinguishable response.
 
 **References:** Kaspersky CTF 2017
+
+---
+
+## SHA-256 Basis Attack for XOR-Aggregate Hash Bypass (34C3 CTF 2017)
+
+**Pattern:** Find 256 files whose SHA-256 hashes form a basis for Z_2^256. Then for any target hash, compute which subset of basis files XORs to produce the desired hash difference. This breaks systems that verify integrity via `XOR(sha256(file_i)) == expected`.
+
+```python
+# 1. Generate ~300 random valid Python files
+# 2. Compute SHA-256 of each -> 256-bit vectors over GF(2)
+# 3. Gaussian elimination to find 256 linearly independent vectors
+# 4. Target: h_new XOR (XOR of sha256(basis_files)) = h_orig
+# 5. Solve the linear system to find which basis files to include
+from sage.all import GF, matrix
+M = matrix(GF(2), [hash_to_bits(sha256(f)) for f in basis_files])
+target = hash_to_bits(sha256(malicious_zip)) ^ hash_to_bits(original_hash)
+solution = M.solve_left(target)
+```
+
+**Key insight:** SHA-256 hashes are 256-bit vectors over GF(2). Given ~256 random hashes, they almost certainly span the full space, meaning you can XOR-combine them to produce any target 256-bit value. This breaks XOR-based aggregate hash verification: if the system checks `XOR(sha256(file_i)) == expected`, you can replace files while maintaining the aggregate. The attack does NOT find SHA-256 collisions -- it exploits the linearity of XOR aggregation over non-linear hash outputs.
+
+**References:** 34C3 CTF 2017

@@ -4,6 +4,9 @@ Adversarial machine learning techniques: generating adversarial examples, physic
 
 ## Table of Contents
 - [Adversarial Example Generation (FGSM, PGD, C&W)](#adversarial-example-generation-fgsm-pgd-cw)
+  - [FGSM (Fast Gradient Sign Method)](#fgsm-fast-gradient-sign-method)
+  - [PGD (Projected Gradient Descent)](#pgd-projected-gradient-descent)
+  - [C&W (Carlini & Wagner) Attack](#cw-carlini--wagner-attack)
 - [Adversarial Patch Generation](#adversarial-patch-generation)
 - [Evasion Attacks on ML Classifiers (Foundational)](#evasion-attacks-on-ml-classifiers-foundational)
 - [Data Poisoning (Foundational)](#data-poisoning-foundational)

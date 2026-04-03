@@ -16,6 +16,8 @@
 - [Paillier LSB Oracle via Homomorphic Doubling (CODE BLUE 2017)](#paillier-lsb-oracle-via-homomorphic-doubling-code-blue-2017)
 - [Differential Privacy Laplace Noise Cancellation (Pwn2Win 2017)](#differential-privacy-laplace-noise-cancellation-pwn2win-2017)
 - [Homomorphic Encryption Oracle Bit-Extraction (Tokyo Westerns 2017)](#homomorphic-encryption-oracle-bit-extraction-tokyo-westerns-2017)
+- [ElGamal over Matrices via Jordan Normal Form (SharifCTF 8)](#elgamal-over-matrices-via-jordan-normal-form-sharifctf-8)
+- [OSS (Ong-Schnorr-Shamir) Signature Forgery via Pollard's Method (SharifCTF 8)](#oss-ong-schnorr-shamir-signature-forgery-via-pollards-method-sharifctf-8)
 
 ---
 
@@ -683,3 +685,44 @@ for i in range(high_bit_count):
 **Key insight:** Homomorphic oracles enable bit-extraction: detect overflow in specific bit positions when incrementing for low bits; use division-by-2 on even numbers for high bits. The total number of queries scales linearly with the bit count of the plaintext.
 
 **References:** Tokyo Westerns CTF 2017
+
+---
+
+## ElGamal over Matrices via Jordan Normal Form (SharifCTF 8)
+
+**Pattern:** Discrete log on matrices: convert generator G to Jordan normal form, then extract exponent from off-diagonal elements.
+
+```sage
+G = Matrix(GF(p), [[...]])  # generator matrix
+H = Matrix(GF(p), [[...]])  # H = G^alpha
+J, P = G.jordan_form(transformation=True)
+H_prime = ~P * H * P  # H in Jordan basis
+# For Jordan block with eigenvalue lambda:
+# J^alpha has alpha * lambda^(alpha-1) on super-diagonal
+# alpha = J[3][3] * H_prime[3][4] / H_prime[3][3]
+alpha = int(J[3][3] * H_prime[3][4] / H_prime[4][4])
+```
+
+**Key insight:** Matrix DLP reduces to scalar DLP when the matrix is diagonalizable, or to polynomial extraction when Jordan blocks have repeated eigenvalues. The super-diagonal element of J^alpha is `alpha * lambda^(alpha-1)`, giving alpha directly via division when lambda is known. For diagonalizable matrices, the DLP decomposes into independent scalar DLPs per eigenvalue. Always compute the Jordan form first to determine which reduction applies.
+
+**References:** SharifCTF 8 (2018)
+
+---
+
+## OSS (Ong-Schnorr-Shamir) Signature Forgery via Pollard's Method (SharifCTF 8)
+
+**Pattern:** Given two valid OSS signatures, forge a signature for the product of their messages using Pollard's composition formula:
+
+```python
+# OSS signature: (x, y) valid for message m if x^2 + k*y^2 = m (mod n)
+# Pollard's forgery for m1*m2:
+def forge_product(x1, y1, x2, y2, k, n):
+    X = (x1*x2 + k*y1*y2) % n
+    Y = (x1*y2 - x2*y1) % n
+    return X, Y
+# (X, Y) is a valid signature for m1*m2 mod n
+```
+
+**Key insight:** The OSS signature scheme is based on the quadratic form `x^2 + ky^2 = m (mod n)`. Pollard showed that these forms compose multiplicatively -- given signatures for m1 and m2, you can forge a signature for m1*m2 without the private key. This is a fundamental algebraic break, not an implementation bug. To sign an arbitrary target message `m_target`, factor it as a product of signed messages, or use the homomorphic property with `m1 = known_signed_message` and construct `m2 = m_target * modinv(m1, n)` if a signature for m2 is obtainable.
+
+**References:** SharifCTF 8 (2018)

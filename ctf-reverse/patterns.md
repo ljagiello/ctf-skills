@@ -6,6 +6,7 @@
   - [Common VM Patterns](#common-vm-patterns)
   - [RVA-Based Opcode Dispatching](#rva-based-opcode-dispatching)
   - [State Machine VMs (90K+ states)](#state-machine-vms-90k-states)
+  - [Custom VM Reverse Engineering via Fuzzing and Instruction Set Discovery (hxp CTF 2017)](#custom-vm-reverse-engineering-via-fuzzing-and-instruction-set-discovery-hxp-ctf-2017)
 - [Anti-Debugging Techniques](#anti-debugging-techniques)
   - [Common Checks](#common-checks)
   - [Bypass Technique](#bypass-technique)
@@ -49,6 +50,7 @@
 - [Multi-Thread Anti-Debug with Decoy + Signal Handler MBA (ApoorvCTF 2026)](#multi-thread-anti-debug-with-decoy--signal-handler-mba-apoorvctf-2026)
 - [INT3 Patch + Coredump Brute-Force Oracle (Pwn2Win 2016)](#int3-patch--coredump-brute-force-oracle-pwn2win-2016)
 - [Signal Handler Chain + LD_PRELOAD Oracle (Nuit du Hack 2016)](#signal-handler-chain--ld_preload-oracle-nuit-du-hack-2016)
+- [printf Format String VM Decompilation to Z3 (SECCON 2017)](#printf-format-string-vm-decompilation-to-z3-seccon-2017)
 
 ---
 
@@ -98,6 +100,52 @@ while (!agenda.isEmpty()) {
 ```
 
 **Key insight:** Custom VMs appear when the challenge bundles a bytecode blob alongside a dispatcher loop. Reverse the opcode switch table first, then write a disassembler to lift the bytecode before attempting to understand the algorithm.
+
+### Custom VM Reverse Engineering via Fuzzing and Instruction Set Discovery (hxp CTF 2017)
+
+Methodical black-box approach to reversing unknown VM bytecode when static analysis of the dispatch loop is too complex:
+
+**Step 1: Determine instruction alignment.**
+Dump the bytecode as bit strings at various widths (6-11 bits) to identify instruction alignment. Look for repeating patterns that suggest opcode boundaries.
+
+**Step 2: Fuzz with random bytes.**
+Send single instructions and observe effects on registers/memory to map opcodes. Reduce to minimal programs: find the shortest input that produces each observable effect.
+
+**Step 3: Build the instruction set.**
+Example discovered ISA (variable-length 6-11 bit):
+```text
+000 xxxxxxxx  jmpz    001 xxxxxxxx  jmp     010 xxxxxxxx  call
+011 xxxxxxxx  label   1000 xxxxxxx  loadram  1001 xxxxxxx  saveram
+110 xxxxxxxx  loadi   11100 xxxxxx  shl      11101 xxxxxx  shr
+111100 not    111101 and    111110 or    111111 setif
+```
+
+**Step 4: Build assembler/disassembler.**
+Write tools to assemble and disassemble the discovered ISA, then disassemble the challenge bytecode to understand its algorithm.
+
+**Step 5: Implement missing primitives.**
+If the ISA lacks expected operations, synthesize them from available instructions. Example: implementing XTEA decryption using only AND/OR/NOT (no native XOR or ADD):
+```python
+# XOR from AND/OR/NOT:  XOR(a, b) = (a OR b) AND NOT(a AND b)
+# ADD via full-adder chains using AND/OR/NOT for carry propagation
+def xor_from_primitives(a, b):
+    return (a | b) & ~(a & b)
+
+def add_from_primitives(a, b, bits=32):
+    carry = 0
+    result = 0
+    for i in range(bits):
+        ai = (a >> i) & 1
+        bi = (b >> i) & 1
+        sum_bit = xor_from_primitives(xor_from_primitives(ai, bi), carry)
+        carry = (ai & bi) | (carry & xor_from_primitives(ai, bi))
+        result |= (sum_bit << i)
+    return result
+```
+
+**Key insight:** When static analysis of a VM's dispatch loop is too complex, black-box fuzzing can map the ISA faster. Send single instructions and observe state changes. Variable-length instruction sets require testing multiple bit widths. Once the ISA is known, complex algorithms (XTEA) can be implemented even with minimal primitives (AND/OR/NOT).
+
+**References:** hxp CTF 2017
 
 ---
 
@@ -697,3 +745,57 @@ sighandler_t signal(int sig, sighandler_t handler) {
 ```
 
 **Key insight:** Signal-handler-chain anti-reversing can be defeated by hooking `signal()` via LD_PRELOAD. The call to `signal()` (to install the next handler) acts as a side-channel confirming the current character.
+
+---
+
+### printf Format String VM Decompilation to Z3 (SECCON 2017)
+
+A "virtual machine" implemented entirely via `%hhn` format strings. Format string `%hhn` writes the count of printed characters (mod 256) to a pointed-to byte. A sequence of `%Nc%hhn` instructions implements arbitrary byte-to-memory writes, effectively creating a bytecode VM.
+
+**Step 1: Identify instruction types.**
+Count unique format patterns to determine the instruction set:
+```bash
+# Normalize numbers and count unique patterns
+sed -e 's/[[:digit:]]\+/1/g' program.fs | sort | uniq -c | sort -nr
+```
+
+**Step 2: Write a decompiler.**
+Convert format patterns to C-style pseudocode. Each `%N...%hhn` pair maps to a memory write: extract the write address (from the argument pointer) and value (from the character count).
+
+**Step 3: Recognize the algorithm.**
+The pseudocode typically reveals a linear equation system over bytes. Map memory addresses to symbolic variables.
+
+**Step 4: Generate Z3 constraints and solve.**
+```python
+from z3 import *
+
+flag_len = 32  # adjust based on decompiled output
+flag = [BitVec(f'f{i}', 8) for i in range(flag_len)]
+s = Solver()
+
+# Constrain to printable ASCII
+for f in flag:
+    s.add(f >= 0x20, f <= 0x7e)
+
+# Add constraints from decompiled format string operations
+# e.g., flag[3] + flag[7] == 0xAB (mod 256)
+# These come from the write sequences: each %hhn accumulates
+# character counts and writes the result to a target byte
+s.add((flag[0] + flag[1]) & 0xFF == 0x9A)  # example constraint
+s.add((flag[2] ^ flag[3]) & 0xFF == 0x3F)  # example constraint
+# ... (add all constraints from decompilation)
+
+if s.check() == sat:
+    m = s.model()
+    print(bytes([m[f].as_long() for f in flag]))
+```
+
+**Decompilation approach in detail:**
+1. Extract the write address and value from each `%N...%hhn` pair
+2. Map memory addresses to symbolic variables (flag bytes)
+3. Build an equation system from the write sequences
+4. Solve with Z3
+
+**Key insight:** Format string `%hhn` writes the count of printed characters (mod 256) to a pointed-to byte. A sequence of `%Nc%hhn` instructions implements arbitrary byte-to-memory writes, effectively creating a bytecode VM. Decompile by: (1) extract the write address and value from each `%N...%hhn` pair, (2) map memory addresses to symbolic variables, (3) build an equation system from the write sequences, (4) solve with Z3.
+
+**References:** SECCON 2017

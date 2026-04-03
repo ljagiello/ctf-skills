@@ -20,6 +20,7 @@
   - [Variant A — Vertical Strip Shift (caesar1)](#variant-a--vertical-strip-shift-caesar1)
   - [Variant B — Horizontal Shift with ASCII Encoding (caesar2)](#variant-b--horizontal-shift-with-ascii-encoding-caesar2)
 - [XOR Key Recovery via File Format Headers (MetaCTF Flash 2026)](#xor-key-recovery-via-file-format-headers-metactf-flash-2026)
+- [3D Vigenere Palindrome Symmetry Key Recovery (SECCON 2017)](#3d-vigenere-palindrome-symmetry-key-recovery-seccon-2017)
 
 ---
 
@@ -540,3 +541,24 @@ print(result.stdout)  # Should show: PDF document
 **Determining key length:** If the header-derived key fragment repeats or the key is a readable string, try common lengths (8, 16, 32). Alternatively, XOR the file against itself shifted by candidate key lengths and look for low-entropy output (many null bytes indicate correct shift = key length).
 
 **References:** MetaCTF Flash CTF 2026 "In The Door"
+
+---
+
+## 3D Vigenere Palindrome Symmetry Key Recovery (SECCON 2017)
+
+**Pattern:** When k2 = reverse(k1) in a 3D Vigenere cipher, the encryption depends only on `k1[i] + k1[key_len-1-i]` (symmetric sums). Only half the key needs recovery:
+
+```python
+# Encryption: ct[i] = table[k1[i%kl]][k2[i%kl]][pt[i]]
+# With k2 = reverse(k1): ct[i] depends on k1[i%kl] + k1[(kl-1-i)%kl]
+# Known-plaintext with flag prefix recovers kl/2 sum values
+# Then brute-force one half of the key (the sums constrain the other)
+for c1 in range(len(s)):
+    for c2 in range(len(s)):
+        if (c1 + c2) % len(s) == known_sum:
+            # test this key pair
+```
+
+**Key insight:** Palindrome key structure (k2 = reverse(k1)) halves the effective keyspace. Each plaintext position depends on the sum of two key characters at mirrored positions. Known plaintext of length >= key_length/2 fully constrains these sums, reducing the remaining brute-force dramatically. This generalizes to any polyalphabetic cipher where key symmetry reduces independent key variables.
+
+**References:** SECCON CTF 2017

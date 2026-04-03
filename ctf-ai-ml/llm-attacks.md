@@ -4,6 +4,8 @@ LLM-specific attack techniques: prompt injection, jailbreaking, token smuggling,
 
 ## Table of Contents
 - [Prompt Injection (Foundational)](#prompt-injection-foundational)
+  - [Direct Prompt Injection](#direct-prompt-injection)
+  - [Indirect Prompt Injection](#indirect-prompt-injection)
 - [LLM Jailbreaking (Foundational)](#llm-jailbreaking-foundational)
 - [Token Smuggling (Foundational)](#token-smuggling-foundational)
 - [Context Window Manipulation (Foundational)](#context-window-manipulation-foundational)

@@ -19,6 +19,7 @@
   - [JVM Bytecode (Android/Server)](#jvm-bytecode-androidserver)
   - [Kotlin/Native](#kotlinnative)
 - [D Language Binary Reversing (CSAW CTF 2016)](#d-language-binary-reversing-csaw-ctf-2016)
+- [Haskell Binary Reversing via STG Closures and hsdecomp (hxp CTF 2017, Codegate 2018)](#haskell-binary-reversing-via-stg-closures-and-hsdecomp-hxp-ctf-2017-codegate-2018)
 - [C++ Binary Reversing (Quick Reference)](#c-binary-reversing-quick-reference)
   - [vtable Reconstruction](#vtable-reconstruction)
   - [RTTI (Run-Time Type Information)](#rtti-run-time-type-information)
@@ -440,6 +441,51 @@ def reverse_d_cipher(encrypted, num_functions=500):
 ```
 
 **Key insight:** D binaries are rare in CTFs but identifiable by `_D` symbol prefixes and Phobos library references. The compile-time template system means D functions may be duplicated hundreds of times with different parameters — look for patterns like `enc!("N")` where N varies.
+
+---
+
+### Haskell Binary Reversing via STG Closures and hsdecomp (hxp CTF 2017, Codegate 2018)
+
+GHC-compiled Haskell binaries use the STG (Spineless Tagless G-machine) execution model, making them notoriously difficult to reverse due to lazy evaluation, closures, and thunks. The STG machine turns everything into closure calls rather than direct function calls.
+
+**Recognition:**
+- Shared libraries: `libHSbase-*`, `libHSrts-*`
+- Entry symbol: `hs_main` (replaces standard `main`)
+- Mangled symbols use Z-encoding: `z` = prefix, `Z` = uppercase, `zd` = `.`, `zi` = `$`
+- GHC calling convention register mapping: `rbx` = R1, `r14` = R2
+
+**Closure structure:**
+Closures are structs where the first qword points to the info table/code. The info table precedes the code pointer and contains metadata (closure type, layout info, SRT).
+
+```bash
+# Identify Haskell binary
+ldd ./binary | grep libHS
+readelf -s ./binary | grep hs_main
+
+# Decompile with hsdecomp (github.com/gereeter/hsdecomp)
+# Recovers closure structure and pattern matching into pseudo-Haskell
+python2 hsdecomp ./binary
+
+# Compile reference for monkey-patching
+ghc -O0 reference.hs -o reference
+objcopy --dump-section .text=main_code reference
+```
+
+**Monkey-patching technique:**
+When decompilation fails or closures are opaque, compile a minimal Haskell program with the same GHC version, extract the compiled `Main_main_info` closure code, and patch it into the challenge binary. This forces evaluation of hidden closures and prints their results by replacing the main entry point with a known evaluator.
+
+```haskell
+-- reference.hs: minimal program that evaluates and prints the target closure
+module Main where
+main :: IO ()
+main = print targetClosure  -- replace with the closure you want to evaluate
+```
+
+**Key insight:** Haskell binaries are notoriously hard to reverse due to lazy evaluation, closures, and thunks. The STG machine turns everything into closure calls rather than direct function calls. `hsdecomp` recovers the closure structure and pattern matching. When decompilation fails, monkey-patching a known `Main_main_info` from a reference binary forces evaluation of hidden closures and prints results.
+
+**Detection:** `libHSbase-*` shared libraries, `hs_main` entry, Z-encoded symbols (e.g., `MainZCmain`), GHC version strings.
+
+**References:** hxp CTF 2017, Codegate 2018
 
 ---
 

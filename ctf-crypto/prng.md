@@ -18,6 +18,7 @@
 - [V8 XorShift128+ State Recovery (Math.random Prediction)](#v8-xorshift128-state-recovery-mathrandom-prediction)
 - [Mersenne Twister Seed Recovery from Subset Sum (Tokyo Westerns 2017)](#mersenne-twister-seed-recovery-from-subset-sum-tokyo-westerns-2017)
 - [MT19937 State Recovery via Constraint Propagation (HITCON 2017)](#mt19937-state-recovery-via-constraint-propagation-hitcon-2017)
+- [Rule 86 Cellular Automaton PRNG Reversal via Z3 (Insomni'hack 2018)](#rule-86-cellular-automaton-prng-reversal-via-z3-insomnihack-2018)
 
 ---
 
@@ -732,3 +733,33 @@ def propagate_backward(state_candidates, idx):
 **Key insight:** MT19937's recurrence dependencies allow bidirectional constraint propagation — partial knowledge at multiple positions narrows candidates until the full 624-word state is determined. The number of partial observations needed scales inversely with bits leaked per observation: ~20 observations of 24+ bits each typically suffice.
 
 **References:** HITCON CTF 2017
+
+---
+
+## Rule 86 Cellular Automaton PRNG Reversal via Z3 (Insomni'hack 2018)
+
+**Pattern:** Wolfram elementary cellular automaton Rule 86 used as PRNG. Reverse through 128 rounds using Z3 Bool arrays:
+
+```python
+from z3 import *
+
+def RULE86(x, y, z):
+    return Or(And(Not(x), Not(y), z), And(Not(x), y, Not(z)),
+              And(x, Not(y), Not(z)), And(x, y, Not(z)))
+
+s = Solver()
+state = [Bool(f'b{i}') for i in range(256)]
+# Forward-compute 128 rounds symbolically
+for round in range(128):
+    new_state = [RULE86(state[(i-1)%256], state[i], state[(i+1)%256]) for i in range(256)]
+    state = new_state
+# Constrain final state to known output
+for i, bit in enumerate(known_output):
+    s.add(state[i] == (bit == 1))
+s.check()
+model = s.model()
+```
+
+**Key insight:** Elementary cellular automata are NOT injective -- multiple preimages may exist. But Z3 handles the search efficiently by treating each cell as a boolean variable and each rule application as a CNF clause. For Rule 86 specifically, the DNF has 4 terms (bits 1,2,4,6 of rule number 86 = 01010110). Use `s.push()`/`s.pop()` to iteratively backtrack through rounds. This approach generalizes to any elementary CA rule used as a PRNG: encode the rule's truth table as a boolean formula, compose symbolically for N rounds, and constrain to the known output.
+
+**References:** Insomni'hack CTF 2018

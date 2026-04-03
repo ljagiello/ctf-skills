@@ -15,6 +15,7 @@
 - [RSA Timing Attack on Montgomery Reduction (DEF CON 2017)](#rsa-timing-attack-on-montgomery-reduction-def-con-2017)
 - [Bleichenbacher Low-Exponent RSA Signature Forgery (Google CTF 2017)](#bleichenbacher-low-exponent-rsa-signature-forgery-google-ctf-2017)
 - [Coppersmith Small Roots for Linearly Related Primes (Tokyo Westerns 2017)](#coppersmith-small-roots-for-linearly-related-primes-tokyo-westerns-2017)
+- [ROCA Attack on RSA CVE-2017-15361 (EasyCTF IV)](#roca-attack-on-rsa-cve-2017-15361-easyctf-iv)
 
 See also: [rsa-attacks.md](rsa-attacks.md) for foundational RSA attacks (small e, Wiener, Fermat, Pollard, Hastad, common modulus, Manger oracle, Coppersmith).
 
@@ -435,3 +436,24 @@ if roots:
 **Key insight:** When `q ≈ k*p`, approximately half the bits of `p` (and `q`) are recoverable from `sqrt(N/k)`. The remaining unknown `delta` is small enough for Coppersmith when `delta < N^(1/4)`. The upper bound `q_approx` must exceed `q`; add a safety margin of `2^(bitlen/2)` to ensure the root is captured.
 
 **References:** Tokyo Westerns CTF 2017
+
+---
+
+## ROCA Attack on RSA CVE-2017-15361 (EasyCTF IV)
+
+**Pattern:** Infineon RSA library generates keys with structured primes (detectable via fingerprint). Factor 512-bit keys in minutes:
+
+```bash
+# Detect ROCA vulnerability
+pip install roca-detect
+roca-detect rsa_key.pub
+# Factor with neca tool
+git clone https://gitlab.com/jix/neca.git
+cd neca && cargo build --release
+./target/release/neca <N_decimal>
+# Or use: https://github.com/crocs-muni/roca (original research tool)
+```
+
+**Key insight:** CVE-2017-15361 affects Infineon TPMs, smart cards, and YubiKey 4. Primes have the form `p = k * M + (65537^a mod M)` where M is the product of first n primes. Detection is instant (check `65537^x mod M` divides `n mod M`). Factoring uses Coppersmith's method on the known structure. Keys up to 2048 bits are practically attackable. For CTF use: if `roca-detect` reports vulnerable, use `neca` for 512-bit keys or the `crocs-muni/roca` tool for larger keys.
+
+**References:** EasyCTF IV (2018)

