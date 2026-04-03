@@ -194,7 +194,7 @@ jobs:
 
       - name: Upload audit report
         if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-audit-report
           path: ${{ runner.temp }}/audit-stage/
