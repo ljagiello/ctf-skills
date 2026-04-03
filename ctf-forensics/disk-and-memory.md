@@ -5,6 +5,7 @@
 - [Disk Image Analysis](#disk-image-analysis)
 - [VM Forensics (OVA/VMDK)](#vm-forensics-ovavmdk)
 - [VMware Snapshot Forensics](#vmware-snapshot-forensics)
+- [GIMP Raw Memory Dump Visual Inspection (INShAck 2018)](#gimp-raw-memory-dump-visual-inspection-inshack-2018)
 - [Coredump Analysis](#coredump-analysis)
 - [Windows KAPE Triage Analysis (UTCTF 2026)](#windows-kape-triage-analysis-utctf-2026)
 - [PowerShell Ransomware Analysis](#powershell-ransomware-analysis)
@@ -99,6 +100,45 @@ vmss2core -W path/to/snapshot.vmss path/to/snapshot.vmem
 vol3 -f memory.dmp windows.mftscan | grep flag
 # mtime as Unix epoch → seed for PRNG → derive encryption key
 ```
+
+---
+
+## GIMP Raw Memory Dump Visual Inspection (INShAck 2018)
+
+**Pattern:** When Volatility fails or profiles don't match, open raw memory dumps directly in GIMP as raw image data. Scroll through memory while adjusting image width to find previously-displayed images rendered as pixel data.
+
+**Steps:**
+1. Open `.dmp` file in GIMP: File > Open, set image type to "Raw image data"
+2. Set pixel format to RGB, width to ~1920 (monitor resolution)
+3. Scroll through the file offset while adjusting width with arrow keys
+4. Previously-displayed images (desktop, browser content) become visible when width matches the original stride
+
+```bash
+# Alternative: use Python + PIL to scan memory as pixel data
+python3 -c "
+from PIL import Image
+import numpy as np
+
+with open('memory.dmp', 'rb') as f:
+    data = f.read()
+
+# Try common display widths: 1920, 1366, 1280, 1024
+for width in [1920, 1366, 1280, 1024]:
+    stride = width * 3  # RGB = 3 bytes per pixel
+    # Sample at various offsets through the dump
+    for offset in range(0, len(data) - stride * 100, stride * 500):
+        chunk = data[offset:offset + stride * 100]
+        if len(chunk) == stride * 100:
+            img = Image.frombytes('RGB', (width, 100), chunk)
+            # Check if image has meaningful content (not all zeros/noise)
+            arr = np.array(img)
+            if 10 < arr.mean() < 245 and arr.std() > 20:
+                img.save(f'frame_{width}_{offset}.png')
+                print(f'Potential image at offset {offset}, width {width}')
+"
+```
+
+**Key insight:** Raw memory dumps contain framebuffer data that was displayed on screen. GIMP can render arbitrary binary data as pixels. When the image width matches the original display stride, screenshots of the user's desktop become visible without any forensics tools, profiles, or decryption.
 
 ---
 
@@ -384,5 +424,5 @@ veracrypt -t --truecrypt -p "password" volume.tc /mnt/vc
 
 ## See Also
 
-- [disk-advanced.md](disk-advanced.md) - Advanced disk and memory techniques (deleted partition recovery, ZFS forensics, GPT GUID encoding, VMDK sparse parsing, memory dump string carving, ransomware key recovery, WordPerfect macro XOR, minidump ISO 9660 recovery, APFS snapshot recovery, RAID 5 XOR recovery)
+- [disk-advanced.md](disk-advanced.md) - Advanced disk and memory techniques (deleted partition recovery, ZFS forensics, GPT GUID encoding, VMDK sparse parsing, memory dump string carving, ransomware key recovery, WordPerfect macro XOR, minidump ISO 9660 recovery, APFS snapshot recovery, RAID 5 XOR recovery, Kyoto Cabinet hash DB forensics)
 - [disk-recovery.md](disk-recovery.md) - Disk recovery and extraction patterns (LUKS master key recovery, PRNG timestamp seed brute-force, VBA macro binary recovery, FemtoZip decompression, XFS reconstruction, tar duplicate entry extraction, nested matryoshka filesystem extraction, anti-carving via null byte interleaving)

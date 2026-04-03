@@ -20,6 +20,7 @@
   - [Kotlin/Native](#kotlinnative)
 - [D Language Binary Reversing (CSAW CTF 2016)](#d-language-binary-reversing-csaw-ctf-2016)
 - [Haskell Binary Reversing via STG Closures and hsdecomp (hxp CTF 2017, Codegate 2018)](#haskell-binary-reversing-via-stg-closures-and-hsdecomp-hxp-ctf-2017-codegate-2018)
+- [Haskell Binary RE via GHC CMM Intermediate Language (N1CTF 2018)](#haskell-binary-re-via-ghc-cmm-intermediate-language-n1ctf-2018)
 - [C++ Binary Reversing (Quick Reference)](#c-binary-reversing-quick-reference)
   - [vtable Reconstruction](#vtable-reconstruction)
   - [RTTI (Run-Time Type Information)](#rtti-run-time-type-information)
@@ -486,6 +487,41 @@ main = print targetClosure  -- replace with the closure you want to evaluate
 **Detection:** `libHSbase-*` shared libraries, `hs_main` entry, Z-encoded symbols (e.g., `MainZCmain`), GHC version strings.
 
 **References:** hxp CTF 2017, Codegate 2018
+
+---
+
+### Haskell Binary RE via GHC CMM Intermediate Language (N1CTF 2018)
+
+GHC-compiled Haskell binaries are nearly impossible to decompile with IDA due to the STG execution model. When a `.cmm` (C-- intermediate) file is available or recoverable, read it to understand thunks, closures, and lazy evaluation semantics. For exponentially-growing recursive structures, compute segment sizes with memoization and use binary search instead of materializing the full string.
+
+**Pattern:** The binary builds a recursive string structure where `f(n) = s1 + f(n-1) + s2 + f(n-1) + s3`. Direct evaluation is `O(2^n)` in both time and space. Instead, compute the size of each recursion level with memoization, then binary-search for the target character index by walking the segment boundaries.
+
+```python
+# Haskell recursive string: f(n) = s1 + f(n-1) + s2 + f(n-1) + s3
+# Direct evaluation is O(2^n) -- use size memoization:
+from functools import lru_cache
+
+@lru_cache(maxsize=None)
+def fsize(n):
+    if n == 0: return len(s0)
+    return len(s1) + fsize(n-1) + len(s2) + fsize(n-1) + len(s3)
+
+def char_at(n, offset):
+    if n == 0: return s0[offset]
+    if offset < len(s1): return s1[offset]
+    offset -= len(s1)
+    if offset < fsize(n-1): return char_at(n-1, offset)
+    offset -= fsize(n-1)
+    if offset < len(s2): return s2[offset]
+    offset -= len(s2)
+    return char_at(n-1, offset)
+```
+
+**Key insight:** GHC's CMM (C minus minus) intermediate representation preserves enough structure to identify algorithms. For recursive string constructions that double in size each level, compute segment sizes with memoization and binary-search for target indices instead of materializing the exponentially-growing string.
+
+**Detection:** Haskell binary (see recognition above) with a `.cmm` file included in the challenge distribution. Look for recursive closure applications that produce string-like data with exponential growth.
+
+**References:** N1CTF 2018
 
 ---
 

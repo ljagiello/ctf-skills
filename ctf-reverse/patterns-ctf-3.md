@@ -19,6 +19,8 @@
 - [Time-Locked Binary with Date-Based Key (Hack.lu 2017)](#time-locked-binary-with-date-based-key-hacklu-2017)
 - [ARM Code in Image Pixels via UnicornJS (Hack.lu 2017)](#arm-code-in-image-pixels-via-unicornjs-hacklu-2017)
 - [x86 16-bit MBR psadbw Constraint Solving (CSAW 2017)](#x86-16-bit-mbr-psadbw-constraint-solving-csaw-2017)
+- [TensorFlow DNN Inversion by Inverting Sigmoid Layers (N1CTF 2018)](#tensorflow-dnn-inversion-by-inverting-sigmoid-layers-n1ctf-2018)
+- [BPF Filter Analysis via JIT Compilation to x64 Assembly (Midnight Sun CTF 2018)](#bpf-filter-analysis-via-jit-compilation-to-x64-assembly-midnight-sun-ctf-2018)
 
 ---
 
@@ -661,6 +663,56 @@ def solve_psadbw_group(known_constants, expected_sum, printable_range=(0x20, 0x7
 **Key insight:** `psadbw` creates sum-of-absolute-difference equations — not purely linear but solvable with constrained brute-force when bytes are limited to printable ASCII. Each 2-byte group is independent, keeping the search space to 95^2 = ~9000 candidates per group.
 
 **References:** CSAW CTF 2017
+
+---
+
+## TensorFlow DNN Inversion by Inverting Sigmoid Layers (N1CTF 2018)
+
+**Pattern:** Binary implements a 5-layer deep neural network with sigmoid activation. The input (flag characters) is transformed as `1.0/char_value` before feeding into the network. Extract weights and biases from the binary, then compute the inverse layer-by-layer: apply inverse-sigmoid, subtract bias, multiply by weight matrix inverse.
+
+```python
+import numpy as np
+
+def sigmoid_inv(x):
+    return -np.log(1.0/x - 1.0)
+
+# Invert layer by layer from output to input
+v = target_output
+for i in range(num_layers - 1, -1, -1):
+    v = np.dot(sigmoid_inv(v) - biases[i], np.linalg.inv(weights[i]))
+
+# Input was 1.0/char, so flag chars are the multiplicative inverse
+flag = ''.join(chr(int(round(1.0 / v[j]))) for j in range(len(v)))
+```
+
+**Key insight:** Neural networks with invertible activation functions (sigmoid, tanh) and square weight matrices can be mathematically inverted layer-by-layer. Apply inverse-sigmoid, subtract bias, multiply by weight inverse. Watch for input transformations (e.g., 1/x) that must also be inverted.
+
+**Detection:** Binary with TensorFlow or custom DNN implementation. Look for sigmoid/tanh calls, matrix multiplications, and hardcoded float arrays (weights/biases) in `.rodata`. Square weight matrices (N x N) indicate the network is invertible.
+
+**References:** N1CTF 2018
+
+---
+
+## BPF Filter Analysis via JIT Compilation to x64 Assembly (Midnight Sun CTF 2018)
+
+**Pattern:** Binary creates a raw socket with a BPF (Berkeley Packet Filter) attached. When standard BPF disassemblers fail to produce readable output, enable the kernel's BPF JIT compiler to convert BPF bytecode to native x64 assembly, then read the compiled code from dmesg.
+
+```bash
+# Enable BPF JIT compilation
+echo 1 > /proc/sys/net/core/bpf_jit_enable
+
+# Run the binary, then read JIT-compiled BPF from kernel log
+dmesg | grep -A 100 "flen="
+
+# Analysis revealed: expects DNS TXT query on UDP port 3333
+dig @target -p 3333 'M4d!bKn3~l' TXT
+```
+
+**Key insight:** Linux can JIT-compile BPF filters to native x64 machine code. When standard BPF disassemblers fail or produce unreadable output, enable `bpf_jit_enable` and read the compiled assembly from dmesg. The native code is often easier to understand than BPF bytecode.
+
+**Detection:** Binary using `setsockopt` with `SO_ATTACH_FILTER`, raw socket creation (`socket(AF_PACKET, ...)`), or embedded `struct sock_fprog` structures. BPF programs appear as arrays of `struct sock_filter` (8 bytes each: opcode, jt, jf, k).
+
+**References:** Midnight Sun CTF 2018
 
 ---
 

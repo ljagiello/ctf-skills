@@ -31,6 +31,8 @@ Hash-based attacks, protocol-level exploits, ECB oracles, Rabin/RSA parity attac
 - [Three-Round XOR Protocol Key Cancellation (HITB 2017)](#three-round-xor-protocol-key-cancellation-hitb-2017)
 - [AES-CBC UnicodeDecodeError Side-Channel Oracle (Kaspersky 2017)](#aes-cbc-unicodedecodeerror-side-channel-oracle-kaspersky-2017)
 - [SHA-256 Basis Attack for XOR-Aggregate Hash Bypass (34C3 CTF 2017)](#sha-256-basis-attack-for-xor-aggregate-hash-bypass-34c3-ctf-2017)
+- [Custom MAC Forgery via XOR Block Cancellation with Key Rotation (PlaidCTF 2018)](#custom-mac-forgery-via-xor-block-cancellation-with-key-rotation-plaidctf-2018)
+- [Bit-by-Bit HMAC Key Recovery via XOR Plus Addition Arithmetic (Midnight Sun CTF 2018)](#bit-by-bit-hmac-key-recovery-via-xor-plus-addition-arithmetic-midnight-sun-ctf-2018)
 
 ---
 
@@ -786,3 +788,35 @@ solution = M.solve_left(target)
 **Key insight:** SHA-256 hashes are 256-bit vectors over GF(2). Given ~256 random hashes, they almost certainly span the full space, meaning you can XOR-combine them to produce any target 256-bit value. This breaks XOR-based aggregate hash verification: if the system checks `XOR(sha256(file_i)) == expected`, you can replace files while maintaining the aggregate. The attack does NOT find SHA-256 collisions -- it exploits the linearity of XOR aggregation over non-linear hash outputs.
 
 **References:** 34C3 CTF 2017
+
+---
+
+### Custom MAC Forgery via XOR Block Cancellation with Key Rotation (PlaidCTF 2018)
+
+**Pattern:** Custom MAC uses AES-ECB with key stream that repeats every 128 blocks. Craft three queries where 2048-byte filler blocks cancel via XOR between queries, leaving only the target command's MAC. (PlaidCTF 2018)
+
+```python
+mac1 = fmac("tag " + tag_cmd(cmdline))      # tag AAA...
+mac2 = fmac("tag " + expand_cmd(cmdline))    # tag BBB...(2048) + cmd_padded
+mac3 = fmac("tag " + expand_cmd(tag_cmd(cmdline)))  # tag BBB...(2048) + tagAAA_padded
+forged_mac = mac1 ^ mac2 ^ mac3  # XOR cancellation = fmac(cmdline)
+```
+
+**Key insight:** When a MAC's internal key stream repeats periodically, arrange message blocks so that identical blocks at the same key-stream positions cancel via XOR across multiple queries. Three queries suffice to forge any target command's MAC.
+
+---
+
+### Bit-by-Bit HMAC Key Recovery via XOR Plus Addition Arithmetic (Midnight Sun CTF 2018)
+
+**Pattern:** Flawed HMAC computes `sha256((key XOR msg) + msg)` where `+` is bitwise addition (not concatenation). Sending `msg=0` gives `sha256(key)`. For bit position `i`, sending `msg=2^i`: if key bit `i` is set, XOR clears it and addition restores it, giving the same hash. (Midnight Sun CTF 2018)
+
+```python
+key_hash = get_digest(b'\x00')  # sha256(key + 0) = sha256(key)
+key = 0
+for i in range(key_bits):
+    digest = get_digest(int_to_bytes(2**i))
+    if digest == key_hash:
+        key |= (1 << i)  # bit i is set in key
+```
+
+**Key insight:** When XOR and addition interact, setting bit `i` in the message XORs it away from the key but adds it back. If key bit `i` was already set, `XOR(1,1)=0` and `0+1=1`, restoring the original value. If key bit `i` was 0, `XOR(0,1)=1` and `1+1=0` with carry, changing the hash. This creates a per-bit oracle.

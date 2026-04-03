@@ -10,6 +10,7 @@
 - [Flipper Zero .sub File (0xFun 2026)](#flipper-zero-sub-file-0xfun-2026)
 - [Keyboard Acoustic Side-Channel (ApoorvCTF 2026)](#keyboard-acoustic-side-channel-apoorvctf-2026)
 - [CD Audio Disc Image Steganography (BSidesSF 2026)](#cd-audio-disc-image-steganography-bsidessf-2026)
+- [Caps-Lock LED Morse Code Extraction from Video (STEM CTF 2018)](#caps-lock-led-morse-code-extraction-from-video-stem-ctf-2018)
 - [Linux input_event Keylogger Dump Parsing (Pwn2Win 2016)](#linux-input_event-keylogger-dump-parsing-pwn2win-2016)
 - [I2C Bus Protocol Decoding (EKOPARTY CTF 2016)](#i2c-bus-protocol-decoding-ekoparty-ctf-2016)
 - [IBM-29 Punched Card OCR (EKOPARTY CTF 2016)](#ibm-29-punched-card-ocr-ekoparty-ctf-2016)
@@ -429,6 +430,56 @@ img.save('disc_output.png')
 **Calibration workflow:** The challenge provides `calibrate_img.cdda` with a known output (`calibrate_img.png` showing "Calibrate: 0123456789abc..."). Use this pair to verify geometry parameters (tr0, dtr, r0, scale) before decoding the flag file.
 
 **Detection:** Challenge mentions "album", "CD rip", "CDDA", or provides large (~800MB) files with only 2 unique byte values. The `file` command reports "ISO-8859 text with CR line terminators" because `0x0d` (CR) is one of the two values.
+
+---
+
+## Caps-Lock LED Morse Code Extraction from Video (STEM CTF 2018)
+
+**Pattern:** Extract Morse code from a security camera video by tracking the caps-lock LED pixel on a keyboard using OpenCV frame-by-frame analysis.
+
+```python
+import cv2
+
+vidcap = cv2.VideoCapture('SecurityCamera.mp4')
+morse = []
+while vidcap.isOpened():
+    ret, frame = vidcap.read()
+    if not ret: break
+    r, g, b = frame[58, 686]  # caps-lock LED pixel coordinate
+    is_on = r > 200 and g > 200 and b > 200
+    morse.append(is_on)
+
+# Convert on/off durations to dots, dashes, and spaces
+# Short on = dot, long on = dash, medium off = letter space, long off = word space
+durations = []
+current = morse[0]
+count = 0
+for state in morse:
+    if state == current:
+        count += 1
+    else:
+        durations.append((current, count))
+        current = state
+        count = 1
+durations.append((current, count))
+
+# Calibrate thresholds from observed durations
+# Typical: dot=2-4 frames, dash=6-10 frames, letter gap=4-6 frames, word gap=10+ frames
+MORSE_MAP = {
+    '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E',
+    '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J',
+    '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O',
+    '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T',
+    '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y',
+    '--..': 'Z', '.----': '1', '..---': '2', '...--': '3',
+    '....-': '4', '.....': '5', '-....': '6', '--...': '7',
+    '---..': '8', '----.': '9', '-----': '0',
+}
+```
+
+**Key insight:** Keyboard LEDs (caps lock, num lock, scroll lock) can be programmatically controlled and are visible in security camera footage. Track a specific pixel coordinate across video frames; on/off durations encode Morse code (short=dot, long=dash).
+
+**Detection:** Video of a keyboard where an LED blinks irregularly. Challenge mentions "security camera", "keyboard", "blinking", or "Morse".
 
 ---
 

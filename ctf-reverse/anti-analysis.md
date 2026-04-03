@@ -10,7 +10,7 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
   - [Signal-Based Anti-Debug](#signal-based-anti-debug)
   - [Syscall-Level Evasion](#syscall-level-evasion)
 - [Windows Anti-Debug (Advanced)](#windows-anti-debug-advanced)
-  - [PEB-Based Checks](#peb-based-checks)
+  - [PEB (Process Environment Block) Checks](#peb-process-environment-block-checks)
   - [NtQueryInformationProcess](#ntqueryinformationprocess)
   - [Heap Flags](#heap-flags)
   - [TLS Callbacks](#tls-callbacks)
@@ -38,6 +38,7 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
 - [SIGILL Handler for Execution Mode Switching (Hack.lu 2015)](#sigill-handler-for-execution-mode-switching-hacklu-2015)
 - [SIGFPE Signal Handler Side-Channel via strace Counting (PlaidCTF 2017)](#sigfpe-signal-handler-side-channel-via-strace-counting-plaidctf-2017)
 - [Instruction Trace Inversion with Keystone and Unicorn (MeePwn CTF 2017)](#instruction-trace-inversion-with-keystone-and-unicorn-meepwn-ctf-2017)
+- [Call-less Function Chaining via Stack Frame Manipulation (THC CTF 2018)](#call-less-function-chaining-via-stack-frame-manipulation-thc-ctf-2018)
 - [Comprehensive Bypass Strategies](#comprehensive-bypass-strategies)
   - [Universal Bypass Checklist](#universal-bypass-checklist)
   - [Layered Anti-Debug (Real-World Pattern)](#layered-anti-debug-real-world-pattern)
@@ -201,7 +202,7 @@ asm volatile("syscall" : "=a"(ret) : "a"(101), "D"(0), "S"(0), "d"(0), "r"(0));
 
 ## Windows Anti-Debug (Advanced)
 
-### PEB-Based Checks
+### PEB (Process Environment Block) Checks
 
 ```c
 // BeingDebugged flag (offset 0x2 in PEB)
@@ -687,6 +688,39 @@ flag_bytes = uc.reg_read(UC_X86_REG_RAX).to_bytes(8, 'little')
 **Key insight:** Arithmetic-only obfuscation (no memory writes) is fully reversible by tracing, inverting the instruction sequence, and swapping inverse operations. PEB anti-debug can silently change comparison targets — always verify which branch is taken.
 
 **References:** MeePwn CTF 2017
+
+---
+
+### Call-less Function Chaining via Stack Frame Manipulation (THC CTF 2018)
+
+**Pattern:** Binary hides function calls by building a linked list of function pointers on the stack, then modifying saved RBP and return addresses so `leave; ret` instructions chain through the list without any explicit `CALL` instructions. IDA fails to decompile because push/pop are unbalanced and function boundaries cannot be determined.
+
+Each function in the chain:
+1. Pushes operands and the next function's address onto the stack
+2. Sets saved RBP to point to the next stack frame
+3. Sets the return address to the next function
+4. `leave` restores RSP from RBP (moving to next frame), `ret` jumps to the next function
+
+```python
+# Reversed processing chain (each function applied via leave/ret):
+def reverse_processing(byte):
+    res = byte | 0x80       # OR 0x80
+    res = res ^ 0xCA        # XOR 0xCA
+    res = (res + 66) & 0xFF # ADD 66
+    res = res ^ 0xCA        # XOR 0xCA (repeated)
+    res = (res + 66) & 0xFF
+    res = res ^ 0xCA
+    res = (res + 66) & 0xFF
+    res = res ^ 0xFE        # XOR 0xFE (final)
+    return res
+# Apply in reverse order, then reverse the character sequence
+```
+
+**Key insight:** By manipulating saved RBP to point to the next stack frame and saved RIP to the next function, `leave; ret` chains through functions without any `call` instructions. Disassemblers that track call/ret balance fail to identify function boundaries. Patch each function body individually for IDA to handle them.
+
+**Detection:** Binary with many small code blocks ending in `leave; ret` but no corresponding `call` instructions. Stack contains interleaved function pointers and data. IDA shows "stack frame is too big" or fails to create functions.
+
+**References:** THC CTF 2018
 
 ---
 

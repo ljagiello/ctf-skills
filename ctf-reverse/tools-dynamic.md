@@ -37,6 +37,7 @@
 - [Intel Pin Instruction Counting with Genetic Algorithm (hxp CTF 2017)](#intel-pin-instruction-counting-with-genetic-algorithm-hxp-ctf-2017)
 - [Opcode-Only Trace Reconstruction (0CTF 2016)](#opcode-only-trace-reconstruction-0ctf-2016)
 - [LD_PRELOAD time() Freeze for Deterministic Analysis (EKOPARTY 2017)](#ld_preload-time-freeze-for-deterministic-analysis-ekoparty-2017)
+- [LD_PRELOAD memcmp Side-Channel for Byte-by-Byte Bruteforce (Blaze CTF 2018)](#ld_preload-memcmp-side-channel-for-byte-by-byte-bruteforce-blaze-ctf-2018)
 
 ---
 
@@ -813,3 +814,33 @@ int rand(void) { return 42; }
 **Key insight:** LD_PRELOAD function interception freezes non-determinism sources (time, rand). Once deterministic, even complex VMs become tractable byte-at-a-time oracles.
 
 **References:** EKOPARTY CTF 2017
+
+---
+
+### LD_PRELOAD memcmp Side-Channel for Byte-by-Byte Bruteforce (Blaze CTF 2018)
+
+**Pattern:** Replace `memcmp` with an LD_PRELOAD library that returns the number of matching bytes instead of the standard -1/0/1 result. This converts any memcmp-based validation into a byte-by-byte oracle. Automate with GDB Python scripting to bruteforce each character position.
+
+```c
+// memcmp_hook.c - compile: gcc -shared -fPIC -o hook.so memcmp_hook.c
+int memcmp(const char *s1, const char *s2, int n) {
+    int cnt = 0;
+    for (int i = 0; i < n; ++i) {
+        if (s1[i] == s2[i]) cnt++;
+        else break;
+    }
+    return cnt;
+}
+```
+
+```bash
+# Use with GDB: LD_PRELOAD=./hook.so gdb ./binary
+# Set breakpoint after memcmp, read return value to count matching bytes
+# Iterate characters at each position to find the one that increases count
+```
+
+**Key insight:** Replacing memcmp via LD_PRELOAD to return match count converts any comparison-based validation into a byte-by-byte oracle. Combined with GDB scripting, this automates bruteforce of password/flag checks without reversing the validation algorithm.
+
+**Detection:** Binary uses `memcmp` or `strcmp` for flag validation (visible in `ltrace` output or import table). The comparison function is called with user input and a computed/stored expected value.
+
+**References:** Blaze CTF 2018

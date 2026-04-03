@@ -16,6 +16,8 @@
 - [Polynomial CRT in GF(2)\[x\] (Nullcon 2026)](#polynomial-crt-in-gf2x-nullcon-2026)
 - [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
 - [Hastad Broadcast Attack with Linear Padding -- Coppersmith (PlaidCTF 2017)](#hastad-broadcast-attack-with-linear-padding----coppersmith-plaidctf-2017)
+- [Franklin-Reiter Related Message Attack on RSA e=3 (N1CTF 2018)](#franklin-reiter-related-message-attack-on-rsa-e3-n1ctf-2018)
+- [Coppersmith Attack on Linearly-Related RSA Primes (ASIS CTF 2018)](#coppersmith-attack-on-linearly-related-rsa-primes-asis-ctf-2018)
 - [rsa-attacks-2.md: RSA p=q Validation Bypass (BearCatCTF 2026)](rsa-attacks-2.md#rsa-pq-validation-bypass-bearcatctf-2026)
 - [rsa-attacks-2.md: RSA Cube Root CRT when gcd(e, phi) > 1 (BearCatCTF 2026)](rsa-attacks-2.md#rsa-cube-root-crt-when-gcde-phi-1-bearcatctf-2026)
 - [rsa-attacks-2.md: Factoring n from Multiple of phi(n) (BearCatCTF 2026)](rsa-attacks-2.md#factoring-n-from-multiple-of-phin-bearcatctf-2026)
@@ -235,6 +237,41 @@ flag = int(roots[0])
 **Key insight:** When the same message is encrypted with `e` different moduli but each applies a known affine transform `a_i * m + b_i`, CRT combines the congruences into a single polynomial of degree `e` over `Z/NZ`. Coppersmith's method recovers `m` as a small root, generalizing Hastad's attack beyond identical plaintexts.
 
 **References:** PlaidCTF 2017
+
+---
+
+### Franklin-Reiter Related Message Attack on RSA e=3 (N1CTF 2018)
+
+**Pattern:** When server encrypts `m+padding` where `padding = sha256(user_input)` and `e=3`, two ciphertexts with known padding difference allow polynomial GCD in `Zmod(n)` to recover `m`. (N1CTF 2018)
+
+```python
+# SageMath
+def franklin_reiter(n, pad1, pad2, c1, c2):
+    R.<X> = PolynomialRing(Zmod(n))
+    f1 = (X + pad1)^3 - c1
+    f2 = (X + pad2)^3 - c2
+    return -gcd(f1, f2).coefficients()[0]
+```
+
+**Key insight:** With RSA e=3, if the same message `m` is encrypted with two known affine transformations (`m+pad1`, `m+pad2`), polynomial GCD over `Zmod(n)` recovers `m` directly. Works whenever the padding difference is known, even without knowing the full padding.
+
+---
+
+### Coppersmith Attack on Linearly-Related RSA Primes (ASIS CTF 2018)
+
+**Pattern:** When RSA primes have a near-linear relation `q ~ 4p`, approximate `q` from `sqrt(4*n)`, then use Coppersmith's `small_roots` to find the error term. (ASIS CTF 2018)
+
+```python
+# SageMath
+qbar = isqrt(4 * n)
+R.<x> = PolynomialRing(Zmod(n))
+f = x + qbar
+roots = f.small_roots(X=2^200, beta=0.5)  # find small error term
+q = qbar + int(roots[0])
+p = n // q
+```
+
+**Key insight:** When `q ~ k*p` for known `k`, then `q ~ sqrt(k*n)`. The difference between `q` and this approximation is small enough for Coppersmith's method. This generalizes Fermat factorization to non-consecutive primes with known ratio.
 
 ---
 

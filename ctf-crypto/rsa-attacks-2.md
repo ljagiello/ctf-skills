@@ -16,6 +16,7 @@
 - [Bleichenbacher Low-Exponent RSA Signature Forgery (Google CTF 2017)](#bleichenbacher-low-exponent-rsa-signature-forgery-google-ctf-2017)
 - [Coppersmith Small Roots for Linearly Related Primes (Tokyo Westerns 2017)](#coppersmith-small-roots-for-linearly-related-primes-tokyo-westerns-2017)
 - [ROCA Attack on RSA CVE-2017-15361 (EasyCTF IV)](#roca-attack-on-rsa-cve-2017-15361-easyctf-iv)
+- [RSA Signature Bypass with e=1 and Crafted Modulus (BackdoorCTF 2018)](#rsa-signature-bypass-with-e1-and-crafted-modulus-backdoorctf-2018)
 
 See also: [rsa-attacks.md](rsa-attacks.md) for foundational RSA attacks (small e, Wiener, Fermat, Pollard, Hastad, common modulus, Manger oracle, Coppersmith).
 
@@ -457,3 +458,17 @@ cd neca && cargo build --release
 **Key insight:** CVE-2017-15361 affects Infineon TPMs, smart cards, and YubiKey 4. Primes have the form `p = k * M + (65537^a mod M)` where M is the product of first n primes. Detection is instant (check `65537^x mod M` divides `n mod M`). Factoring uses Coppersmith's method on the known structure. Keys up to 2048 bits are practically attackable. For CTF use: if `roca-detect` reports vulnerable, use `neca` for 512-bit keys or the `crocs-muni/roca` tool for larger keys.
 
 **References:** EasyCTF IV (2018)
+
+---
+
+### RSA Signature Bypass with e=1 and Crafted Modulus (BackdoorCTF 2018)
+
+**Pattern:** Server generates RSA signature and asks for `(n, e)` to verify it. With `e=1`, `pow(s, 1, n) = s mod n`. Set `n = signature - PKCS1_pad(message)` so verification passes. (BackdoorCTF 2018)
+
+```python
+e = 1
+n = signature ** e - PKCS1_pad(h.hexdigest())
+# Now pow(signature, 1, n) == PKCS1_pad(message)
+```
+
+**Key insight:** When the verifier accepts user-supplied public key parameters without constraints, setting `e=1` makes modular exponentiation trivial. Choose `n` such that `signature mod n` equals the expected padded hash.

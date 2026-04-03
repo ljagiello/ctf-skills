@@ -47,7 +47,7 @@
 - [Malware Anti-Analysis Bypass via Patching](#malware-anti-analysis-bypass-via-patching)
 - [Multi-Stage Shellcode Loaders](#multi-stage-shellcode-loaders)
 - [Timing Side-Channel Attack](#timing-side-channel-attack)
-- [Multi-Thread Anti-Debug with Decoy + Signal Handler MBA (ApoorvCTF 2026)](#multi-thread-anti-debug-with-decoy--signal-handler-mba-apoorvctf-2026)
+- [Multi-Thread Anti-Debug with Decoy + Signal Handler Mixed Boolean-Arithmetic (ApoorvCTF 2026)](#multi-thread-anti-debug-with-decoy--signal-handler-mixed-boolean-arithmetic-apoorvctf-2026)
 - [INT3 Patch + Coredump Brute-Force Oracle (Pwn2Win 2016)](#int3-patch--coredump-brute-force-oracle-pwn2win-2016)
 - [Signal Handler Chain + LD_PRELOAD Oracle (Nuit du Hack 2016)](#signal-handler-chain--ld_preload-oracle-nuit-du-hack-2016)
 - [printf Format String VM Decompilation to Z3 (SECCON 2017)](#printf-format-string-vm-decompilation-to-z3-seccon-2017)
@@ -654,7 +654,7 @@ for pos in range(flag_length):
 
 ---
 
-## Multi-Thread Anti-Debug with Decoy + Signal Handler MBA (ApoorvCTF 2026)
+## Multi-Thread Anti-Debug with Decoy + Signal Handler Mixed Boolean-Arithmetic (ApoorvCTF 2026)
 
 **Pattern (A Golden Experience Requiem):** Multi-threaded binary with layered anti-analysis: Thread 1 performs decoy operations (fake AES + deliberate crash via `ud2`), Thread 2 does the real flag computation in a SIGSEGV signal handler using Mixed Boolean Arithmetic (MBA), Thread 3 erases memory to prevent post-mortem analysis.
 

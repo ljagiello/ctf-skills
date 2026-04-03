@@ -14,6 +14,7 @@
 - [APFS Snapshot Historical File Recovery (srdnlenCTF 2026)](#apfs-snapshot-historical-file-recovery-srdnlenctf-2026)
 - [RAID 5 Disk Recovery via XOR (Crypto-Cat)](#raid-5-disk-recovery-via-xor-crypto-cat)
 - [HFS+ Resource Fork Hidden Binary Recovery (CONFidence CTF 2017)](#hfs-resource-fork-hidden-binary-recovery-confidence-ctf-2017)
+- [Kyoto Cabinet Hash Database Forensics via Incremental Key Insertion (ASIS CTF 2018)](#kyoto-cabinet-hash-database-forensics-via-incremental-key-insertion-asis-ctf-2018)
 - [SQLite Edit History Reconstruction from Diff Table (Google CTF 2017)](#sqlite-edit-history-reconstruction-from-diff-table-google-ctf-2017)
 - [See Also](#see-also)
 
@@ -410,6 +411,57 @@ cat part1.bin part2.bin > recovered_binary
 
 ---
 
+## Kyoto Cabinet Hash Database Forensics via Incremental Key Insertion (ASIS CTF 2018)
+
+**Pattern:** Unknown binary file identified as Kyoto Cabinet (KC) hash database. Flag characters stored as values with zeroed-out keys. Since the database uses a fixed-size hash table, recover ordering by inserting sequential keys one at a time and observing which hash slot reference gets overwritten via binary diff.
+
+```bash
+# Identify format
+file unknown.db  # may not recognize KC format
+strings unknown.db | head  # look for "KCPH" magic
+
+# Enumerate values
+kchashmgr list tokyo.kch
+
+# Recover key ordering via incremental insertion + binary diff
+for i in $(seq -w 000 088); do
+    cp tokyo.kch test.kch
+    kchashmgr set test.kch "$i" "probe"
+    diff <(xxd tokyo.kch) <(xxd test.kch) | head -5
+    # Changed offset reveals which original entry maps to key $i
+done
+```
+
+**Full recovery script (Python):**
+```python
+import subprocess, shutil
+
+original = 'tokyo.kch'
+# Get all values from the database
+values = subprocess.check_output(['kchashmgr', 'list', original]).decode().splitlines()
+
+mapping = {}
+for i in range(len(values)):
+    key = f'{i:03d}'
+    shutil.copy(original, 'test.kch')
+    subprocess.run(['kchashmgr', 'set', 'test.kch', key, 'probe'], check=True)
+    # Binary diff to find which slot changed
+    orig_hex = subprocess.check_output(['xxd', original]).decode()
+    test_hex = subprocess.check_output(['xxd', 'test.kch']).decode()
+    for orig_line, test_line in zip(orig_hex.splitlines(), test_hex.splitlines()):
+        if orig_line != test_line:
+            mapping[i] = orig_line  # Record which entry was overwritten
+            break
+
+# Reconstruct flag from ordered values
+flag = ''.join(values[i] for i in sorted(mapping.keys()))
+print(flag)
+```
+
+**Key insight:** Hash databases store entries at positions determined by key hash values. When keys are zeroed/corrupted, the stored ordering is hash-based, not insertion-order. Insert probe keys one at a time and binary-diff the database to find which slot each probe overwrites, revealing the original key-to-value mapping.
+
+---
+
 ## SQLite Edit History Reconstruction from Diff Table (Google CTF 2017)
 
 SQLite databases storing note/document edit history as diff entries (operation, position, text, diffset) can be replayed to reconstruct content at any point in time.
@@ -441,5 +493,5 @@ for op_type, position, text in diffs:
 
 ## See Also
 
-- [disk-and-memory.md](disk-and-memory.md) - Core disk and memory forensics (Volatility 3, disk image analysis, VM/OVA/VMDK forensics, VMware snapshots, coredump analysis, Windows KAPE triage, PowerShell ransomware, Android forensics, Docker container forensics, cloud storage forensics, BSON reconstruction, TrueCrypt/VeraCrypt mounting)
+- [disk-and-memory.md](disk-and-memory.md) - Core disk and memory forensics (Volatility 3, disk image analysis, VM/OVA/VMDK forensics, VMware snapshots, GIMP raw memory dump visual inspection, coredump analysis, Windows KAPE triage, PowerShell ransomware, Android forensics, Docker container forensics, cloud storage forensics, BSON reconstruction, TrueCrypt/VeraCrypt mounting)
 - [disk-recovery.md](disk-recovery.md) - Disk recovery and extraction patterns (LUKS master key recovery, PRNG timestamp seed brute-force, VBA macro binary recovery, FemtoZip decompression, XFS reconstruction, tar duplicate entry extraction, nested matryoshka filesystem extraction, anti-carving via null byte interleaving)

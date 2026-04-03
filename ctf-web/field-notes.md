@@ -20,7 +20,7 @@ Long-form exploit notes that were moved out of `SKILL.md` so the main skill can 
 - [Code Injection Quick Reference](#code-injection-quick-reference)
 - [Java Deserialization](#java-deserialization)
 - [Python Pickle Deserialization](#python-pickle-deserialization)
-- [Race Conditions (TOCTOU)](#race-conditions-toctou)
+- [Race Conditions (Time-of-Check to Time-of-Use)](#race-conditions-time-of-check-to-time-of-use)
 - [Node.js Quick Reference](#nodejs-quick-reference)
 - [Auth & Access Control Quick Reference](#auth--access-control-quick-reference)
 - [Apache CVE-2012-0053 HttpOnly Cookie Leak](#apache-cve-2012-0053-httponly-cookie-leak)
@@ -253,7 +253,7 @@ Serialized Java objects (`rO0AB` / `aced0005`) + ysoserial gadget chains → RCE
 
 `pickle.loads()` calls `__reduce__()` → `(os.system, ('cmd',))` instant RCE. Also via `yaml.load()`, `torch.load()`, `joblib.load()`. See [server-side-deser.md](server-side-deser.md#python-pickle-deserialization).
 
-## Race Conditions (TOCTOU)
+## Race Conditions (Time-of-Check to Time-of-Use)
 
 Concurrent requests bypass check-then-act patterns (balance, coupons, registration). Send 50 simultaneous requests — all see pre-modification state. See [server-side-deser.md](server-side-deser.md#race-conditions-toctou).
 
