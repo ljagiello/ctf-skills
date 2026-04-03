@@ -255,7 +255,7 @@ Serialized Java objects (`rO0AB` / `aced0005`) + ysoserial gadget chains → RCE
 
 ## Race Conditions (Time-of-Check to Time-of-Use)
 
-Concurrent requests bypass check-then-act patterns (balance, coupons, registration). Send 50 simultaneous requests — all see pre-modification state. See [server-side-deser.md](server-side-deser.md#race-conditions-toctou).
+Concurrent requests bypass check-then-act patterns (balance, coupons, registration). Send 50 simultaneous requests — all see pre-modification state. See [server-side-deser.md](server-side-deser.md#race-conditions-time-of-check-to-time-of-use).
 
 ## Node.js Quick Reference
 

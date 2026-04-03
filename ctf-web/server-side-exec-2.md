@@ -137,7 +137,7 @@ Serialized Java objects in cookies/POST (starts with `rO0AB` / `aced0005`). Use 
 
 ## Race Conditions (Time-of-Check to Time-of-Use)
 
-Concurrent requests bypass check-then-act patterns (balance, coupons, registration uniqueness). Send 50+ simultaneous requests so all see pre-modification state. See [server-side-deser.md](server-side-deser.md#race-conditions-toctou) for async exploit code and detection patterns.
+Concurrent requests bypass check-then-act patterns (balance, coupons, registration uniqueness). Send 50+ simultaneous requests so all see pre-modification state. See [server-side-deser.md](server-side-deser.md#race-conditions-time-of-check-to-time-of-use) for async exploit code and detection patterns.
 
 ---
 
