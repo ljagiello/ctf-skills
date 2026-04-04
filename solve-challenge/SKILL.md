@@ -44,6 +44,18 @@ Each category skill's `SKILL.md` has a **Prerequisites** section listing only th
 
 ## Workflow
 
+### Step 0: CTFd Platform Detection
+
+If the CTF platform URL is known, check if it runs CTFd and switch to API-driven navigation:
+
+```bash
+# Detect CTFd (look for /api/v1/ and /themes/core/)
+curl -s "$CTF_URL/api/v1/" | head -5
+curl -s "$CTF_URL" | grep -oE '/themes/core/'
+```
+
+If CTFd is detected, use the API to list challenges, download files, and submit flags without a browser. Set `CTF_URL` and `CTF_TOKEN` environment variables, then use `curl` with `Authorization: Token $CTF_TOKEN` header. See [ctf-misc/ctfd-navigation.md](../ctf-misc/ctfd-navigation.md) for the full API reference and Python client class.
+
 ### Step 1: Recon
 
 1. **Explore files** -- List the challenge directory, run `file *` on everything
