@@ -50,6 +50,8 @@ curl -s "$CTF_URL/login" | grep -oE 'name="nonce"'
 
 CTFd supports two auth methods: session cookies (login flow) and API tokens (recommended).
 
+**Important:** When CTFd is detected, **ask the user for their API token**. Tokens are not provided by default — the user must generate one from the CTFd web UI (Settings > Access Tokens) before API access works. If the user doesn't have a token yet, guide them: log in to CTFd in a browser, go to Settings > Access Tokens, create a token, and paste it back.
+
 ### Method 1: API Token (Recommended)
 
 Generate a token from the CTFd web UI (Settings > Access Tokens), or if you already have session cookies:

@@ -349,7 +349,7 @@ Root process runs scripts from user-owned directory. Modify `server-command`, tr
 
 ## CTFd Platform Navigation (No Browser)
 
-Detect CTFd (`curl -s "$CTF_URL/api/v1/" | head -5`) and interact via API with `Authorization: Token $CTF_TOKEN` header. List challenges, download files, submit flags, check scoreboard — all from terminal.
+Detect CTFd (`curl -s "$CTF_URL/api/v1/" | head -5`) and interact via API. **Ask the user for their API token** (CTFd Settings > Access Tokens) — it is not provided by default. Then use `Authorization: Token $CTF_TOKEN` header for all requests.
 
 ```bash
 export CTF_URL="https://ctf.example.com" CTF_TOKEN="ctfd_your_token_here"

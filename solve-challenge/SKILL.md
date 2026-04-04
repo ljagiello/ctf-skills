@@ -54,7 +54,14 @@ curl -s "$CTF_URL/api/v1/" | head -5
 curl -s "$CTF_URL" | grep -oE '/themes/core/'
 ```
 
-If CTFd is detected, use the API to list challenges, download files, and submit flags without a browser. Set `CTF_URL` and `CTF_TOKEN` environment variables, then use `curl` with `Authorization: Token $CTF_TOKEN` header. See [ctf-misc/ctfd-navigation.md](../ctf-misc/ctfd-navigation.md) for the full API reference and Python client class.
+If CTFd is detected, **ask the user for their API token** (generated from CTFd Settings > Access Tokens). The token is not provided by default — the user must create one in the CTFd web UI first. Once provided, set the environment variables and proceed via API:
+
+```bash
+export CTF_URL="https://ctf.example.com"
+export CTF_TOKEN="ctfd_..."  # Ask user for this
+```
+
+See [ctf-misc/ctfd-navigation.md](../ctf-misc/ctfd-navigation.md) for the full API reference and Python client class.
 
 ### Step 1: Recon
 
