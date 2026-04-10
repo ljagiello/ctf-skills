@@ -19,7 +19,7 @@ jobs:
       actions: read
     steps:
       - name: Download audit report artifact
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
@@ -47,7 +47,7 @@ jobs:
           unzip -o "${{ runner.temp }}/report.zip" -d "${{ runner.temp }}/report"
 
       - name: Post or update PR comment
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
