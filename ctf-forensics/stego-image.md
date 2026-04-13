@@ -4,20 +4,21 @@ Techniques specific to hiding data in image formats (JPEG, PNG, BMP, GIF). For n
 
 ## Table of Contents
 - [JPEG Unused Quantization Table LSB Steganography (EHAX 2026)](#jpeg-unused-quantization-table-lsb-steganography-ehax-2026)
-- [BMP Bitplane QR Code Extraction + Steghide (BYPASS CTF 2025)](#bmp-bitplane-qr-code-extraction-steghide-bypass-ctf-2025)
+- [BMP Bitplane QR Code Extraction + Steghide (BYPASS CTF 2025)](#bmp-bitplane-qr-code-extraction--steghide-bypass-ctf-2025)
 - [Image Jigsaw Puzzle Reassembly via Edge Matching (BYPASS CTF 2025)](#image-jigsaw-puzzle-reassembly-via-edge-matching-bypass-ctf-2025)
 - [F5 JPEG DCT Coefficient Ratio Detection (ApoorvCTF 2026)](#f5-jpeg-dct-coefficient-ratio-detection-apoorvctf-2026)
 - [PNG Unused Palette Entry Steganography (ApoorvCTF 2026)](#png-unused-palette-entry-steganography-apoorvctf-2026)
 - [QR Code Tile Reconstruction (UTCTF 2026)](#qr-code-tile-reconstruction-utctf-2026)
-- [Seed-Based Pixel Permutation + Multi-Bitplane QR (L3m0nCTF 2025)](#seed-based-pixel-permutation-multi-bitplane-qr-l3m0nctf-2025)
+- [Seed-Based Pixel Permutation + Multi-Bitplane QR (L3m0nCTF 2025)](#seed-based-pixel-permutation--multi-bitplane-qr-l3m0nctf-2025)
 - [JPEG Thumbnail Pixel-to-Text Mapping (RuCTF 2013)](#jpeg-thumbnail-pixel-to-text-mapping-ructf-2013)
-- [Conditional LSB Extraction — Near-Black Pixel Filter (BaltCTF 2013)](#conditional-lsb-extraction-near-black-pixel-filter-baltctf-2013)
+- [Conditional LSB Extraction — Near-Black Pixel Filter (BaltCTF 2013)](#conditional-lsb-extraction--near-black-pixel-filter-baltctf-2013)
 - [JPEG Slack Space Steganography (BSidesSF 2025)](#jpeg-slack-space-steganography-bsidessf-2025)
 - [Nearest-Neighbor Interpolation Steganography (BSidesSF 2025)](#nearest-neighbor-interpolation-steganography-bsidessf-2025)
 - [RGB Parity Steganography (Break In 2016)](#rgb-parity-steganography-break-in-2016)
 - [Pixel Coordinate Chain Steganography (H4ckIT CTF 2016)](#pixel-coordinate-chain-steganography-h4ckit-ctf-2016)
 - [AVI Frame Differential Pixel Steganography (H4ckIT CTF 2016)](#avi-frame-differential-pixel-steganography-h4ckit-ctf-2016)
 - [JPEG Single-Bit-Flip Brute Force with OCR (SECCON 2017)](#jpeg-single-bit-flip-brute-force-with-ocr-seccon-2017)
+- [GIF Frame PLTE Chunk Concatenation to ELF (IceCTF 2018)](#gif-frame-plte-chunk-concatenation-to-elf-icectf-2018)
 
 ---
 
@@ -563,3 +564,39 @@ done
 ```
 
 **Key insight:** For small files (< 10KB), the total search space for single-bit flips is `8 * file_size` — typically under 80,000 candidates, easily brute-forceable. Use thumbnail generation as a fast validity check (corrupt JPEGs fail to decode), then OCR on survivors. JPEG compressed data rule: `0xFF` is always followed by `0x00` (stuffed byte) or a marker — violations indicate the corruption location.
+
+---
+
+## GIF Frame PLTE Chunk Concatenation to ELF (IceCTF 2018)
+
+**Pattern:** A GIF hides a Linux ELF binary by breaking it into indexed PNG frames. Each frame's `PLTE` (palette) chunk holds the next slice of the binary — the actual pixel data is irrelevant. Extract with Pillow: iterate frames, convert each to PNG, walk the PNG chunks, concatenate every `PLTE` body, and the result is a valid ELF file.
+
+```python
+from PIL import Image, ImagePalette
+import struct
+
+def read_png_plte(png_bytes):
+    i = 8  # skip PNG magic
+    while i < len(png_bytes):
+        length = struct.unpack(">I", png_bytes[i:i+4])[0]
+        ctype  = png_bytes[i+4:i+8]
+        body   = png_bytes[i+8:i+8+length]
+        if ctype == b"PLTE":
+            return body
+        i += 12 + length
+    return b""
+
+payload = bytearray()
+with Image.open("carrier.gif") as gif:
+    for frame in range(gif.n_frames):
+        gif.seek(frame)
+        png_buf = io.BytesIO()
+        gif.save(png_buf, "PNG")
+        payload += read_png_plte(png_buf.getvalue())
+
+open("recovered.elf", "wb").write(payload)
+```
+
+**Key insight:** GIF frames are internally stored with their own palettes. When you re-encode each frame as a PNG, the palette survives as a `PLTE` chunk — an ignored but byte-accurate container. Any stego carrier that uses a multi-frame format with per-frame metadata (GIF palettes, APNG frame data, PDF page streams, MKV tracks) lets you embed data in the *metadata channel* instead of the pixel channel, bypassing most LSB-style detection. When a GIF looks like a harmless animation but contains extra frames or palette entries, dump chunk-by-chunk before touching the pixels.
+
+**References:** IceCTF 2018 — ilovebees, writeup 11418

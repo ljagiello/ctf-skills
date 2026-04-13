@@ -16,6 +16,7 @@
 - [Corrupted ZIP Repair via Header Field Manipulation (PlaidCTF 2017)](#corrupted-zip-repair-via-header-field-manipulation-plaidctf-2017)
 - [Recovering Deleted .git Repository from FAT Image (Square CTF 2017)](#recovering-deleted-git-repository-from-fat-image-square-ctf-2017)
 - [DNSSEC Key Recovery from Git Commit History (Hack.lu 2017)](#dnssec-key-recovery-from-git-commit-history-hacklu-2017)
+- [XZ Stream Header Repair via CRC32 Reconstruction (Hackover 2018)](#xz-stream-header-repair-via-crc32-reconstruction-hackover-2018)
 - [See Also](#see-also)
 
 ---
@@ -551,6 +552,38 @@ dnssec-signzone -K /path/to/keys -o example.com zone.db
 ```
 
 **Key insight:** Sensitive cryptographic key material in git history is permanently recoverable — `git log --diff-filter=D` finds all commits that deleted files, and `git show <commit>^:<path>` retrieves the file's state just before deletion. DNSSEC private keys enable forging any DNS record for the zone, allowing DNS cache poisoning or redirecting traffic to attacker-controlled servers.
+
+---
+
+## XZ Stream Header Repair via CRC32 Reconstruction (Hackover 2018)
+
+**Pattern:** The file has a valid XZ stream footer but the stream header has been overwritten (commonly with `PK\x03\x04` to make it look like a ZIP). Rebuild the 12-byte XZ header from the format spec: magic `FD 37 7A 58 5A 00`, two bytes of stream flags, and a 4-byte little-endian CRC32 of those flags. Prepend the reconstructed header to the rest of the file and `xz -d` decompresses cleanly.
+
+```bash
+# 1. Confirm the footer — XZ stream footer magic is "YZ" at the end.
+xxd broken.xz | tail -1
+# 00002ff0: 00 00 01 59 5A  ...YZ
+
+# 2. Read stream_flags from the footer (byte at offset -6 from EOF)
+STREAM_FLAGS=$(xxd -p -s -6 -l 2 broken.xz)
+# e.g. 00 04  → CHECK_CRC64
+
+# 3. Compute CRC32 of the 2 flag bytes (little-endian output)
+CRC=$(python3 -c "import binascii; print(binascii.crc32(bytes.fromhex('$STREAM_FLAGS')).to_bytes(4,'little').hex())")
+
+# 4. Rebuild the header and replace the first 12 bytes
+printf '\xFD7zXZ\x00' > newhdr.bin
+printf '%s' "$STREAM_FLAGS" | xxd -r -p >> newhdr.bin
+printf '%s' "$CRC"          | xxd -r -p >> newhdr.bin
+dd if=newhdr.bin of=broken.xz bs=1 count=12 conv=notrunc
+
+# 5. Decompress
+xz -d broken.xz
+```
+
+**Key insight:** XZ streams are defined by a fixed 12-byte header and a 12-byte footer that both include the same `stream_flags` byte — when the header is damaged you can copy the flags out of the still-intact footer and recompute the header CRC32 locally. The same header-reconstruction trick works for any format where the checksum input is small enough to brute-force or derive from the footer: GZIP (trailing `isize`/`crc32`), ZIP (central directory before the local file header), and zstd (frame header with skip-frames). When the challenge hands you a blob whose magic bytes belong to the wrong format, check the **last few bytes** for the real footer signature before trying to salvage the header.
+
+**References:** Hackover CTF 2018 — UnbreakMyStart, writeup 11508
 
 ---
 

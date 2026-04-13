@@ -11,8 +11,10 @@ HD44780 LCD GPIO reconstruction, RISC-V advanced extensions and debugging, ARM64
 - [ARM64/AArch64 Reversing and Exploitation](#arm64aarch64-reversing-and-exploitation)
 - [MIPS64 Cavium OCTEON Coprocessor 2 Crypto (SEC-T CTF 2017)](#mips64-cavium-octeon-coprocessor-2-crypto-sec-t-ctf-2017)
 - [EFM32 ARM Microcontroller MMIO AES (SEC-T CTF 2017)](#efm32-arm-microcontroller-mmio-aes-sec-t-ctf-2017)
-- [MBR/Bootloader Reversing with QEMU + GDB (Square CTF 2017)](#mbrbootloader-reversing-with-qemu-gdb-square-ctf-2017)
+- [MBR/Bootloader Reversing with QEMU + GDB (Square CTF 2017)](#mbrbootloader-reversing-with-qemu--gdb-square-ctf-2017)
 - [Game Boy ROM Z80 Analysis in bgb Debugger (Square CTF 2017)](#game-boy-rom-z80-analysis-in-bgb-debugger-square-ctf-2017)
+- [KVM Guest Analysis via ioctl + KVM_EXIT_HLT Block Chaining (CSAW 2018)](#kvm-guest-analysis-via-ioctl--kvm_exit_hlt-block-chaining-csaw-2018)
+- [Coreboot ROM XOR-Pair Bit-Flip Address Discovery (Hack.lu 2018)](#coreboot-rom-xor-pair-bit-flip-address-discovery-hacklu-2018)
 
 ---
 
@@ -326,3 +328,60 @@ When `and (hl)` or `cp (hl)` fires during input validation, the expected byte is
 **Key insight:** Game Boy ROMs are Z80/SM83 architecture. The bgb debugger provides GDB-like functionality; key comparisons use `(hl)`-indirect addressing so the expected value is directly visible in the memory view during the comparison.
 
 **References:** Square CTF 2017
+
+---
+
+## KVM Guest Analysis via ioctl + KVM_EXIT_HLT Block Chaining (CSAW 2018)
+
+**Pattern:** A userspace process hosts a KVM-based VM whose guest "program" is nothing but a sequence of code blocks that end in `HLT`. The host handler reads `KVM_EXIT_HLT`, inspects guest registers, and dispatches to the next block by looking up `rax` in a jump table at `0x2020A0`. Reverse the whole program by (1) running the binary under `strace -v` to capture `KVM_GET_REGS`/`KVM_SET_REGS` pairs, (2) dumping each code block from the KVM memory region, and (3) reconstructing the dispatch graph from the host's rax-indexed table.
+
+```bash
+# 1. Observe KVM ioctls + register snapshots
+strace -v -e ioctl ./challenge 2>&1 | grep -E "KVM_RUN|KVM_(GET|SET)_REGS"
+
+# 2. Dump guest code memory (offset + size from KVM_SET_USER_MEMORY_REGION ioctl)
+gdb -batch -ex "attach $(pgrep challenge)" \
+    -ex "dump binary memory guest.bin 0x400000 0x410000" \
+    -ex "detach"
+
+# 3. Disassemble each HLT-terminated block
+objdump -D -b binary -m i386:x86-64 guest.bin | less
+```
+
+```python
+# Rebuild the dispatch graph
+import struct
+with open("challenge", "rb") as f:
+    data = f.read()
+# Host table at 0x2020A0 maps rax → next block offset
+table = struct.unpack_from("<128Q", data, 0x2020A0)
+for rax, ptr in enumerate(table):
+    if ptr:
+        print(f"rax={rax:02x} → block {ptr:#x}")
+```
+
+**Key insight:** KVM-backed challenges hide control flow by moving it into the host process, not the guest. The guest code itself is just a pile of opaque blocks. `strace` on the KVM ioctls replaces a debugger: every `KVM_EXIT_HLT` is a "basic block boundary" and the host's response is the real transition function. Any time you see a CTF binary linked against `-lkvm` or opening `/dev/kvm`, drop your normal reverse-engineering pipeline and start from the ioctl trace.
+
+**References:** CSAW CTF Qualification Round 2018 — kvm, writeup 11206
+
+---
+
+## Coreboot ROM XOR-Pair Bit-Flip Address Discovery (Hack.lu 2018)
+
+**Pattern:** A firmware image loads its flag location by XOR-ing two constants from ROM at boot. The challenge service lets the attacker flip a single bit anywhere in the ROM and observe the new flag address. Compute the intended address `X = C1 ^ C2`, compare against the advertised address, and the bit that differs — always exactly one bit away in a well-designed challenge — tells you which ROM byte + bit pair controls the redirect.
+
+```python
+# Two constants in ROM
+C1 = 0xEF56BF92
+C2 = 0xEF5A3F92
+intended = C1 ^ C2          # 0xC8000 per the source
+actual   = 0xC0000          # where the flag really lives in memory
+
+diff = intended ^ actual    # 0x08000 → bit 15
+# Find the ROM offset that, when a single bit is flipped, produces `actual`.
+# The flip must land in either C1 or C2 so the XOR result has bit 15 cleared.
+```
+
+**Key insight:** XOR of two ROM constants is trivially a linear operation: any single-bit flip in either operand XORs the corresponding bit into the result. Walk the Hamming distance between computed and observed addresses and you get a bounded list of candidate patch sites — usually one or two. Pairs of addresses in firmware are suspicious: they frequently compose via XOR, ADD, or SUB and every arithmetic relation is a candidate for a targeted single-bit flip attack. Also applies to rowhammer: the sensitive bit is the *differential* between two constants, not the constants themselves.
+
+**References:** Hack.lu CTF 2018 — 1-bit-missile, writeups 11862, 11865

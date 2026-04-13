@@ -13,6 +13,7 @@
 - [WHOIS Investigation](#whois-investigation)
 - [Shodan SSH Fingerprint Lookup (EKOPARTY CTF 2016)](#shodan-ssh-fingerprint-lookup-ekoparty-ctf-2016)
 - [Fake Service Banner Detection via Fingerprinting (MetaCTF Flash 2026)](#fake-service-banner-detection-via-fingerprinting-metactf-flash-2026)
+- [Git Commit Author Mining for Credentials (Hackover 2018)](#git-commit-author-mining-for-credentials-hackover-2018)
 - [Resources](#resources)
 
 ---
@@ -250,6 +251,34 @@ echo "" | timeout 3 nc -w 3 target.ctf 22
 **Key insight:** Never trust port numbers alone. A SYN scan only confirms the port is open, not what service is running. Always run `nmap -sV` (version detection) or connect with `nc` to read the actual banner. CTF challenges exploit the assumption that port 22 = SSH, port 80 = HTTP, etc. Custom banner services on standard ports are a common OSINT/network recon trick.
 
 **When to recognize:** Challenge name hints at network scanning or reconnaissance ("SYN", "scan", "port"). The expected approach is to enumerate open ports, but the flag is in the service banner itself rather than requiring exploitation.
+
+---
+
+## Git Commit Author Mining for Credentials (Hackover 2018)
+
+**Pattern:** A challenge mentions a username with no credentials and expects the attacker to pivot to a public repository (GitHub/GitLab/Bitbucket) owned by that user. `git shortlog -sne` or `git log --format="%an <%ae>"` extracts every author email from the commit history — that address is often the valid login username the target service expects, before you attempt any password-reset or SQL-injection flow.
+
+```bash
+# Clone the target's public repo and list every contributor email
+git clone https://github.com/<target-user>/<repo>.git
+cd repo
+git shortlog -sne
+# 23  John Doe <[email protected]>
+#  5  John Doe <[email protected]>     ← often the real login
+
+# Pull every historic author at once:
+git log --format="%an <%ae>%n%cn <%ce>" | sort -u
+```
+
+```bash
+# GitHub-wide enumeration — list every event from a user
+gh api "users/<target-user>/events/public" --paginate \
+   | jq -r '.[] | .payload.commits[]?.author.email' | sort -u
+```
+
+**Key insight:** A git repo is a signed audit log of every author, committer, and co-author who has ever touched it. Even after someone rotates an email, the history keeps the old addresses. Mine both `author.email` and `committer.email`, and also look at `.mailmap`, `CONTRIBUTORS`, and GPG-signed commits (`git log --show-signature`). Treat each recovered email as a candidate login for the target service — many CTF web boxes, HR portals, and password-reset flows accept author emails straight from a public repo.
+
+**References:** Hackover CTF 2018 — who knows john dows?, writeups 11537, 11646
 
 ---
 

@@ -2,14 +2,14 @@
 
 ## Table of Contents
 - [PHP Type Juggling](#php-type-juggling)
-- [PHP File Inclusion / php://filter](#php-file-inclusion-phpfilter)
+- [PHP File Inclusion / php://filter](#php-file-inclusion--phpfilter)
 - [SQL Injection](#sql-injection) — moved to [sql-injection.md](sql-injection.md)
 - [Python str.format() Attribute Traversal (PlaidCTF 2017)](#python-strformat-attribute-traversal-plaidctf-2017)
 - [SSTI (Server-Side Template Injection)](#ssti-server-side-template-injection)
   - [Jinja2 RCE](#jinja2-rce)
   - [Go Template Injection](#go-template-injection)
   - [EJS Server-Side Template Injection](#ejs-server-side-template-injection)
-  - [ERB SSTI + Sequel::DATABASES Bypass (BearCatCTF 2026)](#erb-ssti-sequeldatabases-bypass-bearcatctf-2026)
+  - [ERB SSTI + Sequel::DATABASES Bypass (BearCatCTF 2026)](#erb-ssti--sequeldatabases-bypass-bearcatctf-2026)
   - [Mako SSTI](#mako-ssti)
   - [Twig SSTI](#twig-ssti)
   - [Vue.js Template Injection via toString.constructor (VolgaCTF 2018)](#vuejs-template-injection-via-tostringconstructor-volgactf-2018)

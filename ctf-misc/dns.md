@@ -5,7 +5,7 @@
 - [DNSSEC NSEC Walking](#dnssec-nsec-walking)
 - [Incremental Zone Transfer (IXFR)](#incremental-zone-transfer-ixfr)
 - [DNS Rebinding](#dns-rebinding)
-- [DNS Tunneling / Exfiltration](#dns-tunneling-exfiltration)
+- [DNS Tunneling / Exfiltration](#dns-tunneling--exfiltration)
 - [DNS Enumeration Quick Reference](#dns-enumeration-quick-reference)
 - [DNS Round-Robin A Record Enumeration (EKOPARTY 2017)](#dns-round-robin-a-record-enumeration-ekoparty-2017)
 - [DNS Maze Traversal (hxp CTF 2017)](#dns-maze-traversal-hxp-ctf-2017)

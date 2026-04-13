@@ -2,14 +2,14 @@
 
 ## Table of Contents
 - [RSA p=q Validation Bypass (BearCatCTF 2026)](#rsa-pq-validation-bypass-bearcatctf-2026)
-- [RSA Cube Root CRT when gcd(e, phi) > 1 (BearCatCTF 2026)](#rsa-cube-root-crt-when-gcde-phi-1-bearcatctf-2026)
+- [RSA Cube Root CRT when gcd(e, phi) > 1 (BearCatCTF 2026)](#rsa-cube-root-crt-when-gcde-phi--1-bearcatctf-2026)
 - [Factoring n from Multiple of phi(n) (BearCatCTF 2026)](#factoring-n-from-multiple-of-phin-bearcatctf-2026)
 - [RSA Signature Forgery via Multiplicative Homomorphism (MMA CTF 2015)](#rsa-signature-forgery-via-multiplicative-homomorphism-mma-ctf-2015)
 - [Weak RSA Key Generation via Base Representation (Sharif CTF 2016)](#weak-rsa-key-generation-via-base-representation-sharif-ctf-2016)
-- [RSA with gcd(e, phi(n)) > 1 (CSAW 2015)](#rsa-with-gcde-phin-1-csaw-2015)
+- [RSA with gcd(e, phi(n)) > 1 (CSAW 2015)](#rsa-with-gcde-phin--1-csaw-2015)
 - [Batch GCD for Shared Prime Factoring (BSidesSF 2025)](#batch-gcd-for-shared-prime-factoring-bsidessf-2025)
 - [RSA Partial Key Recovery from dp dq qinv (0CTF 2016)](#rsa-partial-key-recovery-from-dp-dq-qinv-0ctf-2016)
-- [RSA-CRT Fault Attack / Bit-Flip Recovery (CSAW CTF 2016)](#rsa-crt-fault-attack-bit-flip-recovery-csaw-ctf-2016)
+- [RSA-CRT Fault Attack / Bit-Flip Recovery (CSAW CTF 2016)](#rsa-crt-fault-attack--bit-flip-recovery-csaw-ctf-2016)
 - [RSA Homomorphic Decryption Oracle Bypass (ECTF 2016)](#rsa-homomorphic-decryption-oracle-bypass-ectf-2016)
 - [RSA with Small Prime Factors and CRT Decomposition (Hack The Vote 2016)](#rsa-with-small-prime-factors-and-crt-decomposition-hack-the-vote-2016)
 - [RSA Timing Attack on Montgomery Reduction (DEF CON 2017)](#rsa-timing-attack-on-montgomery-reduction-def-con-2017)
@@ -17,7 +17,8 @@
 - [Coppersmith Small Roots for Linearly Related Primes (Tokyo Westerns 2017)](#coppersmith-small-roots-for-linearly-related-primes-tokyo-westerns-2017)
 - [ROCA Attack on RSA CVE-2017-15361 (EasyCTF IV)](#roca-attack-on-rsa-cve-2017-15361-easyctf-iv)
 - [RSA Signature Bypass with e=1 and Crafted Modulus (BackdoorCTF 2018)](#rsa-signature-bypass-with-e1-and-crafted-modulus-backdoorctf-2018)
-- [Dependent-Prime RSA: q = e^-1 mod p (TokyoWesterns CTF 4th 2018)](#dependent-prime-rsa-q-e-1-mod-p-tokyowesterns-ctf-4th-2018)
+- [Dependent-Prime RSA: q = e^-1 mod p (TokyoWesterns CTF 4th 2018)](#dependent-prime-rsa-q--e-1-mod-p-tokyowesterns-ctf-4th-2018)
+- [RSA Three-Key Pairwise GCD Triangle (Trend Micro 2018)](#rsa-three-key-pairwise-gcd-triangle-trend-micro-2018)
 
 See also: [rsa-attacks.md](rsa-attacks.md) for foundational RSA attacks (small e, Wiener, Fermat, Pollard, Hastad, common modulus, Manger oracle, Coppersmith).
 
@@ -499,3 +500,24 @@ def factor_dependent_n(n, e, max_k=100000):
 **Key insight:** Any key generator that derives `q` from `p` via a public arithmetic relation collapses RSA security to a small search. Write the relation as a polynomial `f_k(p) = 0` parameterized by a small integer, and use `.roots()` in Sage to recover `p`. The search space for `k` is typically under 2^16 because `q < p` forces `k ≈ e`.
 
 **References:** TokyoWesterns CTF 4th 2018 — writeup 10862
+
+---
+
+## RSA Three-Key Pairwise GCD Triangle (Trend Micro 2018)
+
+**Pattern:** Three RSA moduli `N1 = p1*p2`, `N2 = p1*p3`, `N3 = p2*p3` share primes pairwise (every pair has exactly one common factor). A single pairwise `gcd` reveals the shared prime, giving a complete factorisation of all three moduli without running batch-GCD.
+
+```python
+from math import gcd
+
+def factor_triangle(n1, n2, n3):
+    p1 = gcd(n1, n2)        # shared between N1 and N2
+    p2 = gcd(n1, n3)        # shared between N1 and N3
+    p3 = gcd(n2, n3)        # shared between N2 and N3
+    assert n1 == p1 * p2 and n2 == p1 * p3 and n3 == p2 * p3
+    return p1, p2, p3
+```
+
+**Key insight:** Batch-GCD handles arbitrary sets of moduli that might share a prime, but the three-key triangle is a closed-form case: every prime appears in exactly two moduli, so three `gcd()` calls factor all three keys. Spot the pattern when a challenge hands you exactly three public keys with matching bit-lengths and no other hint — contrast with [batch GCD for shared prime factoring](#batch-gcd-for-shared-prime-factoring-bsidessf-2025), which is the general case over larger key sets.
+
+**References:** Trend Micro CTF 2018 — Offensive-Analysis 300, writeup 11129

@@ -11,7 +11,7 @@
 - [Verilog/Hardware Reverse Engineering (srdnlenCTF 2026)](#veriloghardware-reverse-engineering-srdnlenctf-2026)
 - [Prefix-by-Prefix Hash Reversal (Nullcon 2026)](#prefix-by-prefix-hash-reversal-nullcon-2026)
 - [Ruby/Perl Polyglot Constraint Satisfaction (BearCatCTF 2026)](#rubyperl-polyglot-constraint-satisfaction-bearcatctf-2026)
-- [Electron App + Native Binary Reversing (RootAccess2026)](#electron-app-native-binary-reversing-rootaccess2026)
+- [Electron App + Native Binary Reversing (RootAccess2026)](#electron-app--native-binary-reversing-rootaccess2026)
 - [Node.js npm Package Runtime Introspection (RootAccess2026)](#nodejs-npm-package-runtime-introspection-rootaccess2026)
 - [Frida Android Certificate Pinning Bypass (h1702ctf 2017)](#frida-android-certificate-pinning-bypass-h1702ctf-2017)
 - [Android Anti-Debug: TracerPid, su Binary, System Properties (h1702ctf 2017)](#android-anti-debug-tracerpid-su-binary-system-properties-h1702ctf-2017)

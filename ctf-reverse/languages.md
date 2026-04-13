@@ -22,6 +22,7 @@
 - [Python Version-Specific Bytecode (VuwCTF 2025)](#python-version-specific-bytecode-vuwctf-2025)
 - [Non-Bijective Substitution Cipher Reversing](#non-bijective-substitution-cipher-reversing)
 - [FRACTRAN Program Inversion (Boston Key Party 2016)](#fractran-program-inversion-boston-key-party-2016)
+- [GNU Make Turing Machine Simulator (Hack.lu 2018)](#gnu-make-turing-machine-simulator-hacklu-2018)
 
 For platform/framework-specific techniques (Android, Roblox, Godot, Electron, Node.js, Verilog, Ruby/Perl polyglot, etc.), see [languages-platforms.md](languages-platforms.md).
 For Go and Rust binary reversing, see [languages-compiled.md](languages-compiled.md).
@@ -512,3 +513,41 @@ inverted = [(d, n) for n, d in fraction_table]
 **Key insight:** FRACTRAN programs can be inverted by swapping numerators and denominators. The prime factorization encoding is the key to understanding I/O -- factor the result to extract exponents of sequential primes, map to ASCII.
 
 **Detection:** Challenge mentions fractions, prime factorization, or provides a list of rational numbers.
+
+---
+
+## GNU Make Turing Machine Simulator (Hack.lu 2018)
+
+**Pattern:** A `Makefile` implements a Turing machine using only Make macros. The tape is a unary number encoded as `+++-` (each `+` is a 1, each `-` is a 0), the state transition table is 14 whitespace-separated words (9 bits each), and recursive `$(eval)` calls drive the state machine until it halts. Reverse-engineer the program by decoding the transition table and matching it against catalogued busy-beaver machines on the [bbchallenge.org](https://bbchallenge.org) database, or by re-implementing the interpreter in Python.
+
+```make
+# Example sink — 14 words of 9 bits each form the transition table
+PROGRAM := 0 1A 1R 1 1B 1L 1 1C 1R 0 1D 1L 0 1A 1L 1 1E 1R 1 1A 1L \
+           1 1A 1L 0 1E 1R 0 1F 1R 0 1F 1L 1 1E 1L 1 1H 1R 0 1C 1R
+```
+
+```python
+# Python decoder for the table
+def decode_transition(word):
+    bits = int(word, 2)
+    write = bits >> 7 & 1
+    move  = "LR"[bits >> 6 & 1]
+    state = chr(ord("A") + (bits & 0x3F))
+    return write, move, state
+
+# Simulate until HALT
+tape = [0] * 4096
+head = 2048
+state = "A"
+while state != "H":
+    symbol = tape[head]
+    idx = (ord(state) - ord("A")) * 2 + symbol
+    write, move, state = decode_transition(PROGRAM[idx])
+    tape[head] = write
+    head += 1 if move == "R" else -1
+print(sum(tape))   # Busy-beaver score → hashed for the flag
+```
+
+**Key insight:** `Makefile` is Turing-complete via recursive `$(eval)` and string substitution, so any CTF that ships "just a Makefile" can be hiding a full interpreter. The fastest reverse path is to extract the transition table as text, decode each word, and either simulate locally or search public busy-beaver databases — most hand-rolled BB machines match published ones within the first 6 states. Use `make -n` to see expanded commands without executing, and `make -d` to watch the recursive eval graph.
+
+**References:** Hackover CTF 2018 — Flagmaker, writeup 11503

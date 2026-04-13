@@ -4,7 +4,7 @@ Unicode bypass, CSS-only exfiltration, behavioral JS frameworks, timing oracles,
 
 ## Table of Contents
 - [Unicode Case Folding XSS Bypass (UNbreakable 2026)](#unicode-case-folding-xss-bypass-unbreakable-2026)
-- [CSS Font Glyph Width + Container Query Exfiltration (UNbreakable 2026)](#css-font-glyph-width-container-query-exfiltration-unbreakable-2026)
+- [CSS Font Glyph Width + Container Query Exfiltration (UNbreakable 2026)](#css-font-glyph-width--container-query-exfiltration-unbreakable-2026)
 - [Hyperscript CDN CSP Bypass (UNbreakable 2026)](#hyperscript-cdn-csp-bypass-unbreakable-2026)
 - [PBKDF2 Prefix Timing Oracle via postMessage (UNbreakable 2026)](#pbkdf2-prefix-timing-oracle-via-postmessage-unbreakable-2026)
 - [Client-Side HMAC Bypass via Leaked JS Secret (Codegate 2013)](#client-side-hmac-bypass-via-leaked-js-secret-codegate-2013)
@@ -586,7 +586,7 @@ app.run(host='0.0.0.0', port=80)
 # 3. Chain with :nth-child selectors if target chars are in separate elements
 ```
 
-**Key insight:** CSS `@font-face` with `unicode-range` triggers font fetches only for characters actually present in the target element. Works under strict CSP that blocks scripts but allows `style-src`. Cross-origin CSS must include `Content-Type: text/css`. Leaks character set (not order), so combine with positional CSS tricks if ordering matters. See also the [CSS Font Glyph Width + Container Query Exfiltration](#css-font-glyph-width-container-query-exfiltration-unbreakable-2026) technique for a more precise CSS-only oracle.
+**Key insight:** CSS `@font-face` with `unicode-range` triggers font fetches only for characters actually present in the target element. Works under strict CSP that blocks scripts but allows `style-src`. Cross-origin CSS must include `Content-Type: text/css`. Leaks character set (not order), so combine with positional CSS tricks if ordering matters. See also the [CSS Font Glyph Width + Container Query Exfiltration](#css-font-glyph-width--container-query-exfiltration-unbreakable-2026) technique for a more precise CSS-only oracle.
 
 ---
 

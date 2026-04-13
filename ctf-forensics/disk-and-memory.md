@@ -11,9 +11,10 @@
 - [PowerShell Ransomware Analysis](#powershell-ransomware-analysis)
 - [Android Forensics](#android-forensics)
 - [Container Forensics (Docker)](#container-forensics-docker)
-- [Cloud Storage Forensics (AWS S3 / GCP / Azure)](#cloud-storage-forensics-aws-s3-gcp-azure)
+- [Cloud Storage Forensics (AWS S3 / GCP / Azure)](#cloud-storage-forensics-aws-s3--gcp--azure)
 - [BSON (Binary JSON) Format Reconstruction (IceCTF 2016)](#bson-binary-json-format-reconstruction-icectf-2016)
-- [TrueCrypt / VeraCrypt Volume Mounting (GreHack CTF 2016)](#truecrypt-veracrypt-volume-mounting-grehack-ctf-2016)
+- [TrueCrypt / VeraCrypt Volume Mounting (GreHack CTF 2016)](#truecrypt--veracrypt-volume-mounting-grehack-ctf-2016)
+- [Volatility mftparser Offset-Based Deleted File Recovery (BSides Delhi 2018)](#volatility-mftparser-offset-based-deleted-file-recovery-bsides-delhi-2018)
 - [See Also](#see-also)
 
 ---
@@ -419,6 +420,29 @@ veracrypt -t --truecrypt -p "password" volume.tc /mnt/vc
 ```
 
 **Key insight:** TrueCrypt volumes have no magic bytes or identifiable header -- they look like random data. Identify them from context clues (related images showing TrueCrypt logo, file sizes that are exact multiples of 512, or challenge descriptions mentioning encryption). VeraCrypt with `--truecrypt` flag handles legacy TC volumes.
+
+---
+
+## Volatility mftparser Offset-Based Deleted File Recovery (BSides Delhi 2018)
+
+**Pattern:** Standard `dumpfiles` or `filescan` + `dumpfiles --physaddr` fails on a deleted file because its directory entry has been marked free. The MFT record that still holds the file's `$DATA` attribute survives until the record is reused. Volatility 2's `mftparser` can dump the resident `$DATA` directly when given the exact `--offset` of the MFT record found via `filescan`.
+
+```bash
+# 1. Locate the MFT record offset (Volatility 2 example; Vol3 uses windows.mftscan)
+vol.py -f Challenge.raw --profile=Win7SP1x86 mftparser \
+    | grep -A2 "target_filename"
+
+# 2. Dump every attribute of the matching MFT entry, including $DATA
+vol.py -f Challenge.raw --profile=Win7SP1x86 mftparser \
+    --offset=0x7ca3c00 --dump-dir=./out/
+
+ls ./out/
+# file.data.$DATA contains the recovered content
+```
+
+**Key insight:** NTFS marks files "deleted" by flipping one bit in the MFT record header (`0x16` byte: `0x01 == in use`). Until the record is reallocated, the entire `$DATA` attribute is still intact and only lazily freed. Use `mftparser --offset=<record>` for resident files (under ~700 bytes — stored inline in the MFT) and `dd`/`icat` with the cluster runs for larger files. Always also grep for the filename in `windows.mftscan` output before giving up: memory-resident MFT fragments are still findable after on-disk deletion.
+
+**References:** BSides Delhi CTF 2018 — Never Too Late Mister, writeups 11963, 11970
 
 ---
 

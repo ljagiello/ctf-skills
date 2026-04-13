@@ -8,7 +8,7 @@
 - [Platform False Positives](#platform-false-positives)
 - [Social Media General Tips](#social-media-general-tips)
 - [Multi-Platform OSINT Chain](#multi-platform-osint-chain)
-- [Gaming Platform OSINT / MMO Character Lookup (CSAW CTF 2016)](#gaming-platform-osint-mmo-character-lookup-csaw-ctf-2016)
+- [Gaming Platform OSINT / MMO Character Lookup (CSAW CTF 2016)](#gaming-platform-osint--mmo-character-lookup-csaw-ctf-2016)
 - [MetaCTF OSINT Challenge Patterns](#metactf-osint-challenge-patterns)
 - [Unicode Homoglyph Steganography on BlueSky (MetaCTF 2026)](#unicode-homoglyph-steganography-on-bluesky-metactf-2026)
 - [Strava Fitness Route OSINT (MidnightCTF 2026)](#strava-fitness-route-osint-midnightctf-2026)

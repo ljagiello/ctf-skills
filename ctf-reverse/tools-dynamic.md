@@ -8,7 +8,7 @@
   - [Memory Scanning and Patching](#memory-scanning-and-patching)
   - [Function Replacement](#function-replacement)
   - [Tracing and Stalker](#tracing-and-stalker)
-  - [r2frida (Radare2 + Frida Integration)](#r2frida-radare2-frida-integration)
+  - [r2frida (Radare2 + Frida Integration)](#r2frida-radare2--frida-integration)
   - [Frida for Android/iOS](#frida-for-androidios)
   - [Frida Memoization for Recursive Function Speedup (hxp CTF 2017)](#frida-memoization-for-recursive-function-speedup-hxp-ctf-2017)
 - [angr (Symbolic Execution)](#angr-symbolic-execution)
@@ -27,6 +27,7 @@
   - [Key Features](#key-features)
   - [Scripting](#scripting)
   - [Common CTF Workflow](#common-ctf-workflow)
+- [GDB Register Side-Channel on putchar() (picoCTF 2018)](#gdb-register-side-channel-on-putchar-picoctf-2018)
 
 For Qiling/Triton emulation and Intel Pin / LD_PRELOAD side-channel techniques, see [tools-emulation.md](tools-emulation.md).
 
@@ -534,4 +535,36 @@ StepOver                       # Step over
 4. **Snowman** decompiler plugin for quick pseudo-C
 
 **Key insight:** x64dbg has built-in pattern scanning, hardware breakpoints, and conditional logging. For Windows CTF binaries, it's often faster than IDA/Ghidra for dynamic analysis. Use the **xAnalyzer** plugin for automatic function argument annotation.
+
+---
+
+## GDB Register Side-Channel on putchar() (picoCTF 2018)
+
+**Pattern:** The binary decrypts a flag one character at a time and calls `putchar()` with a `usleep()` between prints. Rather than wait out the sleeps, set a breakpoint on `putchar@plt` and log `$rdi` (on glibc x86-64 the character lives there) at every hit. A GDB logging loop dumps the full flag in milliseconds regardless of the artificial delay.
+
+```gdb
+# ~/.gdbinit for this challenge
+set pagination off
+set logging file flag.log
+set logging overwrite on
+set logging on
+
+break putchar
+commands
+  silent
+  printf "%c", $rdi
+  continue
+end
+
+run
+```
+
+```bash
+gdb -batch -x script.gdb ./crackme
+cat flag.log
+```
+
+**Key insight:** Any time a program artificially slows output with `usleep`, `nanosleep`, or busy-loop delays, the character to be printed is already in a register before the sleep runs. Breakpoint on the output function (`putchar`, `fputc`, `write` with `fd=1`), print the first-argument register (`$rdi` on x86-64, `$r0` on ARM, `$a0` on RISC-V/MIPS), and let GDB scripting batch-extract the data. Works even on anti-debug binaries when hardware breakpoints are available.
+
+**References:** picoCTF 2018 — learn gdb, writeup 11784
 

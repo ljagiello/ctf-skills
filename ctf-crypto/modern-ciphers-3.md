@@ -7,7 +7,7 @@ Custom hash reversal, CRC brute-force, noisy RSA oracles, sponge collisions, CBC
 - [CRC32 Brute-Force for Small Payloads (BackdoorCTF 2016)](#crc32-brute-force-for-small-payloads-backdoorctf-2016)
 - [Noisy RSA LSB Oracle with Post-Hoc Error Correction (SharifCTF 7 2016)](#noisy-rsa-lsb-oracle-with-post-hoc-error-correction-sharifctf-7-2016)
 - [Sponge Hash Collision via Meet-in-the-Middle on Partial State (BKP 2017)](#sponge-hash-collision-via-meet-in-the-middle-on-partial-state-bkp-2017)
-- [CBC IV Forgery + Block Truncation for Authentication Bypass (0CTF 2017)](#cbc-iv-forgery-block-truncation-for-authentication-bypass-0ctf-2017)
+- [CBC IV Forgery + Block Truncation for Authentication Bypass (0CTF 2017)](#cbc-iv-forgery--block-truncation-for-authentication-bypass-0ctf-2017)
 - [Padding Oracle to CBC Bitflip Command Injection (BSidesSF 2017)](#padding-oracle-to-cbc-bitflip-command-injection-bsidessf-2017)
 - [SPN Cipher Partial Key Recovery via S-box Intersection (SharifCTF 7 2016)](#spn-cipher-partial-key-recovery-via-s-box-intersection-sharifctf-7-2016)
 - [AES-CFB IV Recovery from Timestamp-Seeded PRNG (SHA2017)](#aes-cfb-iv-recovery-from-timestamp-seeded-prng-sha2017)

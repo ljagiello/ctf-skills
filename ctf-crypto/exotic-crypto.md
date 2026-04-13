@@ -1,7 +1,7 @@
 # CTF Crypto - Exotic Algebraic Structures
 
 ## Table of Contents
-- [Braid Group DH — Alexander Polynomial Multiplicativity (DiceCTF 2026)](#braid-group-dh-alexander-polynomial-multiplicativity-dicectf-2026)
+- [Braid Group DH — Alexander Polynomial Multiplicativity (DiceCTF 2026)](#braid-group-dh--alexander-polynomial-multiplicativity-dicectf-2026)
 - [Monotone Function Inversion with Partial Output](#monotone-function-inversion-with-partial-output)
 - [Tropical Semiring Residuation Attack (BearCatCTF 2026)](#tropical-semiring-residuation-attack-bearcatctf-2026)
 - [Paillier Cryptosystem Attack (SECCON 2015)](#paillier-cryptosystem-attack-seccon-2015)
@@ -12,7 +12,7 @@
 - [Icosahedral Symmetry Group Cipher (BSidesSF 2026)](#icosahedral-symmetry-group-cipher-bsidessf-2026)
 - [Goldwasser-Micali Ciphertext Replication Oracle (BSidesSF 2026)](#goldwasser-micali-ciphertext-replication-oracle-bsidessf-2026)
 - [BB-84 Quantum Key Distribution MITM Attack (PlaidCTF 2017)](#bb-84-quantum-key-distribution-mitm-attack-plaidctf-2017)
-- [ElGamal Trivial DLP When B = p-1 (Hack.lu 2017)](#elgamal-trivial-dlp-when-b-p-1-hacklu-2017)
+- [ElGamal Trivial DLP When B = p-1 (Hack.lu 2017)](#elgamal-trivial-dlp-when-b--p-1-hacklu-2017)
 - [Paillier LSB Oracle via Homomorphic Doubling (CODE BLUE 2017)](#paillier-lsb-oracle-via-homomorphic-doubling-code-blue-2017)
 - [Differential Privacy Laplace Noise Cancellation (Pwn2Win 2017)](#differential-privacy-laplace-noise-cancellation-pwn2win-2017)
 - [Homomorphic Encryption Oracle Bit-Extraction (Tokyo Westerns 2017)](#homomorphic-encryption-oracle-bit-extraction-tokyo-westerns-2017)

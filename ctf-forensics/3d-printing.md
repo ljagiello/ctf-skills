@@ -1,7 +1,7 @@
 # CTF Forensics - 3D Printing / CAD File Forensics
 
 ## Table of Contents
-- [PrusaSlicer Binary G-code (.g / .bgcode)](#prusaslicer-binary-g-code-g-bgcode)
+- [PrusaSlicer Binary G-code (.g / .bgcode)](#prusaslicer-binary-g-code-g--bgcode)
 - [QOIF (Quite OK Image Format)](#qoif-quite-ok-image-format)
 - [G-code Analysis Tips](#g-code-analysis-tips)
 - [G-code Side View Visualization (0xFun 2026)](#g-code-side-view-visualization-0xfun-2026)

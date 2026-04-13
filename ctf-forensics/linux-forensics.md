@@ -19,7 +19,7 @@
   - [Firefox](#firefox)
 - [Corrupted Git Blob Repair via Byte Brute-Force (CSAW CTF 2015)](#corrupted-git-blob-repair-via-byte-brute-force-csaw-ctf-2015)
 - [VBA Macro Forensics - Excel Cell Data to ELF Binary (Sharif CTF 2016)](#vba-macro-forensics---excel-cell-data-to-elf-binary-sharif-ctf-2016)
-- [Ethereum / Blockchain Transaction Tracing (Defenit CTF 2020)](#ethereum-blockchain-transaction-tracing-defenit-ctf-2020)
+- [Ethereum / Blockchain Transaction Tracing (Defenit CTF 2020)](#ethereum--blockchain-transaction-tracing-defenit-ctf-2020)
 - [Python In-Memory Source Recovery via pyrasite (Insomni'hack 2017)](#python-in-memory-source-recovery-via-pyrasite-insomnihack-2017)
 
 ---

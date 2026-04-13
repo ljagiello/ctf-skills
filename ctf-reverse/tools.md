@@ -33,7 +33,7 @@
   - [HarmonyOS HAP/ABC (abc-decompiler)](#harmonyos-hapabc-abc-decompiler)
 - [.NET Analysis](#net-analysis)
   - [Tools](#tools)
-  - [Two-Stage XOR + AES-CBC Decode Pattern (Codegate 2013)](#two-stage-xor-aes-cbc-decode-pattern-codegate-2013)
+  - [Two-Stage XOR + AES-CBC Decode Pattern (Codegate 2013)](#two-stage-xor--aes-cbc-decode-pattern-codegate-2013)
   - [NativeAOT](#nativeaot)
 - [Packed Binaries](#packed-binaries)
   - [UPX](#upx)

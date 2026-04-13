@@ -10,7 +10,7 @@
   - [BCD (Binary-Coded Decimal) Encoding (VuwCTF 2025)](#bcd-binary-coded-decimal-encoding-vuwctf-2025)
   - [Multi-Layer Encoding Detection (0xFun 2026)](#multi-layer-encoding-detection-0xfun-2026)
   - [URL Encoding](#url-encoding)
-  - [ROT13 / Caesar](#rot13-caesar)
+  - [ROT13 / Caesar](#rot13--caesar)
   - [Caesar Brute Force](#caesar-brute-force)
 - [QR Codes](#qr-codes)
   - [Basic Commands](#basic-commands)
@@ -24,6 +24,7 @@
   - [Whitespace Language Parser (BYPASS CTF 2025)](#whitespace-language-parser-bypass-ctf-2025)
   - [Custom Brainfuck Variants (Themed Esolangs)](#custom-brainfuck-variants-themed-esolangs)
   - [Multi-Layer Esoteric Language Chains (Break In 2016)](#multi-layer-esoteric-language-chains-break-in-2016)
+- [base65536 CJK Unicode Binary Encoding (IceCTF 2018)](#base65536-cjk-unicode-binary-encoding-icectf-2018)
 
 See also: [encodings-advanced.md](encodings-advanced.md) - Verilog/HDL, Gray code, binary tree encoding, RTF custom tags, SMS PDU decoding, multi-encoding solvers, UTF-9, pixel binary encoding, hex Sudoku + QR, TOPKEK, MaxiCode
 
@@ -402,3 +403,29 @@ malbolge program.mal        # Or use online interpreter
 Common esoteric chains: Piet → base64 → Malbolge, Brainfuck → Ook → Whitespace, JSFuck → standard JS.
 
 **Key insight:** When a PNG file doesn't contain obvious visual stego, try interpreting it as Piet code. Use `file` + visual inspection to identify the first layer, then decode sequentially.
+
+---
+
+## base65536 CJK Unicode Binary Encoding (IceCTF 2018)
+
+**Pattern:** A blob that looks like a wall of Chinese characters (CJK Unified Ideographs) is actually a **base65536** encoding: each character carries two bytes of data, mapping 0x0000..0xFFFF to a picked subset of 65,536 Unicode codepoints. Detect by `file` reporting "Unicode text, UTF-8" with mostly CJK codepoints; decode with the `base65536` npm package or the Python port.
+
+```bash
+# Node.js / npm path
+npm install -g base65536
+echo -n "宝䀈䀋..." | base65536 --decode > out.bin
+
+# Python port
+pip install base65536
+python3 - <<'PY'
+import base65536, sys
+sys.stdout.buffer.write(base65536.decode(open("blob.txt").read()))
+PY > out.bin
+
+file out.bin
+# common outcome: "Zip archive data" or "ELF 64-bit"
+```
+
+**Key insight:** base64 expands 3 bytes → 4 chars; base65536 expands 2 bytes → 1 *Unicode codepoint*, and since a codepoint renders as 1–4 UTF-8 bytes the encoded stream actually *expands* by ~2× on disk — but visually it looks compact, which is the CTF trick. Any wall of Unicode that lacks variance across the Basic Multilingual Plane and is dominated by CJK, Hangul, or Tibetan is a candidate. Also check base1024 (BMP), base2048, base4096, and base32768 for related tricks.
+
+**References:** IceCTF 2018 — Rabbit Hole, writeup 11421

