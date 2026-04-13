@@ -2,14 +2,14 @@
 
 ## Table of Contents
 - [ROP Chain Building](#rop-chain-building)
-  - [Two-Stage ret2libc (Leak + Shell)](#two-stage-ret2libc-leak--shell)
+  - [Two-Stage ret2libc (Leak + Shell)](#two-stage-ret2libc-leak-shell)
   - [Raw Syscall ROP (When system() Fails)](#raw-syscall-rop-when-system-fails)
   - [rdx Control in ROP Chains](#rdx-control-in-rop-chains)
   - [Shell Interaction After execve](#shell-interaction-after-execve)
 - [ret2csu — __libc_csu_init Gadgets (Crypto-Cat)](#ret2csu--__libc_csu_init-gadgets-crypto-cat)
 - [Bad Character Bypass via XOR Encoding in ROP (Crypto-Cat)](#bad-character-bypass-via-xor-encoding-in-rop-crypto-cat)
-- [Exotic x86 Gadgets — BEXTR/XLAT/STOSB/PEXT (Crypto-Cat)](#exotic-x86-gadgets--bextrxlatstosbpext-crypto-cat)
-  - [64-bit: BEXTR + XLAT + STOSB](#64-bit-bextr--xlat--stosb)
+- [Exotic x86 Gadgets — BEXTR/XLAT/STOSB/PEXT (Crypto-Cat)](#exotic-x86-gadgets-bextrxlatstosbpext-crypto-cat)
+  - [64-bit: BEXTR + XLAT + STOSB](#64-bit-bextr-xlat-stosb)
   - [32-bit: PEXT (Parallel Bits Extract)](#32-bit-pext-parallel-bits-extract)
 - [Stack Pivot via xchg rax,esp (Crypto-Cat)](#stack-pivot-via-xchg-raxesp-crypto-cat)
 - [sprintf() Gadget Chaining for Bad Character Bypass (PlaidCTF 2013)](#sprintf-gadget-chaining-for-bad-character-bypass-plaidctf-2013)

@@ -11,7 +11,7 @@
 - [Complete Exploit Flow (House of Illusions)](#complete-exploit-flow-house-of-illusions)
 - [Delegatecall Storage Context Abuse (EHAX 2026)](#delegatecall-storage-context-abuse-ehax-2026)
 - [Groth16 Proof Forgery for Blockchain Governance (DiceCTF 2026)](#groth16-proof-forgery-for-blockchain-governance-dicectf-2026)
-- [Phantom Market Unresolve + Force-Funding (DiceCTF 2026)](#phantom-market-unresolve--force-funding-dicectf-2026)
+- [Phantom Market Unresolve + Force-Funding (DiceCTF 2026)](#phantom-market-unresolve-force-funding-dicectf-2026)
 - [Solidity Transient Storage Clearing Helper Collision (Solidity 0.8.28-0.8.33)](#solidity-transient-storage-clearing-helper-collision-solidity-0828-0833)
 - [Reentrancy Attack - DAO Pattern (DefCamp 2017)](#reentrancy-attack---dao-pattern-defcamp-2017)
 - [Web3 CTF Tips](#web3-ctf-tips)

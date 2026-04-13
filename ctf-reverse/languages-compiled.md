@@ -15,7 +15,7 @@
   - [Common Rust Patterns in Decompilation](#common-rust-patterns-in-decompilation)
   - [Rust-Specific Analysis Tools](#rust-specific-analysis-tools)
 - [Swift Binary Reversing](#swift-binary-reversing)
-- [Kotlin / JVM Binary Reversing](#kotlin--jvm-binary-reversing)
+- [Kotlin / JVM Binary Reversing](#kotlin-jvm-binary-reversing)
   - [JVM Bytecode (Android/Server)](#jvm-bytecode-androidserver)
   - [Kotlin/Native](#kotlinnative)
 - [D Language Binary Reversing (CSAW CTF 2016)](#d-language-binary-reversing-csaw-ctf-2016)

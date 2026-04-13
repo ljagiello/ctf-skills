@@ -39,7 +39,7 @@
   - [Variations](#variations)
   - [Constraints Checklist for This Technique](#constraints-checklist-for-this-technique)
   - [When \_\_loader\_\_ Is Not Available](#when-__loader__-is-not-available)
-- [Quine + Context Detection for Code Execution (BearCatCTF 2026)](#quine--context-detection-for-code-execution-bearcatctf-2026)
+- [Quine + Context Detection for Code Execution (BearCatCTF 2026)](#quine-context-detection-for-code-execution-bearcatctf-2026)
 - [Restricted Character Repunit Decomposition (BearCatCTF 2026)](#restricted-character-repunit-decomposition-bearcatctf-2026)
 - [Python eval() Jail Escape via Tuple Injection (Codegate 2018)](#python-eval-jail-escape-via-tuple-injection-codegate-2018)
 - [Python f-string Config Injection via Stored eval (INShAck 2018)](#python-f-string-config-injection-via-stored-eval-inshack-2018)

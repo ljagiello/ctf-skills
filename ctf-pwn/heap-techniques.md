@@ -1,21 +1,21 @@
 # CTF Pwn - Heap Techniques
 
 ## Table of Contents
-- [House of Apple 2 — FSOP for glibc 2.34+ (0xFun 2026)](#house-of-apple-2--fsop-for-glibc-234-0xfun-2026)
+- [House of Apple 2 — FSOP for glibc 2.34+ (0xFun 2026)](#house-of-apple-2-fsop-for-glibc-234-0xfun-2026)
   - [setcontext Variant for SUID Binaries (Midnight Flag 2026)](#setcontext-variant-for-suid-binaries-midnight-flag-2026)
-- [House of Einherjar — Off-by-One Null Byte (0xFun 2026)](#house-of-einherjar--off-by-one-null-byte-0xfun-2026)
+- [House of Einherjar — Off-by-One Null Byte (0xFun 2026)](#house-of-einherjar-off-by-one-null-byte-0xfun-2026)
 - [Heap Exploitation](#heap-exploitation)
   - [Heap Grooming via Application Operations (Codegate 2013)](#heap-grooming-via-application-operations-codegate-2013)
 - [Custom Allocator Exploitation](#custom-allocator-exploitation)
   - [talloc Pool Header Forgery for Arbitrary Read/Write (Boston Key Party 2016)](#talloc-pool-header-forgery-for-arbitrary-readwrite-boston-key-party-2016)
 - [Classic Heap Unlink Attack (Crypto-Cat)](#classic-heap-unlink-attack-crypto-cat)
-- [musl libc Heap Exploitation — Meta Pointer + atexit (UNbreakable 2026)](#musl-libc-heap-exploitation--meta-pointer--atexit-unbreakable-2026)
+- [musl libc Heap Exploitation — Meta Pointer + atexit (UNbreakable 2026)](#musl-libc-heap-exploitation-meta-pointer-atexit-unbreakable-2026)
 - [House of Orange](#house-of-orange)
 - [House of Spirit](#house-of-spirit)
 - [House of Lore](#house-of-lore)
 - [House of Force (CSAW CTF 2016)](#house-of-force-csaw-ctf-2016)
 - [tcache Stashing Unlink Attack](#tcache-stashing-unlink-attack)
-- [Unsafe Unlink to BSS + Top Chunk Consolidation (SECCON 2016)](#unsafe-unlink-to-bss--top-chunk-consolidation-seccon-2016)
+- [Unsafe Unlink to BSS + Top Chunk Consolidation (SECCON 2016)](#unsafe-unlink-to-bss-top-chunk-consolidation-seccon-2016)
 - [UAF Vtable Pointer Encoding Shell Argument (BCTF 2017)](#uaf-vtable-pointer-encoding-shell-argument-bctf-2017)
 
 For FILE-structure (_IO_FILE) exploitation — fastbin stdout vtable hijack, _IO_buf_base null-byte overwrite, glibc 2.24+ vtable validation bypass, unsorted-bin attacks on stdin FILE fields, realloc-as-free UAF, and refcount wraparound — see [heap-fsop.md](heap-fsop.md).

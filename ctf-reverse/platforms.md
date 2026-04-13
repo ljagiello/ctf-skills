@@ -3,14 +3,14 @@
 macOS/iOS, embedded/IoT firmware, kernel driver, automotive, and game engine reverse engineering.
 
 ## Table of Contents
-- [macOS / iOS Reversing](#macos--ios-reversing)
+- [macOS / iOS Reversing](#macos-ios-reversing)
   - [Mach-O Binary Format](#mach-o-binary-format)
-  - [Code Signing & Entitlements](#code-signing--entitlements)
+  - [Code Signing & Entitlements](#code-signing-entitlements)
   - [Objective-C Runtime RE](#objective-c-runtime-re)
   - [Swift Binary Reversing](#swift-binary-reversing)
   - [iOS App Analysis](#ios-app-analysis)
-  - [dyld / Dynamic Linking](#dyld--dynamic-linking)
-- [Embedded / IoT Firmware RE](#embedded--iot-firmware-re)
+  - [dyld / Dynamic Linking](#dyld-dynamic-linking)
+- [Embedded / IoT Firmware RE](#embedded-iot-firmware-re)
   - [Firmware Extraction](#firmware-extraction)
   - [Firmware Unpacking](#firmware-unpacking)
   - [Architecture-Specific Notes](#architecture-specific-notes)
@@ -24,7 +24,7 @@ macOS/iOS, embedded/IoT firmware, kernel driver, automotive, and game engine rev
   - [Unity (Beyond IL2CPP)](#unity-beyond-il2cpp)
   - [Anti-Cheat Analysis](#anti-cheat-analysis)
   - [Lua-Scripted Games](#lua-scripted-games)
-- [Automotive / CAN Bus RE](#automotive--can-bus-re)
+- [Automotive / CAN Bus RE](#automotive-can-bus-re)
 
 ---
 

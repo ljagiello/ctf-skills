@@ -8,7 +8,7 @@
   - [Memory Scanning and Patching](#memory-scanning-and-patching)
   - [Function Replacement](#function-replacement)
   - [Tracing and Stalker](#tracing-and-stalker)
-  - [r2frida (Radare2 + Frida Integration)](#r2frida-radare2--frida-integration)
+  - [r2frida (Radare2 + Frida Integration)](#r2frida-radare2-frida-integration)
   - [Frida for Android/iOS](#frida-for-androidios)
   - [Frida Memoization for Recursive Function Speedup (hxp CTF 2017)](#frida-memoization-for-recursive-function-speedup-hxp-ctf-2017)
 - [angr (Symbolic Execution)](#angr-symbolic-execution)

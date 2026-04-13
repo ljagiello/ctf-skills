@@ -11,9 +11,9 @@
 - [PowerShell Ransomware Analysis](#powershell-ransomware-analysis)
 - [Android Forensics](#android-forensics)
 - [Container Forensics (Docker)](#container-forensics-docker)
-- [Cloud Storage Forensics (AWS S3 / GCP / Azure)](#cloud-storage-forensics-aws-s3--gcp--azure)
+- [Cloud Storage Forensics (AWS S3 / GCP / Azure)](#cloud-storage-forensics-aws-s3-gcp-azure)
 - [BSON (Binary JSON) Format Reconstruction (IceCTF 2016)](#bson-binary-json-format-reconstruction-icectf-2016)
-- [TrueCrypt / VeraCrypt Volume Mounting (GreHack CTF 2016)](#truecrypt--veracrypt-volume-mounting-grehack-ctf-2016)
+- [TrueCrypt / VeraCrypt Volume Mounting (GreHack CTF 2016)](#truecrypt-veracrypt-volume-mounting-grehack-ctf-2016)
 - [See Also](#see-also)
 
 ---
