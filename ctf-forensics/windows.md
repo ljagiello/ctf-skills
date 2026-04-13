@@ -22,6 +22,7 @@
 - [Windows Defender MPLog Analysis](#windows-defender-mplog-analysis)
 - [Anti-Forensics Detection Checklist](#anti-forensics-detection-checklist)
 - [Windows Memory Forensics: certutil Base64 ZIP Recovery (SEC-T CTF 2017)](#windows-memory-forensics-certutil-base64-zip-recovery-sec-t-ctf-2017)
+- [NTFS EFSTMPWP Folder as cipher.exe Wipe Artifact (Security Fest CTF 2018)](#ntfs-efstmpwp-folder-as-cipherexe-wipe-artifact-security-fest-ctf-2018)
 
 ---
 
@@ -539,3 +540,31 @@ unzip recovered.zip
 - Registry exports (`.reg` files) inside ZIP payloads
 
 **Key insight:** `certutil` is commonly abused by malware for base64 decoding as a living-off-the-land technique. `UEsD` is the base64 encoding of ZIP magic bytes `PK\x03` — use it as a memory scanning signature to find in-transit ZIP archives before they are written to disk or after they are deleted.
+
+---
+
+## NTFS EFSTMPWP Folder as cipher.exe Wipe Artifact (Security Fest CTF 2018)
+
+**Pattern (Mr.reagan):** An NTFS image contains `$RECYCLE.BIN` but also a sparsely-used hidden directory named `EFSTMPWP`. This directory is created by `cipher.exe /w` — Windows' built-in tool for overwriting the free space of a volume — to hold the temporary files used for the multi-pass wipe. Its presence means the suspect ran a secure-erase command, so file recovery of deleted data is unlikely to succeed.
+
+**Detection:**
+```bash
+# Mount the NTFS image read-only
+sudo mount -o ro,loop,show_sys_files image.dd /mnt/ntfs
+
+# Look for the wipe artifact
+find /mnt/ntfs -maxdepth 2 -iname 'EFSTMPWP' -o -iname '$Recycle.Bin'
+
+# MFT entry also records the directory with `cipher.exe` as the creator process
+mft_parser -i image.dd -o mft.csv
+grep -i 'EFSTMPWP' mft.csv
+```
+
+**Implications:**
+- Do not waste time on carving for deleted user data in the free space; it has been overwritten.
+- Switch focus to alternate persistence paths: `$Recycle.Bin` contents, NTFS journal ($LogFile / $UsnJrnl), Volume Shadow Copies, and MFT resident data.
+- Check `Event Log` (`Security.evtx`, `Microsoft-Windows-Application-Experience%4Program-Inventory.evtx`) for `cipher.exe` execution timestamps — they anchor the anti-forensics timeline.
+
+**Key insight:** Secure-erase tools leave their own filesystem fingerprints. `cipher.exe /w` creates `EFSTMPWP`; `sdelete` creates files named after the wiped target with a `.ZZZ`-style extension; BleachBit leaves `~BleachBit*.tmp`. Grep for these artifact names before launching any recovery job — they tell you whether recovery is even worth attempting.
+
+**References:** Security Fest CTF 2018 — writeup 10206

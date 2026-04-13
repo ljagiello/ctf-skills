@@ -14,6 +14,7 @@ LFSR, RC4, and XOR-based stream cipher attacks. For block cipher attacks (AES, p
 - [XOR Consecutive Byte Correlation Attack (Defcamp 2015)](#xor-consecutive-byte-correlation-attack-defcamp-2015)
 - [Fibonacci Stream Cipher Position-Shifting Oracle (EKOPARTY 2017)](#fibonacci-stream-cipher-position-shifting-oracle-ekoparty-2017)
 - [Z3 Constraint Solving for Custom Stream Ciphers (Tokyo Westerns 2017)](#z3-constraint-solving-for-custom-stream-ciphers-tokyo-westerns-2017)
+- [Keystream Recovery via Run-Length Encoding Collisions (Google CTF Quals 2018)](#keystream-recovery-via-run-length-encoding-collisions-google-ctf-quals-2018)
 
 ---
 
@@ -318,3 +319,32 @@ if s.check() == sat:
 **Key insight:** Stream ciphers with algebraic (addition-based) mixing are directly amenable to Z3 constraint solving. Encode each step as an integer constraint, add known-plaintext anchors for the flag prefix, and let the solver recover key and remaining plaintext simultaneously. This avoids any manual analysis of the cipher structure.
 
 **References:** Tokyo Westerns CTF 2017
+
+---
+
+## Keystream Recovery via Run-Length Encoding Collisions (Google CTF Quals 2018)
+
+**Pattern (DogeStore):** Server computes `sha3(rle_decode(decrypt(xor(input, keystream))))`. Two different inputs can produce the same decoded plaintext when RLE has multiple valid encodings of the same byte run (e.g., `a\x02` vs `a\x01a\x00` both decode to `aa`). Equal hashes across different ciphertexts therefore expose XOR relationships between keystream bytes.
+
+**Exploit:** For each candidate byte position pair `(i, i+2)` and each byte value `x`, submit two ciphertexts that differ only at those positions by `x`. If the SHA3 outputs match, `keystream[i] XOR keystream[i+2] == x`.
+
+```python
+def probe(i, x):
+    # Builds two ciphertexts that differ by x at positions i and i+2
+    c1 = baseline_cipher(i, 0, 0)
+    c2 = baseline_cipher(i + 2, x, x)
+    return sha3(server_decode(c1)) == sha3(server_decode(c2))
+
+diffs = {}
+for i in range(keystream_len - 2):
+    for x in range(256):
+        if probe(i, x):
+            diffs[i] = x  # k[i] ^ k[i+2] = x
+            break
+```
+
+Chain the recovered differences to reconstruct the entire keystream once any single byte is known (or constrained by a flag-prefix crib).
+
+**Key insight:** Whenever a protocol post-processes plaintext with a lossy or many-to-one step (RLE, normalization, lowercase), a hash oracle over the post-processed output leaks equalities between unknown plaintext bytes — and therefore keystream bytes — without ever decrypting.
+
+**References:** Google CTF Quals 2018 — writeup 10370

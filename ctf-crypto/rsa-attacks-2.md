@@ -17,6 +17,7 @@
 - [Coppersmith Small Roots for Linearly Related Primes (Tokyo Westerns 2017)](#coppersmith-small-roots-for-linearly-related-primes-tokyo-westerns-2017)
 - [ROCA Attack on RSA CVE-2017-15361 (EasyCTF IV)](#roca-attack-on-rsa-cve-2017-15361-easyctf-iv)
 - [RSA Signature Bypass with e=1 and Crafted Modulus (BackdoorCTF 2018)](#rsa-signature-bypass-with-e1-and-crafted-modulus-backdoorctf-2018)
+- [Dependent-Prime RSA: q = e^-1 mod p (TokyoWesterns CTF 4th 2018)](#dependent-prime-rsa-q--e-1-mod-p-tokyowesterns-ctf-4th-2018)
 
 See also: [rsa-attacks.md](rsa-attacks.md) for foundational RSA attacks (small e, Wiener, Fermat, Pollard, Hastad, common modulus, Manger oracle, Coppersmith).
 
@@ -472,3 +473,29 @@ n = signature ** e - PKCS1_pad(h.hexdigest())
 ```
 
 **Key insight:** When the verifier accepts user-supplied public key parameters without constraints, setting `e=1` makes modular exponentiation trivial. Choose `n` such that `signature mod n` equals the expected padded hash.
+
+---
+
+## Dependent-Prime RSA: q = e^-1 mod p (TokyoWesterns CTF 4th 2018)
+
+**Pattern:** Key generation picks prime `p`, then sets `q = e^(-1) mod p` and rerolls until `q` is prime. The dependency `e*q ≡ 1 (mod p)` means `e*q = k*p + 1` for some small positive integer `k`, so `n = p*q = p*(k*p + 1)/e` — a quadratic in `p` that factors after enumerating a few candidate `k` values.
+
+**Exploit:**
+```python
+from sage.all import PolynomialRing, ZZ
+
+def factor_dependent_n(n, e, max_k=100000):
+    P = PolynomialRing(ZZ, 'p'); p = P.gen()
+    for k in range(2, max_k, 2):
+        # e*q = k*p + 1 and n = p*q  =>  e*n = p*(k*p + 1)
+        poly = k * p * p + p - e * n
+        roots = poly.roots()
+        for root, _ in roots:
+            if root > 1 and n % root == 0:
+                return int(root), n // int(root)
+    return None
+```
+
+**Key insight:** Any key generator that derives `q` from `p` via a public arithmetic relation collapses RSA security to a small search. Write the relation as a polynomial `f_k(p) = 0` parameterized by a small integer, and use `.roots()` in Sage to recover `p`. The search space for `k` is typically under 2^16 because `q < p` forces `k ≈ e`.
+
+**References:** TokyoWesterns CTF 4th 2018 — writeup 10862

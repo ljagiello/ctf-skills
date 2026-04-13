@@ -18,6 +18,7 @@
 - [Homomorphic Encryption Oracle Bit-Extraction (Tokyo Westerns 2017)](#homomorphic-encryption-oracle-bit-extraction-tokyo-westerns-2017)
 - [ElGamal over Matrices via Jordan Normal Form (SharifCTF 8)](#elgamal-over-matrices-via-jordan-normal-form-sharifctf-8)
 - [OSS (Ong-Schnorr-Shamir) Signature Forgery via Pollard's Method (SharifCTF 8)](#oss-ong-schnorr-shamir-signature-forgery-via-pollards-method-sharifctf-8)
+- [Cayley-Purser Decryption Without Private Key (TJCTF 2018)](#cayley-purser-decryption-without-private-key-tjctf-2018)
 
 ---
 
@@ -726,3 +727,30 @@ def forge_product(x1, y1, x2, y2, k, n):
 **Key insight:** The OSS signature scheme is based on the quadratic form `x^2 + ky^2 = m (mod n)`. Pollard showed that these forms compose multiplicatively -- given signatures for m1 and m2, you can forge a signature for m1*m2 without the private key. This is a fundamental algebraic break, not an implementation bug. To sign an arbitrary target message `m_target`, factor it as a product of signed messages, or use the homomorphic property with `m1 = known_signed_message` and construct `m2 = m_target * modinv(m1, n)` if a signature for m2 is obtainable.
 
 **References:** SharifCTF 8 (2018)
+
+---
+
+## Cayley-Purser Decryption Without Private Key (TJCTF 2018)
+
+**Pattern:** Cayley-Purser is a matrix-based public-key system using 2x2 matrices modulo a prime. Public key is `(alpha, beta, gamma)` where `gamma = alpha^r * beta * alpha^(-r)` and `epsilon = gamma^s`. The private key is `r`, but decryption only needs a matrix `H` that satisfies `H * gamma = gamma * H`.
+
+**Exploit:** Any matrix `H` commuting with `gamma` decrypts correctly, and the Cayley-Hamilton theorem lets you build one entirely from public values — no need to recover `r`.
+
+```python
+from sage.all import matrix, identity_matrix
+import operator
+
+# Given public alpha, beta, gamma, epsilon, mu (ciphertext)
+invalpha = alpha.inverse()
+# Recover scaling entry h via elementwise division
+h_elems = (invalpha * gamma - gamma * beta)
+h_denom = (beta - invalpha)
+h = matrix([[h_elems[i][j] / h_denom[i][j] for j in range(2)] for i in range(2)])
+
+H = h[0][0] * identity_matrix(2) + gamma
+plaintext = (H.inverse() * epsilon * H) * mu * (H.inverse() * epsilon * H)
+```
+
+**Key insight:** Any commuting matrix works as the decryption key. Cayley-Hamilton guarantees that `H = c1 * I + c2 * gamma` commutes with `gamma`, and the needed scalar `c1` can be read off by comparing entries of `alpha^(-1) * gamma` against `gamma * beta`. Always check whether "private key" operations can be replaced by a commutation-equivalent derived from public data.
+
+**References:** TJCTF 2018 — writeup 10680

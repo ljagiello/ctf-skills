@@ -16,6 +16,7 @@ See also: [stego-advanced-2.md](stego-advanced-2.md) for video frame techniques,
 - [DeepSound Audio Steganography with Password Cracking (INShAck 2018)](#deepsound-audio-steganography-with-password-cracking-inshack-2018)
 - [Audio Waveform Binary Encoding (BackdoorCTF 2013)](#audio-waveform-binary-encoding-backdoorctf-2013)
 - [Audio Spectrogram Hidden QR Code (BaltCTF 2013)](#audio-spectrogram-hidden-qr-code-baltctf-2013)
+- [Byte-Reversed .docx ZIP Bidirectional Archive (Security Fest CTF 2018)](#byte-reversed-docx-zip-bidirectional-archive-security-fest-ctf-2018)
 
 ---
 
@@ -431,6 +432,29 @@ sox audio.mp3 -n spectrogram -o spec.png
 ```
 
 **Key insight:** Use Sonic Visualiser (Layer → Add Spectrogram) with adjustable window size and color mapping. QR codes or text often appear in the 2-15 kHz band. Multiple spectrogram fragments may need to be stitched together in an image editor before scanning.
+
+---
+
+## Byte-Reversed .docx ZIP Bidirectional Archive (Security Fest CTF 2018)
+
+**Pattern (Zion):** Distributed file is a valid `.docx` (ZIP archive). Extract it normally and you see only a decoy document. Reverse the entire file byte-for-byte and the result is *also* a valid ZIP archive — containing a second `word/media/*.png` whose contents are the flag.
+
+**Extraction:**
+```bash
+# Verify the forward archive
+unzip -l doc.docx
+
+# Reverse the byte stream and unpack the mirror archive
+python3 -c "import sys;sys.stdout.buffer.write(open('doc.docx','rb').read()[::-1])" > mirror.zip
+unzip -l mirror.zip
+unzip mirror.zip 'word/media/*' -d mirror/
+```
+
+**Why both directions succeed:** ZIP's central directory sits at the end of the archive and the local file headers are parsed only via offsets in that directory. By placing a second set of local headers at the *start* of the file, and a matching central directory at the very end after reversing, the file satisfies the ZIP specification in both reading orders. Python's `zipfile` and `unzip -l` read the central directory from the tail, so they happily open whichever end is presented first.
+
+**Key insight:** Always test container files for byte-reversal, bit-reversal, and byte-interleaving when the forward extraction yields only a decoy. Run `binwalk` on both the forward and reversed copies to surface embedded archives hidden in either direction. The trick generalizes to any format whose parser tolerates trailing garbage (ZIP, RAR, PDF, tar).
+
+**References:** Security Fest CTF 2018 — writeup 10204
 
 ---
 

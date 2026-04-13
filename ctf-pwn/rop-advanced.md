@@ -20,6 +20,7 @@
 - [Time-Based Blind Shellcode When write() Blocked (DEF CON 2017)](#time-based-blind-shellcode-when-write-blocked-def-con-2017)
 - [JIT-ROP: Scan for syscall Byte in Leaked libc Function (Codegate 2018)](#jit-rop-scan-for-syscall-byte-in-leaked-libc-function-codegate-2018)
 - [ret2dl_resolve 64-bit (Codegate 2018)](#ret2dl_resolve-64-bit-codegate-2018)
+- [Prime-Only ROP via Goldbach Decomposition (PlaidCTF 2018)](#prime-only-rop-via-goldbach-decomposition-plaidctf-2018)
 - [Useful Commands](#useful-commands)
 
 For core ROP chain building, ret2csu, bad character bypass, exotic gadgets, and stack pivot via xchg, see [rop-and-shellcode.md](rop-and-shellcode.md).
@@ -613,6 +614,33 @@ payload = flat(
 **When to recognize:** No libc leak available, Partial RELRO (PLT/GOT writable), binary has enough ROP gadgets to write to BSS and control function arguments. Works on any glibc version (the VERSYM bypass via NULL is universal). Prefer this over blind libc identification when the remote libc version is completely unknown.
 
 **References:** Codegate 2018
+
+---
+
+## Prime-Only ROP via Goldbach Decomposition (PlaidCTF 2018)
+
+**Pattern:** Challenge constrains every stack word written by the attacker to be a prime number (`miller_rabin(val)` must return true on each slot). Direct gadget addresses are almost never prime, so the ROP chain looks impossible to build.
+
+**Exploit:** Goldbach's conjecture guarantees every even integer > 2 is the sum of two primes. Represent each target gadget address `g` as `g = p1 + p2` where `p1, p2` are primes, and write them into adjacent stack slots. A small "prime adder" gadget (`pop rax; pop rdx; add rax, rdx; push rax; ret` or a read-modify-write into the stack) consolidates the two halves into the real gadget pointer right before the `ret` that consumes it.
+
+```python
+from sympy import isprime, nextprime
+
+def prime_split(addr):
+    # Returns (p1, p2) with p1 + p2 == addr and both prime
+    if addr % 2:  # odd: (2, addr-2) if addr-2 prime, else search
+        if isprime(addr - 2): return (2, addr - 2)
+    p1 = 3
+    while not (isprime(p1) and isprime(addr - p1)):
+        p1 = nextprime(p1)
+    return (p1, addr - p1)
+```
+
+Chain multiple `(p1, p2, adder)` triples to synthesize arbitrary gadget addresses while every raw stack word still passes the primality filter.
+
+**Key insight:** Number-theoretic constraints on stack contents can always be defeated by writing a value as the sum/XOR/product of admissible parts and adding a tiny reducer gadget that recombines them at runtime. Goldbach gives a constructive two-term decomposition for addresses; Lagrange's four-square theorem works similarly for constraints that require perfect squares.
+
+**References:** PlaidCTF 2018 — writeup 10017
 
 ---
 

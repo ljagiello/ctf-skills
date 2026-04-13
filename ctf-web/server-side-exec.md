@@ -27,6 +27,8 @@
 - [HTTP Response Header Data Hiding](#http-response-header-data-hiding)
 - [WebSocket Mass Assignment](#websocket-mass-assignment)
 - [Thymeleaf SpEL SSTI + Spring FileCopyUtils WAF Bypass (ApoorvCTF 2026)](#thymeleaf-spel-ssti--spring-filecopyutils-waf-bypass-apoorvctf-2026)
+- [PHP eval() Function-Regex Bypass via current(getallheaders()) (RCTF 2018)](#php-eval-function-regex-bypass-via-currentgetallheaders-rctf-2018)
+- [Python f-string Format Injection Blind Extraction (Meepwn CTF Quals 2018)](#python-f-string-format-injection-blind-extraction-meepwn-ctf-quals-2018)
 
 For injection attacks (SQLi, SSTI, SSRF, XXE, command injection, PHP type juggling, PHP file inclusion), see [server-side.md](server-side.md). For deserialization attacks (Java, Pickle) and race conditions, see [server-side-deser.md](server-side-deser.md). For CVE-specific exploits, path traversal bypasses, Flask/Werkzeug debug, and other advanced techniques, see [server-side-advanced.md](server-side-advanced.md).
 
@@ -405,6 +407,50 @@ ${new String(T(java.nio.file.Files).readAllBytes(T(java.nio.file.Paths).get("/fl
 ```
 
 **Detection:** Spring Boot with `/api/admin/preview` or similar template rendering endpoint. Thymeleaf error messages in responses. `X-Api-Token` header pattern.
+
+---
+
+## PHP eval() Function-Regex Bypass via current(getallheaders()) (RCTF 2018)
+
+**Pattern (calc):** A PHP sandbox passes user input to `eval()` only after a recursive regex `/[^\W_]+\((?R)?\)/` verifies the string contains a single function call (identifier + parentheses). The filter rejects underscores, digits-before-letter, and multi-statement bodies, which kills obvious payloads like `system($_GET[...])`.
+
+**Bypass:** `current(getallheaders())` is a single bare function-call expression that passes the regex. At runtime it returns the first HTTP header value — an arbitrary attacker-controlled string — which can then be passed into a second nested `eval` or `assert`.
+
+```bash
+curl "http://target/?cmd=eval(current(getallheaders()));" \
+     -H "Zzz: system('cat /flag');"
+```
+
+- `getallheaders()` returns an associative array of the request headers.
+- `current()` extracts the first element (PHP's header order is stable enough to force your header to index 0 by sending it first or using a name like `Zzz` that wins alphabetical ties).
+- The outer `eval` consumes the returned string and executes it.
+
+**Key insight:** Any regex filter that only inspects the *form* of an expression (function-name + parens) can be broken by functions whose return values become the next payload. Focus on PHP functions that read attacker-controlled storage (`getallheaders`, `get_defined_vars`, `file_get_contents('php://input')`, `current($_SERVER)`) — they let you smuggle arbitrary strings past syntactic filters.
+
+**References:** RCTF 2018 — writeup 10150
+
+---
+
+## Python f-string Format Injection Blind Extraction (Meepwn CTF Quals 2018)
+
+**Pattern:** A Python 3.6+ application evaluates user-controlled content inside an f-string template (`f"... {user} ..."`). Explicit quotes are filtered, so `{FLAG}` returns the flag's `repr()` but the attacker cannot concatenate strings or call functions with string arguments.
+
+**Bypass — boolean short-circuit + format spec:**
+```python
+# The f-string spec lets you use comparisons and arithmetic inside {}.
+# `FLAG > 'c'` evaluates to True or False depending on lexicographic order.
+# `True or 14` short-circuits to True; False triggers the fallback 14 which
+# is then formatted as hex ('e'). This turns the template into a one-bit
+# oracle that reveals 'FLAG[0] > c' per request.
+payload = "{FLAG>'c' or 14:x}"
+# Request returns "True" or "e" — the attacker reads one comparison bit.
+```
+
+Iterate the comparison character to binary-search each byte of `FLAG` without ever emitting a forbidden quote outside the template.
+
+**Key insight:** f-strings evaluate full Python expressions inside `{}`. Any filter that only looks at the surrounding source (e.g., "no quotes, no `__class__`") fails because the expression can use identifiers already in scope, comparisons, and the format-spec `:x`/`:b`/`:c` conversions to turn any value into attacker-readable output. When direct string manipulation is banned, use comparisons against pre-existing constants or against other variables and read the result bit-by-bit.
+
+**References:** Meepwn CTF Quals 2018 — writeups 10433, 10434
 
 ---
 

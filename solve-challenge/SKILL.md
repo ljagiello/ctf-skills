@@ -61,7 +61,7 @@ export CTF_URL="https://ctf.example.com"
 export CTF_TOKEN="ctfd_..."  # Ask user for this
 ```
 
-See [ctf-misc/ctfd-navigation.md](../ctf-misc/ctfd-navigation.md) for the full API reference and Python client class.
+Invoke `/ctf-misc` and load its `ctfd-navigation.md` for the full API reference and Python client class.
 
 ### Step 1: Recon
 

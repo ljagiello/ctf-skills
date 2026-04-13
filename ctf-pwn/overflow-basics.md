@@ -17,6 +17,7 @@
 - [Protocol Length Field Stack Bleeding (EKOPARTY CTF 2016)](#protocol-length-field-stack-bleeding-ekoparty-ctf-2016)
 - [Parser Stack Overflow via Unchecked memcpy Length (MetaCTF Flash 2026)](#parser-stack-overflow-via-unchecked-memcpy-length-metactf-flash-2026)
 - [Stack Canary Null-Byte Overwrite Leak (CSAW 2017)](#stack-canary-null-byte-overwrite-leak-csaw-2017)
+- [Empty-Token strncmp(n=0) MAC Bypass (UCSB iCTF 2018)](#empty-token-strncmpn0-mac-bypass-ucsb-ictf-2018)
 
 ---
 
@@ -466,3 +467,23 @@ p.send(b'A' * buf_size + canary + p64(0) + p64(win_addr))
 **Key insight:** The canary's null byte terminator is a weakness — overwriting only it makes string functions print the canary value. Return-to-main provides a second exploitation opportunity with the leaked canary, enabling full ROP chain construction.
 
 **References:** CSAW 2017
+
+---
+
+## Empty-Token strncmp(n=0) MAC Bypass (UCSB iCTF 2018)
+
+**Pattern:** A MAC or auth token check extracts `n` (comparison length) from a user-supplied field and then calls `strncmp(expected, supplied, n)`. When `n == 0`, `strncmp` returns 0 regardless of input — every token is accepted.
+
+**Vulnerable code:**
+```c
+int n = atoi(user_len);            // attacker controls length
+if (strncmp(expected_mac, user_mac, n) == 0) {
+    grant_access();
+}
+```
+
+**Exploit:** Send the token with `len=0` (or a length field that parses to zero) and an arbitrary MAC.
+
+**Key insight:** Any variable-length comparator (`strncmp`, `memcmp`, `bcmp`) returns equality for zero-length input. Validate the length separately: reject `n <= 0`, or use `CRYPTO_memcmp`/`hmac_equal` and compare full fixed-size buffers. The same bug appears when the length comes from a client-supplied HMAC size or TLV header.
+
+**References:** UCSB iCTF 2018 — writeup 10009

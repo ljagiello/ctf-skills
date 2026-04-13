@@ -19,6 +19,7 @@
 - [Native JNI Key Extraction via Memory Dump and Smali Patching (HackIT 2017)](#native-jni-key-extraction-via-memory-dump-and-smali-patching-hackit-2017)
 - [IBM AS/400 SAVF File EBCDIC Decoding (EKOPARTY 2017)](#ibm-as400-savf-file-ebcdic-decoding-ekoparty-2017)
 - [Intel SGX Enclave Reverse Engineering (Pwn2Win 2017)](#intel-sgx-enclave-reverse-engineering-pwn2win-2017)
+- [Glulx Interactive Fiction Bytecode Matrix Validation (PlaidCTF 2018)](#glulx-interactive-fiction-bytecode-matrix-validation-plaidctf-2018)
 
 For core language reversing (Python, BF/esolangs, DOS, Unity, OPAL), see [languages.md](languages.md).
 For Go and Rust binary reversing, see [languages-compiled.md](languages-compiled.md).
@@ -526,3 +527,28 @@ sk = c.finalize()
 **Key insight:** SGX remote attestation key derivation is deterministic given the enclave measurement — reimplementing the protocol in Python recovers the same session key.
 
 **References:** Pwn2Win CTF 2017
+
+---
+
+## Glulx Interactive Fiction Bytecode Matrix Validation (PlaidCTF 2018)
+
+**Pattern:** Challenge is a Glulx interactive fiction story (`.ulx`/`.blorb`) that accepts player input, scrambles it via a matrix multiplication inside the VM, and compares the result to a hardcoded vector. A hidden `xyzzy`-style command enables a debug room whose side exit reveals the target vector and constant matrix.
+
+**Workflow:**
+1. Disassemble with `glulxd` (Glulx toolkit) or run under `glulxe`/`git` interpreters while dumping memory at each VM instruction.
+2. Locate the matrix constant (look for aligned 32-bit integers adjacent to the comparison routine) and the target vector referenced by the comparison.
+3. Type the hidden-command trigger to reach the debug room — Glulx games often respond to `xyzzy`, `plugh`, or developer verbs that still appear in the dictionary table (`.DictTable`).
+4. Invert the transformation in Python: `input_vec = target_vec * matrix.inverse()` over `Z_{2^32}` (Glulx integers are unsigned 32-bit).
+
+```python
+from sage.all import matrix, Zmod
+
+M = matrix(Zmod(2**32), rows)       # rows[i] = extracted matrix row
+target = vector(Zmod(2**32), output)
+answer = M.solve_right(target)      # required player input as 32-bit words
+print(bytes(answer.list()).decode())
+```
+
+**Key insight:** Adventure-game VMs always keep the original story text in the dictionary and object tables — grep the bytecode for developer verbs (`xyzzy`, `debug`, `god`, `plugh`) to discover hidden rooms before reversing the check itself. Glulx validation routines are typically linear over 32-bit integers, so solving them with Sage matrix inversion is faster than symbolic execution.
+
+**References:** PlaidCTF 2018 — writeup 10019

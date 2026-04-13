@@ -24,6 +24,8 @@ Block cipher attacks, MAC forgery, padding oracles, and authenticated encryption
 - [Custom SPN Column-Wise XOR Brute-Force (Hack Dat Kiwi 2017)](#custom-spn-column-wise-xor-brute-force-hack-dat-kiwi-2017)
 - [AES-CTR Bitflip + CRC Linearity Signature Forgery (hxp CTF 2017)](#aes-ctr-bitflip--crc-linearity-signature-forgery-hxp-ctf-2017)
 - [AES-CBC Ciphertext Forging via Error-Message Decryption Oracle (Nuit du Hack CTF 2018)](#aes-cbc-ciphertext-forging-via-error-message-decryption-oracle-nuit-du-hack-ctf-2018)
+- [SHA-1 Chosen-Prefix Collision for PDF Signature Forgery (DEF CON Quals 2018)](#sha-1-chosen-prefix-collision-for-pdf-signature-forgery-def-con-quals-2018)
+- [Hash Chain Preimage Authentication Bypass (picoCTF 2017)](#hash-chain-preimage-authentication-bypass-picoctf-2017)
 
 See also [modern-ciphers-2.md](modern-ciphers-2.md) for CRC32 forgery, Blum-Goldwasser, hash length extension, compression oracle, hash time reversal, OFB invertible RNG, weak key derivation, HMAC-CRC, DES weak keys, SRP bypass, modified AES S-Box, square attack, AES-ECB byte-at-a-time, AES-ECB cut-and-paste, AES-CBC IV bit-flip, Rabin LSB parity oracle, PBKDF2 pre-hash bypass, MD5 multi-collision, custom hash state reversal, and CRC32 brute-force.
 
@@ -563,3 +565,50 @@ for i in range(blocks):
 ```
 
 **Key insight:** When the server reveals decrypted ciphertext in error messages, you can forge arbitrary plaintext without knowing the key. Send zero IV blocks to learn the intermediate state, then XOR with desired plaintext to produce the correct ciphertext. Build block-by-block from last to first.
+
+---
+
+## SHA-1 Chosen-Prefix Collision for PDF Signature Forgery (DEF CON Quals 2018)
+
+**Pattern (EmojiVote):** Server extracts commands from an uploaded PDF via OCR, then signs the OCR'd byte-string as `sha1(data)` and attaches the signature. Use a shattered-style SHA-1 chosen-prefix collision to produce two PDFs that OCR to different commands but share the same SHA-1 digest.
+
+**Exploit workflow:**
+1. Build PDF A that OCR's to a benign command (no `EXECUTE`) and PDF B that OCR's to `EXECUTE <attacker command>`.
+2. Pad both with shattered-style suffix data so `sha1(A) == sha1(B)`.
+3. Submit A to obtain a valid signature for the shared digest.
+4. Replay that signature on B — the server verifies the SHA-1 matches and executes the attacker command.
+
+```bash
+# Build the two colliding PDFs (cpc = chosen-prefix collision tool)
+./cpc prefix_A prefix_B collision_A.pdf collision_B.pdf
+sha1sum collision_A.pdf collision_B.pdf  # identical
+# Upload A, capture signature, replay on B
+```
+
+**Key insight:** When a protocol signs a message as `sign(sha1(M))` instead of `sign(M)` directly, any SHA-1 collision becomes a signature forgery. Chosen-prefix collisions are practical (cpc/shattered toolkit) — the signer only inspects the digest, never the second preimage.
+
+**References:** DEF CON CTF Qualifier 2018 — writeup 10075
+
+---
+
+## Hash Chain Preimage Authentication Bypass (picoCTF 2017)
+
+**Pattern (hash_chain):** Server authenticates the Nth challenge by asking for `hash^(N-1)(seed)` given `hash^N(seed)`. The seed is derivable from public user data (e.g., `md5(username)`), so any attacker can precompute the whole chain from the start and answer any step.
+
+**Exploit:**
+```python
+import hashlib
+
+def H(x): return hashlib.md5(x).digest()
+
+seed = H(username.encode())        # public-derived seed
+chain = [seed]
+for _ in range(TARGET_N + 1):
+    chain.append(H(chain[-1]))
+
+# Server sends chain[N]; answer with chain[N-1]
+```
+
+**Key insight:** Hash chains are only one-way if the seed is secret. If the seed can be reconstructed from public inputs (username, challenge ID, timestamp), the entire chain is computable forward, and answering "give me the previous hash" is trivial. Treat the seed like a key.
+
+**References:** picoCTF 2017 — writeup 10031

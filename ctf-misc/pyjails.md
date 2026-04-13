@@ -28,6 +28,7 @@
 - [func_globals to Module Chain Traversal (PlaidCTF 2013)](#func_globals-to-module-chain-traversal-plaidctf-2013)
 - [Restricted Charset Number Generation (PlaidCTF 2013)](#restricted-charset-number-generation-plaidctf-2013)
 - [Multi-Stage Payload with Class Attribute Persistence (PlaidCTF 2013)](#multi-stage-payload-with-class-attribute-persistence-plaidctf-2013)
+- [Restricted vim Escape via K (man) to :!sh (TokyoWesterns CTF 4th 2018)](#restricted-vim-escape-via-k-man-to-sh-tokyowesterns-ctf-4th-2018)
 - [Python Name Mangling and Attribute Access (Tokyo Westerns 2017)](#python-name-mangling-and-attribute-access-tokyo-westerns-2017)
 - [Decorator-Based Escape (No Call, No Quotes, No Equals)](#decorator-based-escape-no-call-no-quotes-no-equals)
   - [Technique 1: `function.__name__` as String Keys](#technique-1-function__name__-as-string-keys)
@@ -611,3 +612,21 @@ exec(().__class__.__base__.__subclasses__()[-2].payload)
 ```
 
 **Key insight:** Class attributes persist across separate `eval()`/`exec()` calls within the same process. If the jail limits input length but allows multiple submissions, split the payload across submissions using subclass attributes as storage. Use `IncrementalDecoder` or any persistent subclass as the storage target.
+
+---
+
+## Restricted vim Escape via K (man) to :!sh (TokyoWesterns CTF 4th 2018)
+
+**Pattern (shrine):** Sandbox launches a locked-down `vim` with `:shell`/`:!` mapped out and a secure-mode profile. Command-mode escapes are blocked, but normal-mode `K` (look up keyword under cursor via `keywordprg`, default `man`) still works. `man` internally paginates via `less`, and `less` itself has a documented shell-escape: typing `!sh` from the pager spawns a shell with the user's real privileges.
+
+**Exploit steps:**
+1. Open any file in the restricted vim (or create one inline with `vim -c 'new' -c 'put! =\"ls\"'`).
+2. In normal mode, place the cursor on any identifier and press `K`. vim runs `man <word>`.
+3. `man` pipes output to `less`. Inside `less`, press `!sh` and hit Enter — the pager fork/execs a real shell.
+4. Alternatively, once inside `less` type `v` to launch `$EDITOR`; if `EDITOR=vim` is unset the default editor still allows shell escape via `:!`.
+
+**Hardening signals to check first:** `keywordprg` value (`:set keywordprg?`), `secure` mode, whether `shell` option has been cleared, and the `LESSSECURE=1` environment variable. `LESSSECURE=1` specifically disables `!`, `|`, `v`, and `s` inside `less` — its absence is a green light for this escape.
+
+**Key insight:** Restricted editors almost always leak via chained pagers and keyword lookups. Catalog every command that spawns a child process (`K`/`keywordprg`, `:grep`, `:make`, `gx` for URL open, `:Man`) before touching `:!`. If even one child process uses `less` or another escape-friendly pager without `LESSSECURE=1`, you have a shell.
+
+**References:** TokyoWesterns CTF 4th 2018 — writeup 10859; GTFOBins `vim`/`less`/`man` entries

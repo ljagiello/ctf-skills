@@ -23,6 +23,7 @@
 - [Custom Assembly Language Sandbox Escape (EHAX 2026)](#custom-assembly-language-sandbox-escape-ehax-2026)
 - [Lua Sandbox Escape via Function Name Injection (CSAW CTF 2016)](#lua-sandbox-escape-via-function-name-injection-csaw-ctf-2016)
 - [Ruby Sandbox Escape via TracePoint.trace (HITCON 2017)](#ruby-sandbox-escape-via-tracepointtrace-hitcon-2017)
+- [Pixel-Sampling BFS Maze Auto-Solver (HackCon 2018)](#pixel-sampling-bfs-maze-auto-solver-hackcon-2018)
 - [References](#references)
 
 ---
@@ -465,6 +466,51 @@ The hook fires on the next C-level call (e.g., `puts`, any method call), executi
 **Why it works:** `TracePoint` (introduced in Ruby 2.0) operates at a lower level than `set_trace_func`. `:c_call` hooks fire when any C-implemented method is invoked, which happens before the Ruby event system that `set_trace_func` relies on processes the event.
 
 **Key insight:** `TracePoint` operates at a lower level than `set_trace_func` in Ruby — C-call hooks fire before Ruby-level event hooks, allowing sandbox escape. Any subsequent C-method call (even benign ones) triggers the payload.
+
+---
+
+## Pixel-Sampling BFS Maze Auto-Solver (HackCon 2018)
+
+**Pattern:** Challenge streams a PNG of a grid maze and expects the player to type WASD moves within a tight time limit. Manual solving is impossible at scale, but the maze is a uniform grid — each cell is exactly `N` pixels wide and each wall is 1 cell wide.
+
+**Solver pipeline:**
+```python
+import requests, numpy as np
+from collections import deque
+from PIL import Image
+from io import BytesIO
+
+CELL = 10  # measured cell width in pixels
+
+def fetch_grid(url):
+    img = np.array(Image.open(BytesIO(requests.get(url).content)).convert('L'))
+    rows, cols = img.shape[0] // CELL, img.shape[1] // CELL
+    # 1 = wall (dark pixel at cell center), 0 = open
+    grid = [[1 if img[r*CELL + CELL//2, c*CELL + CELL//2] < 128 else 0
+             for c in range(cols)] for r in range(rows)]
+    return grid
+
+def bfs(grid, start, goal):
+    dirs = [(-1, 0, 'W'), (1, 0, 'S'), (0, -1, 'A'), (0, 1, 'D')]
+    q = deque([(start, '')])
+    seen = {start}
+    while q:
+        (r, c), path = q.popleft()
+        if (r, c) == goal:
+            return path
+        for dr, dc, m in dirs:
+            nr, nc = r + dr, c + dc
+            if (0 <= nr < len(grid) and 0 <= nc < len(grid[0])
+                    and grid[nr][nc] == 0 and (nr, nc) not in seen):
+                seen.add((nr, nc))
+                q.append(((nr, nc), path + m))
+```
+
+Measure `CELL` once by inspecting the first row of the image; then every maze in the same challenge series decodes to a boolean grid and BFS yields the move sequence in milliseconds.
+
+**Key insight:** Any image-driven CTF game can be turned into a graph problem by sampling one pixel per logical cell — pick the cell center, not the border, so wall thickness doesn't poison the result. Build the grid, BFS, and output the move string. The same pattern works for color-coded mazes (`img[r*CELL+CELL//2, c*CELL+CELL//2]` with RGB comparison) and for 3D isometric grids after an affine rectification.
+
+**References:** HackCon 2018 — writeup 10764
 
 ---
 
