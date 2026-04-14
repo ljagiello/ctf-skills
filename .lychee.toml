@@ -7,6 +7,7 @@ exclude = [
   "rbndr\\.us",           # DNS rebinding tool — often offline
   "whatsmyname\\.app",    # Blocks automated requests (403)
   "dcode\\.fr",           # Frequent timeouts in CI
+  "wry\\.me",             # Bytebeat interpreter — frequent timeouts
 ]
 
 # Accept common "soft error" status codes
