@@ -15,6 +15,8 @@
 - [BSON (Binary JSON) Format Reconstruction (IceCTF 2016)](#bson-binary-json-format-reconstruction-icectf-2016)
 - [TrueCrypt / VeraCrypt Volume Mounting (GreHack CTF 2016)](#truecrypt--veracrypt-volume-mounting-grehack-ctf-2016)
 - [Volatility mftparser Offset-Based Deleted File Recovery (BSides Delhi 2018)](#volatility-mftparser-offset-based-deleted-file-recovery-bsides-delhi-2018)
+- [Brotli Blob Detection via ASCII-Art Signature (ASIS Finals 2018)](#brotli-blob-detection-via-ascii-art-signature-asis-finals-2018)
+- [corkami/pocs MD5 PDF Collision Generation (35C3 2018)](#corkamipocs-md5-pdf-collision-generation-35c3-2018)
 - [See Also](#see-also)
 
 ---
@@ -443,6 +445,43 @@ ls ./out/
 **Key insight:** NTFS marks files "deleted" by flipping one bit in the MFT record header (`0x16` byte: `0x01 == in use`). Until the record is reallocated, the entire `$DATA` attribute is still intact and only lazily freed. Use `mftparser --offset=<record>` for resident files (under ~700 bytes — stored inline in the MFT) and `dd`/`icat` with the cluster runs for larger files. Always also grep for the filename in `windows.mftscan` output before giving up: memory-resident MFT fragments are still findable after on-disk deletion.
 
 **References:** BSides Delhi CTF 2018 — Never Too Late Mister, writeups 11963, 11970
+
+---
+
+## Brotli Blob Detection via ASCII-Art Signature (ASIS Finals 2018)
+
+**Pattern:** Binwalk and `file` miss Brotli-compressed data because the format has no fixed magic. Decompress candidate blobs with `brotli.decompress()`; the Brotli reference implementation embeds its own ASCII-art logo `Brrroootttllliii` as a sanity-check output. If the decompressed bytes contain that or other Brotli-specific telemetry strings, the original blob was Brotli.
+
+```python
+import brotli
+try:
+    out = brotli.decompress(blob)
+    if b'rrrooottl' in out or b'Brotli' in out:
+        print('Brotli-compressed')
+except Exception: pass
+```
+
+**Key insight:** Any compressor without a magic byte is identifiable by trial decompression. For Brotli, `zstd`, `snappy`, `lzma-alone`, spin through each library in order until one succeeds without raising.
+
+**References:** ASIS CTF Finals 2018 — Green Cabbage, writeup 12419
+
+---
+
+## corkami/pocs MD5 PDF Collision Generation (35C3 2018)
+
+**Pattern:** Challenge demands two valid PDFs with the same MD5 but different content. Use corkami/pocs `pdf.py` combined with `enscript | ps2pdf` to produce a PDF header with collision-friendly padding, then drive the collision via `fastcoll` (or `hashclash` for chosen-prefix). Works because the PDF format tolerates garbage in the `%PDF` trailer region that the MD5 collision block can overwrite.
+
+```bash
+enscript -p out.ps content.txt
+ps2pdf out.ps base.pdf
+python pdf.py base.pdf target1.pdf target2.pdf
+fastcoll -p base.pdf -o target1.pdf target2.pdf
+md5sum target1.pdf target2.pdf    # identical
+```
+
+**Key insight:** PDF collision is a one-command pipeline with the right toolchain. The harder variant is chosen-prefix MD5 (different visible content) which requires `hashclash` and 10-20 CPU-hours. Check `pocs/collisions/` for every file format with prebuilt scaffolds.
+
+**References:** 35C3 CTF 2018 — collider, writeup 12836
 
 ---
 

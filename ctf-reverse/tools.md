@@ -45,6 +45,7 @@
 - [Binary Ninja](#binary-ninja)
 - [Decompiler Comparison with dogbolt.org](#decompiler-comparison-with-dogboltorg)
 - [Useful Commands](#useful-commands)
+- [boolector SMT2 for Custom Hash Reversal (OTW Advent 2018)](#boolector-smt2-for-custom-hash-reversal-otw-advent-2018)
 
 For dynamic instrumentation tools (Frida, angr, lldb, x64dbg), see [tools-dynamic.md](tools-dynamic.md).
 
@@ -544,3 +545,29 @@ readelf -s binary
 objdump -d binary
 objdump -M intel -d binary
 ```
+
+---
+
+## boolector SMT2 for Custom Hash Reversal (OTW Advent 2018)
+
+**Pattern:** Custom hash functions built from bit operations fall to SMT solvers. boolector's QF_BV (bitvector) logic is noticeably faster than Z3 for such instances. Translate the hash into SMT2 directly, assert the output, and solve for the input.
+
+```smt
+(set-logic QF_BV)
+(declare-fun input () (_ BitVec 64))
+(assert (bvuge input #x0000000020202020))   ; printable lower bound
+(assert (bvule input #x000000007e7e7e7e))   ; printable upper bound
+
+; Emit the hash function as bvxor/bvrol/bvadd chains
+(define-fun hash ((x (_ BitVec 64))) (_ BitVec 64) ...)
+(assert (= (hash input) #xdeadbeefcafef00d))
+(check-sat) (get-model)
+```
+
+```bash
+boolector -m --output-format=smt2 hash.smt2
+```
+
+**Key insight:** Z3 is the default, but for bit-level hash puzzles boolector is often 10-100× faster. Emit SMT2 from IDA/r2 by lifting each basic block into `bvxor`/`bvrol`/`bvadd` and let the solver pick the preimage.
+
+**References:** OverTheWire Advent 2018 — Jackinthebox, writeup 12789

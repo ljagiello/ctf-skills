@@ -7,6 +7,7 @@ XXE payloads, XML injection, PHP variable-variable tricks, sequential regex bypa
   - [Basic XXE](#basic-xxe)
   - [OOB XXE with External DTD](#oob-xxe-with-external-dtd)
   - [XXE via DOCX/Office XML Upload (School CTF 2016)](#xxe-via-docxoffice-xml-upload-school-ctf-2016)
+  - [SVG XXE via svglib to PNG Pipeline (P.W.N. CTF 2018)](#svg-xxe-via-svglib-to-png-pipeline-pwn-ctf-2018)
 - [XML Injection via X-Forwarded-For Header (Pwn2Win 2016)](#xml-injection-via-x-forwarded-for-header-pwn2win-2016)
 - [PHP Variable Variables ($$var) Abuse (bugs_bunny 2017)](#php-variable-variables-var-abuse-bugs_bunny-2017)
 - [PHP uniqid() Predictable Filename (EKOPARTY 2017)](#php-uniqid-predictable-filename-ekoparty-2017)
@@ -73,6 +74,24 @@ curl -F "file=@exploit.docx" http://target/upload
 ```
 
 **Key insight:** Any file format based on ZIP+XML (DOCX, XLSX, PPTX, ODT, SVG+ZIP) can carry XXE payloads. The parser often processes `[Content_Types].xml` first, making it the ideal injection point. Use `php://filter/convert.base64-encode` for binary-safe exfiltration.
+
+### SVG XXE via svglib to PNG Pipeline (P.W.N. CTF 2018)
+
+**Pattern:** A service converts user-uploaded SVG to PNG using `svglib` + `reportlab`. The SVG parser expands external entities before rasterising, so an XXE entity referenced inside a `<text>` element ends up *drawn* onto the PNG.
+
+```xml
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE foo [<!ENTITY dat SYSTEM "file:///opt/key.txt">]>
+<svg xmlns="http://www.w3.org/2000/svg" width="200mm" height="10mm">
+  <text x="10" y="15" font-size="4" fill="red">&dat;</text>
+</svg>
+```
+
+The resulting PNG contains the flag rendered as visible text. Download the PNG and OCR/eyeball it.
+
+**Key insight:** Any SVG-to-image converter chain (`svglib`, `cairosvg`, `rsvg-convert`, librsvg) resolves XXE entities at parse time, so file contents can be smuggled through the image channel. The content appears in pixels, not metadata — grep is useless; open the image.
+
+**References:** P.W.N. CTF 2018 — SVG2PNG, writeup 12064
 
 ---
 

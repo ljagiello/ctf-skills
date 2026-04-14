@@ -8,6 +8,7 @@ USB, HID, and Bluetooth peripheral traffic reconstruction from packet captures. 
 - [USB Keyboard LED Morse Code Exfiltration (BITSCTF 2017)](#usb-keyboard-led-morse-code-exfiltration-bitsctf-2017)
 - [USB HID Keyboard Arrow Key Navigation Tracking (HackIT 2017)](#usb-hid-keyboard-arrow-key-navigation-tracking-hackit-2017)
 - [Bluetooth RFCOMM Packet Reassembly (HITCON 2018)](#bluetooth-rfcomm-packet-reassembly-hitcon-2018)
+- [GBA USB URB_INTERRUPT Framebuffer Extraction (hxp 2018)](#gba-usb-urb_interrupt-framebuffer-extraction-hxp-2018)
 
 ---
 
@@ -257,3 +258,30 @@ open("payload.bin", "wb").write(binary)
 **Key insight:** RFCOMM is a TCP-like serial port emulation layered on L2CAP; it fragments application payloads when they exceed the MTU. CTF challenges love to split flags across many frames because most pcap walkthroughs stop at TCP/UDP and skip the Bluetooth link layer. Use Wireshark filters `btrfcomm.channel`, `btl2cap`, or `btsnoop_hci` to isolate the relevant flows, then sort by any available order/group bytes before concatenating. Similar logic applies to USB bulk transfers (`usb.transfer_type == 0x03`) and MIDI-over-BLE traffic.
 
 **References:** HITCON CTF 2018 — EV3 Basic, writeup 11902
+
+---
+
+## GBA USB URB_INTERRUPT Framebuffer Extraction (hxp 2018)
+
+**Pattern:** pcap contains USB `URB_INTERRUPT` packets from a Game Boy Advance debug adapter. The GBA framebuffer is `240 × 160` at RGB565 (2 bytes/pixel = 76 800 bytes). Block type 6 carries memory dumps; split each packet's payload into the framebuffer grid and convert RGB565 to 8-bit RGB tuples.
+
+```python
+from PIL import Image
+from scapy.all import rdpcap
+pkts = [p for p in rdpcap('cap.pcap') if p.haslayer('Raw')]
+img = Image.new('RGB', (240, 160))
+for p in pkts:
+    if p.Raw.load[3] == 0x06:        # type 6 = memory dump
+        data = p.Raw.load[4:]
+        for i in range(76800 // 2):
+            rgb = int.from_bytes(data[2*i:2*i+2], 'little')
+            r = (rgb & 0xF800) >> 8
+            g = (rgb & 0x07E0) >> 3
+            b = (rgb & 0x001F) << 3
+            img.putpixel((i % 240, i // 240), (r, g, b))
+img.save('screen.png')
+```
+
+**Key insight:** Handheld console debug protocols usually wrap memory dumps in typed blocks. When you see GBA/NDS/PSP USB traffic, grep for block type 6 (framebuffer) or type 7 (audio) before parsing the rest.
+
+**References:** hxp CTF 2018 — cheatquest of hxpschr 2, writeup 12591

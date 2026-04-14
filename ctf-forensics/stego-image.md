@@ -19,6 +19,8 @@ Techniques specific to hiding data in image formats (JPEG, PNG, BMP, GIF). For n
 - [AVI Frame Differential Pixel Steganography (H4ckIT CTF 2016)](#avi-frame-differential-pixel-steganography-h4ckit-ctf-2016)
 - [JPEG Single-Bit-Flip Brute Force with OCR (SECCON 2017)](#jpeg-single-bit-flip-brute-force-with-ocr-seccon-2017)
 - [GIF Frame PLTE Chunk Concatenation to ELF (IceCTF 2018)](#gif-frame-plte-chunk-concatenation-to-elf-icectf-2018)
+- [Nested-Resize QR Overlay at Survivor Pixels (SECCON 2018)](#nested-resize-qr-overlay-at-survivor-pixels-seccon-2018)
+- [ImageMagick +append Puzzle Stitching + gaps Solver (X-MAS CTF 2018)](#imagemagick-append-puzzle-stitching--gaps-solver-x-mas-ctf-2018)
 
 ---
 
@@ -600,3 +602,41 @@ open("recovered.elf", "wb").write(payload)
 **Key insight:** GIF frames are internally stored with their own palettes. When you re-encode each frame as a PNG, the palette survives as a `PLTE` chunk — an ignored but byte-accurate container. Any stego carrier that uses a multi-frame format with per-frame metadata (GIF palettes, APNG frame data, PDF page streams, MKV tracks) lets you embed data in the *metadata channel* instead of the pixel channel, bypassing most LSB-style detection. When a GIF looks like a harmless animation but contains extra frames or palette entries, dump chunk-by-chunk before touching the pixels.
 
 **References:** IceCTF 2018 — ilovebees, writeup 11418
+
+---
+
+## Nested-Resize QR Overlay at Survivor Pixels (SECCON 2018)
+
+**Pattern:** Challenge PNG decodes to two different QR codes depending on how many times it is scaled down with nearest-neighbor interpolation (500 → 250 → 100 → 50). Track which source pixels survive every reduction: for a 10× chain with `PIL.Image.resize(size, Image.NEAREST)`, survivors sit at indices `(10i+7, 10j+7)`. Overlay a second QR at exactly those positions so it only emerges after the chained resize.
+
+```python
+from PIL import Image
+big = Image.open('qr1.png')              # 500x500 visible QR
+small = Image.open('qr2.png')            # 50x50 hidden QR
+px = big.load()
+sx = small.load()
+for i in range(50):
+    for j in range(50):
+        px[10*i+7, 10*j+7] = sx[i, j]
+big.save('trap.png')
+```
+
+**Key insight:** Nearest-neighbor resize keeps exactly one pixel per source block; its offset depends on rounding (PIL picks `floor(original*scale)+0.5`). Compute the survivor index once per resize step, then compose the nested stego at those indices. Works for any number of cascaded resizes as long as the interpolation is nearest-neighbor.
+
+**References:** SECCON 2018 — QRChecker, writeup 12014
+
+---
+
+## ImageMagick +append Puzzle Stitching + gaps Solver (X-MAS CTF 2018)
+
+**Pattern:** Disk image contains N puzzle-piece PNGs carved out by `foremost` or `scalpel`. Stitch all pieces horizontally with ImageMagick `convert +append`, then feed the strip to the `gaps` jigsaw solver (https://github.com/nemanja-m/gaps) with the known piece size (often stored in EXIF) to auto-reassemble.
+
+```bash
+foremost -t png -i disk.img -o pieces
+convert +append pieces/*.png strip.png
+gaps --image=strip.png --size=273
+```
+
+**Key insight:** CTF jigsaw challenges rarely require manual work. Carve pieces, stitch, run `gaps` — it uses a genetic algorithm to reassemble in minutes. Read `exiftool` on each piece for the size hint.
+
+**References:** X-MAS CTF 2018 — Message from Santa, writeup 12662

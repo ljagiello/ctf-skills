@@ -12,6 +12,7 @@
 - [Lua Integer Underflow via Game Logic (ASIS CTF Finals 2017)](#lua-integer-underflow-via-game-logic-asis-ctf-finals-2017)
 - [CPU Emulator Print Opcode Python eval Injection (Midnight Sun CTF 2018)](#cpu-emulator-print-opcode-python-eval-injection-midnight-sun-ctf-2018)
 - [Unicorn Emulator Syscall Blacklist Bypass via sysenter and Uncommon Syscalls (Meepwn CTF Quals 2018)](#unicorn-emulator-syscall-blacklist-bypass-via-sysenter-and-uncommon-syscalls-meepwn-ctf-quals-2018)
+- [Custom VM swap Pointer Self-Overwrite (HITCON 2018)](#custom-vm-swap-pointer-self-overwrite-hitcon-2018)
 
 ---
 
@@ -293,3 +294,20 @@ sysenter
 **Key insight:** Instruction-level filters in Unicorn hook specific opcodes. If the filter only watches `int 0x80`, any other syscall entry (`sysenter`, `syscall`, `int 0x2e` on x86-32 test builds) slips through. Always enumerate functionally equivalent syscalls: `dup3/openat/pread64/sendfile/writev/mmap2` cover almost everything a blacklist of `execve/read/write/mmap` forgets.
 
 **References:** Meepwn CTF Quals 2018 — writeups 10415, 10428
+
+---
+
+## Custom VM swap Pointer Self-Overwrite (HITCON 2018)
+
+**Pattern:** A custom VM exposes a `swap(a, b)` instruction that reads two stack indices relative to the saved `sp`. If the VM never validates that `sp_nxt` is within bounds, calling `swap(-1, 0)` or `swap(-2, -1)` addresses the internal `sp_nxt` itself and exchanges it with a stack slot. Subsequent instructions then operate on arbitrary memory.
+
+```text
+swap(-1, 0)     # treats &sp_nxt as stack[-1]; swaps sp_nxt <-> stack[0]
+# sp_nxt now points wherever stack[0] used to; writes go anywhere
+```
+
+Chain with a `push` that stores shellcode bytes at the new pointer, then redirect a function pointer from the VM's dispatch table to the shellcode region.
+
+**Key insight:** Any VM primitive that rewrites its own state pointer is an immediate arbitrary-write primitive. Always probe VM opcodes for boundary conditions where the stack pointer itself is addressable.
+
+**References:** HITCON CTF 2018 — Abyss I, writeups 11918-11919

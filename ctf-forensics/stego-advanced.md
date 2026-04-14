@@ -17,6 +17,7 @@ See also: [stego-advanced-2.md](stego-advanced-2.md) for video frame techniques,
 - [Audio Waveform Binary Encoding (BackdoorCTF 2013)](#audio-waveform-binary-encoding-backdoorctf-2013)
 - [Audio Spectrogram Hidden QR Code (BaltCTF 2013)](#audio-spectrogram-hidden-qr-code-baltctf-2013)
 - [Byte-Reversed .docx ZIP Bidirectional Archive (Security Fest CTF 2018)](#byte-reversed-docx-zip-bidirectional-archive-security-fest-ctf-2018)
+- [MIDI Note-On/Note-Off Pitch Pair Encoding (X-MAS CTF 2018)](#midi-note-onnote-off-pitch-pair-encoding-x-mas-ctf-2018)
 
 ---
 
@@ -455,6 +456,26 @@ unzip mirror.zip 'word/media/*' -d mirror/
 **Key insight:** Always test container files for byte-reversal, bit-reversal, and byte-interleaving when the forward extraction yields only a decoy. Run `binwalk` on both the forward and reversed copies to surface embedded archives hidden in either direction. The trick generalizes to any format whose parser tolerates trailing garbage (ZIP, RAR, PDF, tar).
 
 **References:** Security Fest CTF 2018 — writeup 10204
+
+---
+
+## MIDI Note-On/Note-Off Pitch Pair Encoding (X-MAS CTF 2018)
+
+**Pattern:** MIDI file plays nothing recognisable but has a strict alternating Note-On/Note-Off pattern. The hidden message is split one byte per *pair*: `ord(char) = note_on_pitch + note_off_pitch`. Sometimes encoded as high/low nibble: `ord(char) = (on << 4) | off`.
+
+```python
+import mido
+mid = mido.MidiFile('hidden.mid')
+ons, offs = [], []
+for ev in mid.tracks[0]:
+    if ev.type == 'note_on':   ons.append(ev.note)
+    elif ev.type == 'note_off': offs.append(ev.note)
+flag = ''.join(chr(o + f) for o, f in zip(ons, offs))
+```
+
+**Key insight:** MIDI pitch values are 7-bit (0..127), so any byte can be split across two notes. When a MIDI sounds "atonal" but obeys strict note-pair alternation, test `on + off`, `(on<<4)|off`, `off - on`, and XOR combinations before assuming audio stego.
+
+**References:** X-MAS CTF 2018 — A Christmas Carol, writeup 12667
 
 ---
 

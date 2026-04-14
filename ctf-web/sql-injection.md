@@ -28,6 +28,7 @@ Comprehensive SQL injection techniques for CTF challenges. For other server-side
 - [PHP Full-Width Dollar Regex Anchor Bypass (Hack.lu CTF 2018)](#php-full-width-dollar-regex-anchor-bypass-hacklu-ctf-2018)
 - [MySQL REGEXP Byte-by-Byte Oracle + Backtick Comment Bypass (BSides Delhi 2018)](#mysql-regexp-byte-by-byte-oracle--backtick-comment-bypass-bsides-delhi-2018)
 - [LDAP Filter Breakout with Wildcard Injection (CSAW 2018)](#ldap-filter-breakout-with-wildcard-injection-csaw-2018)
+- [ExpressionEngine FileManager ORDER BY Sort-Key SQLi (35C3 2018)](#expressionengine-filemanager-order-by-sort-key-sqli-35c3-2018)
 - [PHP parse_str() Variable Injection (TokyoWesterns 2018)](#php-parse_str-variable-injection-tokyowesterns-2018)
 
 ---
@@ -719,5 +720,21 @@ curl "http://target/auth.php?action=auth&password=anything&hashed_password=$(php
 **Key insight:** `parse_str()` and `extract()` are register_globals-style primitives: any parameter sent by the client becomes a PHP variable that might shadow logic the developer assumed was local. The fix is always the two-argument form. When auditing PHP, grep for `parse_str\(\s*\$[^,]*\)` with no comma.
 
 **References:** TokyoWesterns CTF 4th 2018 — SimpleAuth, writeup 11034
+
+---
+
+## ExpressionEngine FileManager ORDER BY Sort-Key SQLi (35C3 2018)
+
+**Pattern:** ExpressionEngine's file-manager endpoint takes a `tbl_sort` array from the client and passes each `[column, direction]` pair directly to `$db->order_by($key, $val)`. Column names are concatenated into SQL with no allowlist, so the attacker controls an `ORDER BY` expression.
+
+```http
+POST /cp/tbl_sort[0][]=(select if(substr(user_password,1,1)='a',sleep(5),0) from exp_members) tbl_sort[0][]=ASC
+```
+
+Use `sleep()` / `benchmark()` inside the sort expression to run a blind timing oracle on the admin password hash.
+
+**Key insight:** Any ORM that lets the client pick sort columns must allowlist them. The attack is particularly nasty because `ORDER BY` subqueries are rarely caught by WAFs that focus on `SELECT`/`UNION` keywords.
+
+**References:** 35C3 CTF 2018 — ExpressionEngine filemanager SQLi, writeup 12880
 
 ---

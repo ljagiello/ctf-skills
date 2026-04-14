@@ -8,6 +8,7 @@ CTF-specific anti-analysis techniques: signal-handler tricks, instruction-trace 
 - [Instruction Trace Inversion with Keystone and Unicorn (MeePwn CTF 2017)](#instruction-trace-inversion-with-keystone-and-unicorn-meepwn-ctf-2017)
   - [Call-less Function Chaining via Stack Frame Manipulation (THC CTF 2018)](#call-less-function-chaining-via-stack-frame-manipulation-thc-ctf-2018)
   - [Parent-Patched Child Binary Dump via strace process_vm_writev (Google CTF Quals 2018)](#parent-patched-child-binary-dump-via-strace-process_vm_writev-google-ctf-quals-2018)
+- [ConfuserEx Dynamic Module Dump via Constructor Breakpoint (Kaspersky 2018)](#confuserex-dynamic-module-dump-via-constructor-breakpoint-kaspersky-2018)
 
 ---
 
@@ -184,3 +185,20 @@ Load `patch.py` in IDA (File → Script file) to apply every parent-written inst
 **References:** Google CTF Quals 2018 — writeup 10330
 
 ---
+
+## ConfuserEx Dynamic Module Dump via Constructor Breakpoint (Kaspersky 2018)
+
+**Pattern:** ConfuserEx (.NET protector) encrypts method bodies and decrypts them at runtime from a `<Module>` constructor. Break on the constructor in dnSpy, step until the dynamic module is fully built in memory, right-click → **Save Module** to dump the decrypted assembly with tokens intact. Run `de4dot` over the dump to rename obfuscated symbols.
+
+```text
+dnSpy:
+  File → Open → target.exe
+  Assembly Explorer → <Module> .cctor → F9 (breakpoint)
+  F5 to run; wait until loaded
+  Right-click assembly → Save Module → out.exe
+$ de4dot out.exe        # symbol cleanup
+```
+
+**Key insight:** ConfuserEx protects on-disk code but not the runtime representation. Any time a .NET protector ships a compiled constructor that performs decryption, the dumped post-constructor module is the cleartext binary. Chain with de4dot to undo the follow-up symbol obfuscation.
+
+**References:** Kaspersky Industrial CTF 2018 — glardomos, writeup 12325

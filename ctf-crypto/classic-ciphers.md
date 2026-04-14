@@ -23,6 +23,8 @@
 - [3D Vigenere Palindrome Symmetry Key Recovery (SECCON 2017)](#3d-vigenere-palindrome-symmetry-key-recovery-seccon-2017)
 - [Nihilist Cipher Double-Crib Key Recovery (Security Fest CTF 2018)](#nihilist-cipher-double-crib-key-recovery-security-fest-ctf-2018)
 - [16-Byte XOR Block Cipher Structural Reversal (h4ckc0n 2018)](#16-byte-xor-block-cipher-structural-reversal-h4ckc0n-2018)
+- [Flag Semaphore Photo Decoding (DefCamp CTF 2018)](#flag-semaphore-photo-decoding-defcamp-ctf-2018)
+- [Two-Byte Nibble Reassembly with Random Padding (Trend Micro 2018)](#two-byte-nibble-reassembly-with-random-padding-trend-micro-2018)
 
 ---
 
@@ -611,3 +613,39 @@ def decrypt(ciphertext):
 **Key insight:** Any unkeyed cipher built from XOR-only operations over fixed-size blocks is a linear system. If each output bit is a linear combination of input bits, invert by solving for the dependent lane — no key or brute force required.
 
 **References:** h4ckc0n 2018 — writeup 10806
+
+---
+
+## Flag Semaphore Photo Decoding (DefCamp CTF 2018)
+
+**Pattern:** Challenge provides photos of a person holding flags in fixed positions. Map each pose to a letter using the standard flag semaphore chart (8 compass directions × 2 arms = ~32 letters). Two special poses — `J` (shift to "letters") and `#` (shift to "numbers") — switch between modes; maintain a mode flag while decoding.
+
+```python
+SEMAPHORE = {
+    ('NW','N'): 'A', ('NW','NE'): 'B', ('NW','E'): 'C', ('NW','SE'): 'D',
+    # ... full table on Wikipedia
+    ('N','NE'):  'J',  # letters shift
+    ('NE','SE'): '#',  # numbers shift
+}
+letters = [SEMAPHORE[pose] for pose in pose_sequence]
+```
+
+**Key insight:** Semaphore is often disguised as "person dancing" or "art installation" photos. The presence of exactly two outstretched limbs per frame is the tell.
+
+**References:** DefCamp CTF 2018 — Multiple Flags, writeup 12005
+
+---
+
+## Two-Byte Nibble Reassembly with Random Padding (Trend Micro 2018)
+
+**Pattern:** Custom encoding outputs two bytes for every input byte, where each input byte is split into high and low nibbles, and each nibble is padded with a random high nibble. Recover the original by masking low nibbles and recombining.
+
+```python
+def decode(src):
+    return bytes(((src[2*i] & 0xf) << 4) | (src[2*i+1] & 0xf)
+                 for i in range(len(src)//2))
+```
+
+**Key insight:** Random padding in the *high* nibble can be ignored entirely — only the low nibbles carry signal. Spot the pattern when the encoded length is exactly 2x the plaintext length and histograms show uniform high-nibble distribution.
+
+**References:** Trend Micro CTF 2018 — J1, writeup 12874

@@ -21,6 +21,8 @@
 - [x86 16-bit MBR psadbw Constraint Solving (CSAW 2017)](#x86-16-bit-mbr-psadbw-constraint-solving-csaw-2017)
 - [TensorFlow DNN Inversion by Inverting Sigmoid Layers (N1CTF 2018)](#tensorflow-dnn-inversion-by-inverting-sigmoid-layers-n1ctf-2018)
 - [BPF Filter Analysis via JIT Compilation to x64 Assembly (Midnight Sun CTF 2018)](#bpf-filter-analysis-via-jit-compilation-to-x64-assembly-midnight-sun-ctf-2018)
+- [Single-Byte XOR ROM Deobfuscation Sweep (X-MAS CTF 2018)](#single-byte-xor-rom-deobfuscation-sweep-x-mas-ctf-2018)
+- [WebKit Array.slice OOB CVE-2016-4622 (Codegate 2019)](#webkit-arrayslice-oob-cve-2016-4622-codegate-2019)
 
 ---
 
@@ -713,6 +715,44 @@ dig @target -p 3333 'M4d!bKn3~l' TXT
 **Detection:** Binary using `setsockopt` with `SO_ATTACH_FILTER`, raw socket creation (`socket(AF_PACKET, ...)`), or embedded `struct sock_fprog` structures. BPF programs appear as arrays of `struct sock_filter` (8 bytes each: opcode, jt, jf, k).
 
 **References:** Midnight Sun CTF 2018
+
+---
+
+## Single-Byte XOR ROM Deobfuscation Sweep (X-MAS CTF 2018)
+
+**Pattern:** A large opaque blob (GBA ROM, firmware, game binary) refuses `binwalk`/`file` identification. Sweep all 256 single-byte XOR keys and re-run `file` + `strings` over the outputs; the correct key reveals a recognisable magic/signature.
+
+```bash
+for i in $(seq 0 255); do
+  python3 -c "
+import sys
+k = $i
+d = open('blob.bin','rb').read()
+open(f'xor_{k}','wb').write(bytes(b^k for b in d))" 
+  file "xor_$i" | grep -v data
+done
+strings "xor_0x42" | grep -i "POKEMON\|ELF\|MZ"
+```
+
+**Key insight:** Brute-forcing 256 XOR keys costs seconds and defeats any single-byte XOR packer. Always run this sweep before assuming a custom algorithm; look for format magics (`ELF`, `PK`, `MZ`, `PDF-`, ROM name strings) in the output.
+
+**References:** X-MAS CTF 2018 — Unown Gift, writeup 12665
+
+---
+
+## WebKit Array.slice OOB CVE-2016-4622 (Codegate 2019)
+
+**Pattern:** Challenge ships a WebKit binary with the `isJSArray(thisObj) && length == toLength(...)` bounds check commented out inside `ArrayPrototype.cpp`. `Array.prototype.slice` then reads beyond the backing store, giving OOB into adjacent JS objects. Chain Saelo's `addrof` / `fakeobj` primitives to obtain arbitrary read/write in the JS heap, then pivot to native code via a fake `StructureID`.
+
+```javascript
+let oob = new Array(8);
+let victim = {a: 1};
+let leak = oob.slice(-1, oob.length + 16)[0];  // reads past backing store
+```
+
+**Key insight:** Any JIT/engine challenge that patches out a safety check almost always exposes a classic browser-CVE primitive. Diff the vendored source against upstream `ArrayPrototype.cpp`, `JSArray.cpp`, and `JITOperations.cpp` for removed `if`/`assert` statements — that's the bug.
+
+**References:** Codegate CTF 2019 — Butterfree, writeup 12902
 
 ---
 

@@ -21,6 +21,8 @@
 - [JIT-ROP: Scan for syscall Byte in Leaked libc Function (Codegate 2018)](#jit-rop-scan-for-syscall-byte-in-leaked-libc-function-codegate-2018)
 - [ret2dl_resolve 64-bit (Codegate 2018)](#ret2dl_resolve-64-bit-codegate-2018)
 - [Prime-Only ROP via Goldbach Decomposition (PlaidCTF 2018)](#prime-only-rop-via-goldbach-decomposition-plaidctf-2018)
+- [Imperfect-Gadget Stack Pivot (RITSEC 2018)](#imperfect-gadget-stack-pivot-ritsec-2018)
+- [_fini_array Double-Entry Staged ROP (Insomnihack 2019)](#_fini_array-double-entry-staged-rop-insomnihack-2019)
 - [Useful Commands](#useful-commands)
 
 For core ROP chain building, ret2csu, bad character bypass, exotic gadgets, and stack pivot via xchg, see [rop-and-shellcode.md](rop-and-shellcode.md).
@@ -641,6 +643,39 @@ Chain multiple `(p1, p2, adder)` triples to synthesize arbitrary gadget addresse
 **Key insight:** Number-theoretic constraints on stack contents can always be defeated by writing a value as the sum/XOR/product of admissible parts and adding a tiny reducer gadget that recombines them at runtime. Goldbach gives a constructive two-term decomposition for addresses; Lagrange's four-square theorem works similarly for constraints that require perfect squares.
 
 **References:** PlaidCTF 2018 — writeup 10017
+
+---
+
+## Imperfect-Gadget Stack Pivot (RITSEC 2018)
+
+**Pattern:** Classic stack pivots use `leave; ret` or `xchg esp, eax; ret`, but sometimes the only usable gadget has benign middle instructions. A gadget like `pop ebp; add al, 0x89; pop esp; and al, 0x30; add esp, 0x24; ret` still pivots `esp` — the `add al`/`and al` side effects do not corrupt `esp` and the trailing `add esp, 0x24` just skips 9 slots you pre-pad with junk.
+
+```asm
+0x80c0620: pop ebp ; add al, 0x89 ; pop esp ; and al, 0x30 ; add esp, 0x24 ; ret
+```
+
+Place a controlled heap address at the correct slot so `pop esp` lands you on a fake stack, then budget nine dummy dwords before the real chain to absorb `add esp, 0x24`.
+
+**Key insight:** Stop rejecting gadgets because they are noisy. Walk each gadget line-by-line; if none of the instructions clobber `esp`, the gadget still pivots even with spurious arithmetic.
+
+**References:** RITSEC CTF 2018 — Yet Another HR Management Framework, writeup 12287
+
+---
+
+## _fini_array Double-Entry Staged ROP (Insomnihack 2019)
+
+**Pattern:** Statically-linked binary has no PLT/GOT to hijack. However, `_fini_array` stores pointers called on `exit()`. Overwrite both entries so the first invocation runs `do_overwrite` (a gadget that lets you stage more bytes) and the second runs it again, letting you append ROP piece-by-piece across successive exits.
+
+```text
+_fini_array[0] = do_overwrite   # stage 1: write next segment
+_fini_array[1] = do_overwrite   # stage 2: write final segment + trigger
+```
+
+Use `add rsp, N; ret` pivots to walk below the current `rsp` so each stage concatenates onto the previous ROP frame.
+
+**Key insight:** `_fini_array` is effectively a re-entrant callback table in static binaries. Two entries plus any "write N bytes to addr" primitive gives you unlimited ROP depth without restarting the process.
+
+**References:** Insomnihack teaser 2019 — onewrite, writeup 12912
 
 ---
 

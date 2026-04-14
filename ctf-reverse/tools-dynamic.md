@@ -28,6 +28,9 @@
   - [Scripting](#scripting)
   - [Common CTF Workflow](#common-ctf-workflow)
 - [GDB Register Side-Channel on putchar() (picoCTF 2018)](#gdb-register-side-channel-on-putchar-picoctf-2018)
+- [radare2 Visual Panels for Custom VM Tracing (OTW Advent 2018)](#radare2-visual-panels-for-custom-vm-tracing-otw-advent-2018)
+- [libSegFault.so Register Dump at Crash (OTW Advent 2018)](#libsegfaultso-register-dump-at-crash-otw-advent-2018)
+- [r2pipe Binary Walking + DP Constraint Solver (OTW Advent 2018)](#r2pipe-binary-walking--dp-constraint-solver-otw-advent-2018)
 
 For Qiling/Triton emulation and Intel Pin / LD_PRELOAD side-channel techniques, see [tools-emulation.md](tools-emulation.md).
 
@@ -567,4 +570,72 @@ cat flag.log
 **Key insight:** Any time a program artificially slows output with `usleep`, `nanosleep`, or busy-loop delays, the character to be printed is already in a register before the sleep runs. Breakpoint on the output function (`putchar`, `fputc`, `write` with `fd=1`), print the first-argument register (`$rdi` on x86-64, `$r0` on ARM, `$a0` on RISC-V/MIPS), and let GDB scripting batch-extract the data. Works even on anti-debug binaries when hardware breakpoints are available.
 
 **References:** picoCTF 2018 — learn gdb, writeup 11784
+
+---
+
+## radare2 Visual Panels for Custom VM Tracing (OTW Advent 2018)
+
+**Pattern:** Custom-VM binaries look opaque until you can see the program counter, next opcode, stack, and heap simultaneously. radare2's panel mode (`V!`) lets you pin all four views on one screen and step through host-level instructions while watching the VM state move.
+
+```text
+f sp @ rbp-0x160       # flag VM sp
+f ip @ rbp-0x158       # flag VM ip
+f stack @ rbp-0x150
+f heap @ rbp-0x148
+
+V!                       # enter panels
+# panel 1: ?v [ip]; pd 1 @ [ip]    (next VM instruction)
+# panel 2: pxQ 0x60 @ sp             (stack)
+# panel 3: pxQ 0x60 @ heap           (heap)
+# panel 4: afvd                      (local vars / registers)
+```
+
+Set conditional breakpoints on host-level branches that correspond to VM opcode dispatch, and step with `ds`. Combine with `e io.cache=true` for non-destructive patching of VM opcodes during analysis.
+
+**Key insight:** Custom VMs are reversible in minutes once you watch their state live. Panel mode beats static decompilation because the host binary often lacks decompiler-friendly structure; the VM becomes self-explanatory when you see every register tick in real time.
+
+**References:** OverTheWire Advent 2018 — Jackinthebox, writeup 12789
+
+---
+
+## libSegFault.so Register Dump at Crash (OTW Advent 2018)
+
+**Pattern:** You need the exact register state at shellcode entry but gdb is unavailable or hooked. Preload `libSegFault.so` (shipped with glibc) and crash the program: it prints a full register dump, backtrace, and memory map to stderr.
+
+```bash
+LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libSegFault.so ./target
+# or 32-bit:
+LD_PRELOAD=/lib32/libSegFault.so ./target
+
+# Force the crash:
+# segfault_handler dumps: RIP, RSP, RAX..R15, stack backtrace
+```
+
+Read the printed registers to discover which already point at your shellcode (common: `RAX` → buffer, `RDI` → zero) and design minimal shellcode.
+
+**Key insight:** libSegFault is installed on every glibc system as part of standard debugging infrastructure. It turns any segfault into a free register snapshot, even on hardened boxes without `strace`/`gdb` permissions.
+
+**References:** OverTheWire Advent Bonanza 2018 — Day 22, writeup 12757
+
+---
+
+## r2pipe Binary Walking + DP Constraint Solver (OTW Advent 2018)
+
+**Pattern:** 12 MB binary with 300k+ basic blocks performs chained hash checks on `argv[1]`. Walk every block via `r2pipe`, classify each instruction as hash/cmp/jmp/print, build a constraint graph, then solve with dynamic programming + backtracking over input positions.
+
+```python
+import r2pipe
+r = r2pipe.open('./huge_binary')
+r.cmd('aaa')
+for fn in r.cmdj('aflj'):
+    for block in r.cmdj(f"pdfj @ {fn['offset']}")['ops']:
+        op = block['type']
+        if op == 'cmp':  constraints.append(parse_cmp(block))
+        if op == 'call': targets.append(block['jump'])
+# DP: memoize (position, accepted_set) -> char
+```
+
+**Key insight:** Big binaries with hash chains are solvable if you treat each branch as an inequality on input bytes. r2pipe's JSON output is machine-readable; DP over position/value tuples prunes most branches before running.
+
+**References:** OverTheWire Advent Bonanza 2018 — Day 8, writeup 12771
 

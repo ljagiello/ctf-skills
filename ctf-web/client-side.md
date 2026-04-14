@@ -30,6 +30,7 @@
   - [Step 2 — Timing oracle via image loads](#step-2--timing-oracle-via-image-loads)
   - [Step 3 — Character-by-character extraction](#step-3--character-by-character-extraction)
   - [Step 4 — Host exploit and tunnel](#step-4--host-exploit-and-tunnel)
+- [jQuery `$(location.hash)` CSS Selector Timing Leak (hxp 2018)](#jquery-locationhash-css-selector-timing-leak-hxp-2018)
 
 ---
 
@@ -510,3 +511,19 @@ python3 -m http.server 8888
 **Key insight:** GraphQL GET requests bypass CORS preflight entirely — `new Image().src` triggers a simple GET that doesn't need `OPTIONS`. Combined with timing-based SQLi (`SLEEP()`), image `onerror` timing becomes a boolean oracle. The bot's localhost access turns a localhost-only SQLi into a remotely exploitable vulnerability.
 
 **Detection:** Chat/message features with HTML injection + admin bot + GraphQL endpoint with SQL injection + localhost-only restrictions.
+
+---
+
+## jQuery `$(location.hash)` CSS Selector Timing Leak (hxp 2018)
+
+**Pattern:** Target page calls `$(location.hash).addClass(...)`. Passing a URL fragment that parses as a CSS selector causes jQuery to invoke Sizzle, which walks the DOM matching the selector. Stacking deeply nested `:has()` pseudo-classes blows up selector evaluation time predictably (~2 s) only when the selector *matches*, creating a Boolean timing oracle on any attribute the bot's DOM exposes (for example `body[data-user-id^='1']`).
+
+```text
+http://127.0.0.1/?id=...#*:has(*:has(*:has(*:has(*:has(body[data-user-id^='1'])))))
+```
+
+Exfiltrate by firing two `new Image().src` requests to attacker-controlled endpoints (`/firstping`, `/secondping`) around the `addClass` call and measuring the delta: ~20 ms = mismatch, ~2 s = match.
+
+**Key insight:** jQuery's `$` with a string argument treats anything beginning with `<` as HTML and everything else as a selector. Any sink that lets an attacker put arbitrary text into `$()` becomes both an XSS and a selector-timing oracle.
+
+**References:** hxp CTF 2018 — µblog, writeup 12554

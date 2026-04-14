@@ -16,6 +16,11 @@ Custom hash reversal, CRC brute-force, noisy RSA oracles, sponge collisions, CBC
 - [SHA-256 Basis Attack for XOR-Aggregate Hash Bypass (34C3 CTF 2017)](#sha-256-basis-attack-for-xor-aggregate-hash-bypass-34c3-ctf-2017)
 - [Custom MAC Forgery via XOR Block Cancellation with Key Rotation (PlaidCTF 2018)](#custom-mac-forgery-via-xor-block-cancellation-with-key-rotation-plaidctf-2018)
 - [Bit-by-Bit HMAC Key Recovery via XOR Plus Addition Arithmetic (Midnight Sun CTF 2018)](#bit-by-bit-hmac-key-recovery-via-xor-plus-addition-arithmetic-midnight-sun-ctf-2018)
+- [CBC IV Recovery from Block-2 Known Plaintext (RITSEC 2018)](#cbc-iv-recovery-from-block-2-known-plaintext-ritsec-2018)
+- [Iterated SHA-256 Timing Oracle on Character Match (35C3 2018)](#iterated-sha-256-timing-oracle-on-character-match-35c3-2018)
+- [GF(p) Linear-System AES Key Recovery from PCAP Matrix (35C3 Junior 2018)](#gfp-linear-system-aes-key-recovery-from-pcap-matrix-35c3-junior-2018)
+- [SHA-1 Length Extension with UTF-8 High-Byte Bypass (OTW Advent 2018)](#sha-1-length-extension-with-utf-8-high-byte-bypass-otw-advent-2018)
+- [Cross-Session Cube-Root Recovery via CRT (X-MAS 2018)](#cross-session-cube-root-recovery-via-crt-x-mas-2018)
 
 ---
 
@@ -325,3 +330,95 @@ for i in range(key_bits):
 ```
 
 **Key insight:** When XOR and addition interact, setting bit `i` in the message XORs it away from the key but adds it back. If key bit `i` was already set, `XOR(1,1)=0` and `0+1=1`, restoring the original value. If key bit `i` was 0, `XOR(0,1)=1` and `1+1=0` with carry, changing the hash. This creates a per-bit oracle.
+
+---
+
+### CBC IV Recovery from Block-2 Known Plaintext (RITSEC 2018)
+
+**Pattern:** AES-CBC given: full ciphertext, known plaintext from block 2 onward, partial key. Recover the missing IV by first brute-forcing missing key bytes via block 2 (which does not depend on the IV), then XOR plaintext[0] with `AES_decrypt(ct[0], K)` to get the IV.
+
+```python
+for tail in itertools.product(string.printable, repeat=2):
+    K = base_key + ''.join(tail).encode()
+    if AES.new(K, AES.MODE_ECB).decrypt(ct)[16:32] == plaintext[16:32]:
+        raw = AES.new(K, AES.MODE_ECB).decrypt(ct[:16])
+        IV = bytes(a ^ b for a, b in zip(raw, plaintext[:16]))
+        break
+```
+
+**Key insight:** Block 2 of CBC decrypts with `prev_ct XOR raw_decrypt` where `prev_ct` is from the ciphertext itself — IV-independent. Use it to recover the key first, then XOR back to the IV.
+
+**References:** RITSEC CTF 2018 — Who drew on my program, writeup 12269
+
+---
+
+### Iterated SHA-256 Timing Oracle on Character Match (35C3 2018)
+
+**Pattern:** Server validates password character-by-character, and each correct character triggers an additional `sha256` iterated 9999 times. Correct characters therefore make the server respond ~0.66 s slower. Brute-force each position by timing responses.
+
+```python
+for ch in string.printable:
+    t = time.time()
+    send(prefix + ch)
+    dt = time.time() - t
+    if dt > baseline + 0.3:
+        prefix += ch; break
+```
+
+**Key insight:** Any early-exit or variable-work validator using heavy hashing leaks position-by-position through total wall-time. Measure baseline vs. correct-char time, not absolute times.
+
+**References:** 35C3 CTF 2018 — ultra secret, writeup 12820
+
+---
+
+### GF(p) Linear-System AES Key Recovery from PCAP Matrix (35C3 Junior 2018)
+
+**Pattern:** Service sends 40 plaintext/ciphertext pairs over the network. Extract from pcap with tshark, build a 40×40 matrix `A` and vector `b` over `GF(p)`, then solve for the unknown AES round-key bytes.
+
+```python
+from sage.all import matrix, GF
+A = matrix(GF(p), 40, A_rows)
+key = A.solve_right(vector(GF(p), b))
+```
+
+Use `tshark -r file.pcap -Y 'data.len>0' -T fields -e data` to dump the packet bytes, parse into rows, feed to Sage.
+
+**Key insight:** Any protocol that reveals multiple "key applied to known input" samples collapses to linear algebra when the transformation is linear (or linear in a subfield). Sage's `solve_right` handles the rest.
+
+**References:** 35C3 Junior CTF 2018 — pretty-linear, writeups 12788, 12789
+
+---
+
+### SHA-1 Length Extension with UTF-8 High-Byte Bypass (OTW Advent 2018)
+
+**Pattern:** Server checks that all appended bytes to a length-extendable SHA-1 MAC are `< 0x80`. Standard `hashpumpy`/`hlextend` output contains `0x80` and padding bytes that fail the check. Rewrite the padding region using valid multi-byte UTF-8 sequences (e.g., `\xc2\x80` → U+0080) that survive the filter but SHA-1 treats identically.
+
+```python
+import hlextend
+h = hlextend.new('sha1')
+forged = h.extend(b';cat flag', b'A'*msg_len, key_len, old_mac)
+# Replace any 0x80-0xFF bytes with UTF-8 two-byte equivalents
+safe = forged.replace(b'\x80', b'\xc2\x80')
+```
+
+**Key insight:** ASCII-only filters can be bypassed by substituting multi-byte Unicode sequences whose byte values stay below `0x80`. Any length-extension attack behind an ASCII validator is still exploitable with UTF-8 creativity.
+
+**References:** OverTheWire Advent Bonanza 2018 — Day 16, writeup 12754
+
+---
+
+### Cross-Session Cube-Root Recovery via CRT (X-MAS 2018)
+
+**Pattern:** Service exposes `m^3 mod N_i` across multiple sessions with different moduli but the same small plaintext. Because `m^3 < N_1 * N_2 * N_3` for small `m`, Chinese Remainder Theorem recovers `m^3` as an integer, then `iroot` gives `m`.
+
+```python
+from sympy.ntheory.modular import crt
+from gmpy2 import iroot
+m_cubed, _ = crt([N1, N2, N3], [c1, c2, c3])
+m, exact = iroot(int(m_cubed), 3)
+assert exact
+```
+
+**Key insight:** Håstad broadcast attack for `e = 3` generalises to any scenario where you see `m^e mod N_i` across enough moduli that `m^e < prod(N_i)`. CRT joins them; integer root extraction finishes.
+
+**References:** X-MAS CTF 2018 — Santa's list 2.0, writeup 12659

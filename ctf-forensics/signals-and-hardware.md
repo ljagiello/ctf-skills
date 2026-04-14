@@ -16,6 +16,7 @@
 - [IBM-29 Punched Card OCR (EKOPARTY CTF 2016)](#ibm-29-punched-card-ocr-ekoparty-ctf-2016)
 - [Serial UART Data Decoding from WAV Audio (EasyCTF 2017)](#serial-uart-data-decoding-from-wav-audio-easyctf-2017)
 - [USB MIDI Launchpad Traffic Reconstruction (Sthack 2017)](#usb-midi-launchpad-traffic-reconstruction-sthack-2017)
+- [Tektronix Logic-Analyzer CSV Clock-Edge Extraction (35C3 2018)](#tektronix-logic-analyzer-csv-clock-edge-extraction-35c3-2018)
 
 ---
 
@@ -685,3 +686,28 @@ for pkt in pkts:
 **Key insight:** MIDI devices use standardized message formats. Novation Launchpad maps its 8x8 grid to MIDI notes where `key = row*16 + col`. Note On (0x90) with velocity > 0 = button lit, Note Off (0x80) = button off. Sequences of all-off messages separate characters displayed on the grid.
 
 **Detection:** USB PCAP with bulk transfer packets containing 3-byte or 4-byte payloads. USB device descriptor shows MIDI class (Audio class, subclass MIDI Streaming). Challenge mentions "MIDI", "Launchpad", "music controller", or "grid".
+
+---
+
+## Tektronix Logic-Analyzer CSV Clock-Edge Extraction (35C3 2018)
+
+**Pattern:** Tektronix logic analyzers export multi-channel captures as ~10-MB CSV files with one column per signal (CLK, R, G, B, ...). Parse the file with Python, detect rising edges on the CLK column, and sample the data columns at each edge to reconstruct the transmitted image/stream.
+
+```python
+import csv
+with open('capture.csv') as f:
+    reader = csv.reader(f)
+    prev_clk = 0
+    bits = []
+    for row in reader:
+        try: clk = int(row[1])
+        except ValueError: continue
+        if prev_clk == 0 and clk == 1:          # rising edge
+            bits.append((int(row[2]), int(row[3]), int(row[4])))
+        prev_clk = clk
+# Reshape bits into image and render with PIL
+```
+
+**Key insight:** Logic-analyzer CSV is always edge-sampled. Identify the clock column by its 50%-duty cycle, then sample the data columns synchronously at every rising edge. Works for any synchronous bus (RGB, SPI, I²C clock line).
+
+**References:** 35C3 CTF 2018 — box of blink, writeup 12907

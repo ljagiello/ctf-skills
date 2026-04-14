@@ -16,6 +16,8 @@
   - [Rust-Specific Analysis Tools](#rust-specific-analysis-tools)
   - [Rust Lifetime Escape via Compiler Bug #25860 (Hack.lu 2018)](#rust-lifetime-escape-via-compiler-bug-25860-hacklu-2018)
   - [Rust #[no_mangle] libc Override for seccomp Bypass (Hack.lu 2018)](#rust-no_mangle-libc-override-for-seccomp-bypass-hacklu-2018)
+  - [Rust xmmword Constant Extraction via IDAPython (Insomnihack 2019)](#rust-xmmword-constant-extraction-via-idapython-insomnihack-2019)
+- [Nuitka-Compiled Python — Module Stub Injection (X-MAS CTF 2018)](#nuitka-compiled-python--module-stub-injection-x-mas-ctf-2018)
 - [Swift Binary Reversing](#swift-binary-reversing)
 - [Kotlin / JVM Binary Reversing](#kotlin--jvm-binary-reversing)
   - [JVM Bytecode (Android/Server)](#jvm-bytecode-androidserver)
@@ -623,3 +625,42 @@ fn main() {
 **Key insight:** Rust's static-linking default means `extern "C"` + `#[no_mangle]` is effectively a dynamic hook at compile time — any libc symbol the sandbox harness calls (`prctl`, `chroot`, `seteuid`, `read`) can be redefined by attacker crate code that ships inside the same binary. Harden by routing syscalls through `libc::syscall(SYS_prctl, ...)` directly (which bypasses the symbol table) or by using `-Wl,-Bsymbolic` to prefer the intended definitions.
 
 **References:** Hack.lu CTF 2018 — Rusty CodePad seccomp variant, writeup 11864
+
+### Rust xmmword Constant Extraction via IDAPython (Insomnihack 2019)
+
+**Pattern:** Rust stores literal byte buffers (flag expected values, XOR tables) as 16-byte xmmword constants in `.rodata`. IDA parses these as `xmmword_xxxx` tokens. Walk the `.rodata` range in IDAPython, read each xmmword, reverse any simple obfuscation (e.g., `(dword >> 2) ^ 0xA`), and dump the plaintext.
+
+```python
+import idc, idaapi
+start, end = 0x4A1000, 0x4A1100
+for ea in range(start, end, 4):
+    d = idc.get_wide_dword(ea)
+    print(chr((d >> 2) ^ 0xA), end='')
+```
+
+**Key insight:** Rust binaries are hard to decompile but very easy to scan for literal data. Any check of the form `input == const_buf` leaves the expected value in `.rodata` untouched. Grep for `mov reg, xmmword [rip+offset]` to find the slot, then dump.
+
+**References:** Insomnihack teaser 2019 — beginner_reverse, writeup 12910
+
+---
+
+## Nuitka-Compiled Python — Module Stub Injection (X-MAS CTF 2018)
+
+**Pattern:** Nuitka turns Python sources into a monolithic native binary, but still uses the standard Python import machinery at runtime. Put a dummy `base64.py` / `midi.py` / `whatever_module.py` in the current working directory before executing the binary; the module system prefers CWD, so your stub is loaded instead of the embedded one. Log every attribute access and incrementally build a shim of the API the binary uses.
+
+```python
+# base64.py next to the binary
+class _Trace:
+    def __getattr__(self, name):
+        def f(*a, **k):
+            print(f'base64.{name}({a!r}, {k!r})')
+            return b''
+        return f
+import sys; sys.modules[__name__] = _Trace()
+```
+
+Run `./target_bin`; the printed calls reveal the algorithm without decompiling the Nuitka output.
+
+**Key insight:** Any runtime that still resolves module names through `sys.path` (Nuitka, PyInstaller with `--onefile`, Py2Exe with `--bundle_files=1` off, frozen CPython) can be shimmed at import time with CWD stubs. Grep `strings` output for module names to pick good hook targets.
+
+**References:** X-MAS CTF 2018 — A Christmas Carol, writeup 12667

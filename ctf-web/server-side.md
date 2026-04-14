@@ -23,6 +23,9 @@
   - [Apache mod_vhost_alias Docroot Override via Host Header (RCTF 2018)](#apache-mod_vhost_alias-docroot-override-via-host-header-rctf-2018)
 - [PHP hash_hmac Returns NULL with Array Input (AceBear 2018)](#php-hash_hmac-returns-null-with-array-input-acebear-2018)
 - [Smarty SSTI via CVE-2017-1000480 Comment Injection (Insomni'hack 2018)](#smarty-ssti-via-cve-2017-1000480-comment-injection-insomnihack-2018)
+- [Recursive-Replace Traversal `....//` (35C3 2018)](#recursive-replace-traversal--35c3-2018)
+- [PHP (int) Cast Leading-Number Traversal (35C3 2018)](#php-int-cast-leading-number-traversal-35c3-2018)
+- [strpos Substring-Match Blacklist Bypass (TUCTF 2018)](#strpos-substring-match-blacklist-bypass-tuctf-2018)
 
 For XXE, XML injection, PHP variable-variable abuse, uniqid/regex bypasses, command injection, and GraphQL exploitation, see [server-side-2.md](server-side-2.md). For code execution attacks (Ruby/Perl/JS/LaTeX/Prolog injection, PHP preg_replace /e, ReDoS, file upload to RCE, PHP deserialization, XPath injection, Thymeleaf SpEL SSTI), see [server-side-exec.md](server-side-exec.md). For SQLi keyword fragmentation, SQL WHERE bypass, SQL via DNS, bash brace expansion, Common Lisp injection, PHP7 OPcache, and more, see [server-side-exec-2.md](server-side-exec-2.md). For deserialization attacks (Java, Pickle) and race conditions, see [server-side-deser.md](server-side-deser.md). For CVE-specific exploits, path traversal bypasses, Flask/Werkzeug debug, and other advanced techniques, see [server-side-advanced.md](server-side-advanced.md).
 
@@ -512,5 +515,50 @@ Apache resolves the docroot to `/var/www/admin`, so the request lands in a direc
 **Key insight:** When a multi-tenant Apache config computes the docroot from user-controlled inputs (`Host`, `X-Forwarded-Host`, cookies), every directory-based isolation mechanism downstream (PHP `open_basedir`, chroot helpers) depends on the inputs being sanitized *before* docroot resolution. Either pin the docroot via `ServerName`/`ServerAlias` or reject Host values containing `..`, `/`, or NULs at the Apache layer.
 
 **References:** RCTF 2018 — writeup 10150
+
+## Recursive-Replace Traversal `....//` (35C3 2018)
+
+**Pattern:** Filter strips `../` with a single `str_replace('../', '', $path)` pass. The payload `....//` contains `../` exactly once in the middle — after removal, the surrounding characters collapse into `../`.
+
+```text
+Accept-Language: ....//....//....//....//flag
+            →    ../ ../ ../ ../flag
+```
+
+**Key insight:** Non-recursive filters that remove substrings once leave their residue interleaved in a way that re-forms the target. `....//` is for `../`; `....\\\\` is for `..\`. Use until the filter iterates to a fixed point.
+
+**References:** 35C3 CTF 2018 — flags, writeup 12831
+
+---
+
+## PHP (int) Cast Leading-Number Traversal (35C3 2018)
+
+**Pattern:** Validation casts the parameter to `(int)` and compares against a blacklist, but the raw string is later concatenated into a filesystem path. `(int) "-4133353959107185265/../../admin"` returns `-4133353959107185265`, so the numeric check passes while the raw value carries a path traversal.
+
+```text
+id=-4133353959107185265/../../admin
+```
+
+**Key insight:** Any validator that *casts* instead of *parses* only sees the leading numeric prefix. Always compare the original input against a strict regex (`^-?\d+$`) when the same string is reused downstream.
+
+**References:** 35C3 CTF 2018 — Not(e) accessible, writeup 12879
+
+---
+
+## strpos Substring-Match Blacklist Bypass (TUCTF 2018)
+
+**Pattern:** PHP blocks LFI targets with `if (strpos($file, '/etc/passwd') == true) die();`. `strpos` returns the *position* of the substring (or `false`), so the filter only blocks paths that contain the literal string. Any traversal that ends in a different file passes the check.
+
+```php
+# Bypass: file=../../TheEgg.html — strpos returns false, include proceeds
+```
+
+Also: `strpos(...) == true` (loose comparison) is true for any non-zero offset; the subtle version of this bug blocks substring matches at offset `>=1` but allows substring matches at offset `0`.
+
+**Key insight:** `strpos()`, `str_contains()`, and `preg_match()` are identification checks, not validation. For filename/path safety, resolve the full path with `realpath()` and compare against an allowlisted root.
+
+**References:** TUCTF 2018 — Easter Egg: Crystal Gate, writeup 12380
+
+---
 
 See [server-side-2.md](server-side-2.md) for XXE, XML injection, command injection, GraphQL, and the remaining PHP-specific tricks (variable variables, uniqid, sequential regex bypass).

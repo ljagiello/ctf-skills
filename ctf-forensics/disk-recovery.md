@@ -17,6 +17,8 @@
 - [Recovering Deleted .git Repository from FAT Image (Square CTF 2017)](#recovering-deleted-git-repository-from-fat-image-square-ctf-2017)
 - [DNSSEC Key Recovery from Git Commit History (Hack.lu 2017)](#dnssec-key-recovery-from-git-commit-history-hacklu-2017)
 - [XZ Stream Header Repair via CRC32 Reconstruction (Hackover 2018)](#xz-stream-header-repair-via-crc32-reconstruction-hackover-2018)
+- [ZipCrypto Known-Plaintext Cracking via bkcrack (Codegate 2019)](#zipcrypto-known-plaintext-cracking-via-bkcrack-codegate-2019)
+- [SQLite Serial-Type Byte Forensics (RITSEC 2018)](#sqlite-serial-type-byte-forensics-ritsec-2018)
 - [See Also](#see-also)
 
 ---
@@ -584,6 +586,41 @@ xz -d broken.xz
 **Key insight:** XZ streams are defined by a fixed 12-byte header and a 12-byte footer that both include the same `stream_flags` byte — when the header is damaged you can copy the flags out of the still-intact footer and recompute the header CRC32 locally. The same header-reconstruction trick works for any format where the checksum input is small enough to brute-force or derive from the footer: GZIP (trailing `isize`/`crc32`), ZIP (central directory before the local file header), and zstd (frame header with skip-frames). When the challenge hands you a blob whose magic bytes belong to the wrong format, check the **last few bytes** for the real footer signature before trying to salvage the header.
 
 **References:** Hackover CTF 2018 — UnbreakMyStart, writeup 11508
+
+---
+
+## ZipCrypto Known-Plaintext Cracking via bkcrack (Codegate 2019)
+
+**Pattern:** ZipCrypto (the legacy PKZIP stream cipher, not AES-256) falls to known-plaintext attacks when you have at least 12 bytes of known plaintext for an encrypted file. `pkcrack` is the classic tool but often fails on modern archives; `bkcrack` (https://github.com/kimci86/bkcrack) handles edge cases with partial headers.
+
+```bash
+# Extract any unencrypted neighbour and its encrypted version
+unzip secret.zip unencrypted_known.txt
+bkcrack -C secret.zip -c target.txt -p unencrypted_known.txt -P known.zip
+# Decrypt the whole archive with the recovered internal state
+bkcrack -C secret.zip -k <k0> <k1> <k2> -d target_decrypted.bin
+```
+
+**Key insight:** ZIP headers often include well-known constants (PNG/JPEG magic, empty `README.txt`, `.gitignore`). Any encrypted ZIP that also ships an unencrypted reference file — or where you can guess 12+ bytes of header — falls immediately to `bkcrack`. Swap to it when `pkcrack` throws.
+
+**References:** Codegate CTF 2019 — Rich Project, writeup 12907
+
+---
+
+## SQLite Serial-Type Byte Forensics (RITSEC 2018)
+
+**Pattern:** Two near-identical SQLite files differ only in selected bytes. SQLite records encode each column with a "serial type" varint that both describes the type and carries the length (types ≥13 mean strings, length `(type - 13) / 2`). Walk the records, locate the changed serial-type bytes between versions, and read the adjacent text payload to recover hidden characters.
+
+```python
+def extract_hidden(path):
+    with open(path, 'rb') as f: db = f.read()
+    offsets = [0x892, 0xBA5, 0xE13]   # diff the two files first
+    return bytes(db[off] for off in offsets)
+```
+
+**Key insight:** SQLite's varint serial-type scheme stores metadata *inline* with the payload, so an attacker who can flip one varint changes the interpretation of the next N bytes. Diff two versions byte-by-byte, cluster the diffs by record, and decode each varint to locate hidden text fields.
+
+**References:** RITSEC CTF 2018 — Lite Forensics, writeup 12223
 
 ---
 

@@ -23,6 +23,8 @@
 - [Anti-Forensics Detection Checklist](#anti-forensics-detection-checklist)
 - [Windows Memory Forensics: certutil Base64 ZIP Recovery (SEC-T CTF 2017)](#windows-memory-forensics-certutil-base64-zip-recovery-sec-t-ctf-2017)
 - [NTFS EFSTMPWP Folder as cipher.exe Wipe Artifact (Security Fest CTF 2018)](#ntfs-efstmpwp-folder-as-cipherexe-wipe-artifact-security-fest-ctf-2018)
+- [Volatility clipboard Plugin for Copy-Paste Secret Recovery (OtterCTF 2018)](#volatility-clipboard-plugin-for-copy-paste-secret-recovery-otterctf-2018)
+- [Volatility Credential Recovery Toolkit (OtterCTF 2018)](#volatility-credential-recovery-toolkit-otterctf-2018)
 
 ---
 
@@ -568,3 +570,56 @@ grep -i 'EFSTMPWP' mft.csv
 **Key insight:** Secure-erase tools leave their own filesystem fingerprints. `cipher.exe /w` creates `EFSTMPWP`; `sdelete` creates files named after the wiped target with a `.ZZZ`-style extension; BleachBit leaves `~BleachBit*.tmp`. Grep for these artifact names before launching any recovery job — they tell you whether recovery is even worth attempting.
 
 **References:** Security Fest CTF 2018 — writeup 10206
+
+---
+
+## Volatility clipboard Plugin for Copy-Paste Secret Recovery (OtterCTF 2018)
+
+**Pattern:** Users copy passwords / keys / flags into the clipboard. Windows keeps clipboard data live in memory even after the source application closes. Volatility's `clipboard` plugin enumerates `CF_UNICODETEXT` / `CF_TEXT` buffers and prints the most recent copy-paste content verbatim.
+
+```bash
+vol.py -f memory.vmem --profile=Win7SP1x64 clipboard
+# Volatility 3:
+vol -f memory.vmem windows.clipboard
+```
+
+**Key insight:** Before spending hours carving LSASS or walking process heaps, run `clipboard` — CTF challenges about "Silly Rick copied his password" always surface here. Combine with `cmdline`, `consoles`, and `filescan` for full user-activity reconstruction.
+
+**References:** OtterCTF 2018 — Silly Rick, writeup 12596
+
+---
+
+## Volatility Credential Recovery Toolkit (OtterCTF 2018)
+
+**Pattern:** One memory dump, a shopping list of Volatility plugins to try in order:
+
+```bash
+# 1. Recent copy-pasted passwords
+vol.py -f dump.vmem --profile=Win7SP1x64 clipboard
+
+# 2. Loaded plugins: mimikatz (third-party) — plaintext wdigest creds
+vol.py --plugins=./plugin/ -f dump.vmem --profile=Win7SP1x64 mimikatz
+
+# 3. NTLM / LM hashes from SAM hive
+vol.py -f dump.vmem --profile=Win7SP1x64 hivelist          # find SAM offset
+vol.py -f dump.vmem --profile=Win7SP1x64 hashdump -y SYSTEM_off -s SAM_off
+
+# 4. Registry values (computer name, policies)
+vol.py -f dump.vmem --profile=Win7SP1x64 printkey \
+    -K 'ControlSet001\Control\ComputerName\ComputerName'
+
+# 5. Process memory carving: dump and grep for patterns
+vol.py -f dump.vmem --profile=Win7SP1x64 memdump -p 3720 -D out/
+strings out/3720.dmp | grep -iE 'pass|flag'
+
+# 6. Network connection artifacts
+vol.py -f dump.vmem --profile=Win7SP1x64 netscan
+
+# 7. Process tree and loaded DLLs for malware triage
+vol.py -f dump.vmem --profile=Win7SP1x64 pstree
+vol.py -f dump.vmem --profile=Win7SP1x64 dlllist -p PID
+```
+
+**Key insight:** Don't hunt with `strings` alone. The Volatility plugin suite has a plugin for every artifact: clipboard, mimikatz (plaintext), hashdump (hashes), printkey (registry), memdump (per-process memory), netscan (sockets), pstree (process hierarchy), dlllist (loaded modules). Run them in order from cheapest to most expensive.
+
+**References:** OtterCTF 2018 — multiple challenges, writeups 12569–12572, 12596

@@ -14,6 +14,9 @@
 - [Shodan SSH Fingerprint Lookup (EKOPARTY CTF 2016)](#shodan-ssh-fingerprint-lookup-ekoparty-ctf-2016)
 - [Fake Service Banner Detection via Fingerprinting (MetaCTF Flash 2026)](#fake-service-banner-detection-via-fingerprinting-metactf-flash-2026)
 - [Git Commit Author Mining for Credentials (Hackover 2018)](#git-commit-author-mining-for-credentials-hackover-2018)
+- [.DS_Store Directory Enumeration with Python-dsstore (35C3 2018)](#ds_store-directory-enumeration-with-python-dsstore-35c3-2018)
+- [TTF Glyph Contour Diffing for Obfuscated CAPTCHA (Square CTF 2018)](#ttf-glyph-contour-diffing-for-obfuscated-captcha-square-ctf-2018)
+- [Cross-Challenge Container IP Reuse (RITSEC 2018)](#cross-challenge-container-ip-reuse-ritsec-2018)
 - [Resources](#resources)
 
 ---
@@ -279,6 +282,53 @@ gh api "users/<target-user>/events/public" --paginate \
 **Key insight:** A git repo is a signed audit log of every author, committer, and co-author who has ever touched it. Even after someone rotates an email, the history keeps the old addresses. Mine both `author.email` and `committer.email`, and also look at `.mailmap`, `CONTRIBUTORS`, and GPG-signed commits (`git log --show-signature`). Treat each recovered email as a candidate login for the target service — many CTF web boxes, HR portals, and password-reset flows accept author emails straight from a public repo.
 
 **References:** Hackover CTF 2018 — who knows john dows?, writeups 11537, 11646
+
+---
+
+## .DS_Store Directory Enumeration with Python-dsstore (35C3 2018)
+
+**Pattern:** macOS `.DS_Store` files leak directory listings even when the web server hides them behind `robots.txt` or obscured paths. Download `.DS_Store` wherever possible (root, `/uploads/`, `/static/`) and parse it to enumerate filenames that are otherwise un-guessable.
+
+```bash
+curl -sO https://target/.DS_Store
+python3 -m dsstore .DS_Store
+# prints every file the Finder ever saw in that directory
+```
+
+**Key insight:** `.DS_Store` is generated automatically by macOS and often pushed to production by accident. It exposes filenames, not contents, but that is enough to find hidden admin panels, backup files, and uploaded flags.
+
+**References:** 35C3 CTF 2018 — McDonald, writeup 12763
+
+---
+
+## TTF Glyph Contour Diffing for Obfuscated CAPTCHA (Square CTF 2018)
+
+**Pattern:** A CAPTCHA serves obfuscated characters by remapping glyph IDs to random `cmap` entries, so the browser still displays "5" but the underlying Unicode codepoint is `U+E042`. Extract the TTF, dump each glyph's contours with `ttx`, build a reference library of known digit/letter contours, and `diff` incoming glyphs against the library to recover the true character.
+
+```bash
+ttx -t glyf -g -d glyph_out font.ttf
+# glyph_out/font.glyf/<glyph_name>.ttx holds contour XML
+diff glyph_out/font.glyf/zero.ttx reference/zero.ttx
+```
+
+**Key insight:** Visual CAPTCHAs that rely on custom fonts are trivially defeatable because the glyph *shapes* are invariant under cmap remapping. Build the reference once from any standard font and reuse it across every challenge variant.
+
+**References:** Square CTF 2018 — C8, writeup 12161
+
+---
+
+## Cross-Challenge Container IP Reuse (RITSEC 2018)
+
+**Pattern:** In Docker-hosted CTF infrastructures, all challenges in the same subnet often share an internal IP range. Leak the container's `REMOTE_ADDR` or routing table from one challenge (typically via a command-injection or SSRF), then apply that leaked IP to any other challenge that gates on `REMOTE_ADDR` hashes, `X-Forwarded-For` checks, or MD5(IP)-based upload paths.
+
+```text
+# Challenge A leaks REMOTE_ADDR = 10.0.10.254
+# Challenge B expects upload at /uploads/md5(10.0.10.254)/md5(time()).ext
+```
+
+**Key insight:** Multi-challenge CTFs often leak infrastructure details cross-challenge. Always map the shared subnet first, then pivot info from the weakest challenge to the most constrained one.
+
+**References:** RITSEC CTF 2018 — Lazy Dev → Archivr, writeups 12234-12235
 
 ---
 

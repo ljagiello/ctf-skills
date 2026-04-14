@@ -25,6 +25,11 @@ macOS/iOS, embedded/IoT firmware, kernel driver, automotive, and game engine rev
   - [Anti-Cheat Analysis](#anti-cheat-analysis)
   - [Lua-Scripted Games](#lua-scripted-games)
 - [Automotive / CAN Bus RE](#automotive--can-bus-re)
+- [RISC-V QEMU Execution with GLIBC Symbol Version Patching (Pwn2Win 2018)](#risc-v-qemu-execution-with-glibc-symbol-version-patching-pwn2win-2018)
+- [APK Certificate SHA-256 as AES Key (ASIS Finals 2018)](#apk-certificate-sha-256-as-aes-key-asis-finals-2018)
+- [Moxie ISA Custom Opcode Discovery (SECCON 2018)](#moxie-isa-custom-opcode-discovery-seccon-2018)
+- [Unity APK Assembly-CSharp.dll Runtime Patch (SECCON 2018)](#unity-apk-assembly-csharpdll-runtime-patch-seccon-2018)
+- [Il2CppDumper for Unity IL2CPP Metadata Recovery (SECCON 2018)](#il2cppdumper-for-unity-il2cpp-metadata-recovery-seccon-2018)
 
 ---
 
@@ -568,3 +573,92 @@ cansend can0 7DF#0201000000000000          # Send single frame (OBD-II request)
 - Seed-key bypass: Reverse the key derivation algorithm from ECU firmware
 - CAN message replay: Capture legitimate command, replay to unlock feature
 - Firmware extraction from ECU via UDS/KWP2000
+
+---
+
+## RISC-V QEMU Execution with GLIBC Symbol Version Patching (Pwn2Win 2018)
+
+**Pattern:** Challenge binary targets a RISC-V Debian that isn't available natively. Extract the Debian libc6 and dynamic linker, then patch the binary's required GLIBC symbol version (e.g., `GLIBC_2.25` → `GLIBC_2.27`) in a hex editor so the available libc can serve it. Run with `qemu-riscv64 -L <sysroot>`.
+
+```bash
+ar x libc6_2.27-5_riscv64.deb && tar xf data.tar.xz
+sed 's@GLIBC_2.25@GLIBC_2.27@g' -i binary
+# Patch the symbol version hash too
+objdump -p binary   # note old hash
+# replace bytes with xxd / hexedit
+qemu-riscv64 -L ./sysroot ./binary
+```
+
+**Key insight:** `ld.so` symbol versioning is enforced by a hashed identifier next to each symbol. Patching both the string and its hash bypasses the check without rebuilding libc; `objdump -p` shows the hash slot to overwrite.
+
+**References:** Pwn2Win CTF 2018 — Too Slow, writeup 12501+
+
+---
+
+## APK Certificate SHA-256 as AES Key (ASIS Finals 2018)
+
+**Pattern:** Android app derives its AES key from `SHA-256(packageInfo.signatures[0].toByteArray())`, truncated to 16 bytes. Because the signing cert is embedded in the APK, the key is recoverable offline — no reverse engineering of native code required.
+
+```python
+from hashlib import sha256
+import base64, zipfile
+
+cert = zipfile.ZipFile('app.apk').read('META-INF/CERT.RSA')
+key  = base64.b64encode(sha256(cert).digest())[:16]
+# Decrypt config resources with AES-ECB using this key
+```
+
+**Key insight:** "Deterministic key from a public fingerprint" is a recurring Android anti-pattern. Audit `getSignature`, `getPackageInfo`, and MessageDigest usages for this shape; the fix is to store a real secret server-side.
+
+**References:** ASIS CTF Finals 2018 — Gunshop, writeup 12420
+
+---
+
+## Moxie ISA Custom Opcode Discovery (SECCON 2018)
+
+**Pattern:** Binary is compiled for Moxie (obscure CPU architecture). `strings` on the ELF reveals a help banner declaring custom opcodes `SETRSEED (0x16)` and `GETRAND (0x17)`, with a non-standard xorshift32 implementation. Emulate those opcodes in Python to recover the PRNG stream, then XOR the ciphertext with the sequence.
+
+```python
+def xorshift32(s):
+    s ^= (s << 13) & 0xffffffff
+    s ^= (s >> 17)
+    s ^= (s << 15) & 0xffffffff     # Note: *not* standard (<< 5)
+    return s & 0xffffffff
+```
+
+**Key insight:** Obscure ISAs often lean on small custom additions to implement crypto inline. Grep the binary for human-readable opcode documentation; it's frequently left in the help text for challenge authors' own debugging.
+
+**References:** SECCON 2018 — Special Instructions, writeup 12001
+
+---
+
+## Unity APK Assembly-CSharp.dll Runtime Patch (SECCON 2018)
+
+**Pattern:** Unity game ships compiled C# game logic in `assets/bin/Data/Managed/Assembly-CSharp.dll`. Decompile with dnSpy/ILSpy, modify the `Update()` or `Start()` methods (e.g., remove rotation animations that hide the flag), recompile, repack the APK with `apktool`, resign with `jarsigner`, install on emulator.
+
+```bash
+apktool d game.apk -o game_src
+# Replace game_src/assets/bin/Data/Managed/Assembly-CSharp.dll with patched version
+apktool b game_src -o patched.apk
+jarsigner -keystore debug.keystore -storepass android patched.apk androiddebugkey
+adb install -r patched.apk
+```
+
+**Key insight:** Unity games are "just C#" once you open the DLL. Any hidden flag rendered at the wrong angle or masked by an overlay is exposed by deleting the animation code.
+
+**References:** SECCON 2018 — block, writeup 12001
+
+---
+
+## Il2CppDumper for Unity IL2CPP Metadata Recovery (SECCON 2018)
+
+**Pattern:** Modern Unity games compile to IL2CPP (native code plus metadata) instead of shipping `Assembly-CSharp.dll`. Use `Il2CppDumper` against `libil2cpp.so` plus `assets/bin/Data/Managed/Metadata/global-metadata.dat` to recover pseudo-C#, then grep the output for endpoint strings, API paths, or crypto constants.
+
+```bash
+Il2CppDumper libil2cpp.so global-metadata.dat out/
+grep -r "https://" out/  # find hardcoded endpoints
+```
+
+**Key insight:** IL2CPP looks opaque but the metadata file carries every type name, method name, and string literal. That is enough to reverse CTF-level logic without ever touching native disassembly.
+
+**References:** SECCON 2018 — shooter, writeup 12001

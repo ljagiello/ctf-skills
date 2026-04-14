@@ -626,6 +626,13 @@ exec(().__class__.__base__.__subclasses__()[-2].payload)
 3. `man` pipes output to `less`. Inside `less`, press `!sh` and hit Enter — the pager fork/execs a real shell.
 4. Alternatively, once inside `less` type `v` to launch `$EDITOR`; if `EDITOR=vim` is unset the default editor still allows shell escape via `:!`.
 
+```text
+vim file.txt        # restricted vim opens
+(cursor on "ls")
+K                   # runs `man ls` → pager `less`
+!sh                 # less shell-escape → real shell
+```
+
 **Hardening signals to check first:** `keywordprg` value (`:set keywordprg?`), `secure` mode, whether `shell` option has been cleared, and the `LESSSECURE=1` environment variable. `LESSSECURE=1` specifically disables `!`, `|`, `v`, and `s` inside `less` — its absence is a green light for this escape.
 
 **Key insight:** Restricted editors almost always leak via chained pagers and keyword lookups. Catalog every command that spawns a child process (`K`/`keywordprg`, `:grep`, `:make`, `gx` for URL open, `:Man`) before touching `:!`. If even one child process uses `less` or another escape-friendly pager without `LESSSECURE=1`, you have a shell.

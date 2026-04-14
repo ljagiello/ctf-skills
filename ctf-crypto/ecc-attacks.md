@@ -13,6 +13,8 @@
 - [DSA Limited k-Value Brute Force (ASIS CTF Finals 2016)](#dsa-limited-k-value-brute-force-asis-ctf-finals-2016)
 - [ECC Shared Prime Factor via GCD (ASIS CTF Finals 2016)](#ecc-shared-prime-factor-via-gcd-asis-ctf-finals-2016)
 - [DSA Key Recovery via MD5 Collision on k-Generation (CONFidence CTF 2017)](#dsa-key-recovery-via-md5-collision-on-k-generation-confidence-ctf-2017)
+- [Ed25519 Same-Nonce Key Recovery (hxp 2018)](#ed25519-same-nonce-key-recovery-hxp-2018)
+- [Singular Curve ECDLP to Additive/Multiplicative Group (hxp 2018)](#singular-curve-ecdlp-to-additivemultiplicative-group-hxp-2018)
 
 ---
 
@@ -309,3 +311,37 @@ private_key = (sig1.s * k - hash1) * modinv(sig1.r, q) % q
 **Key insight:** MD5 collision generators like `fastcoll` produce pairs of inputs with identical hashes from a chosen prefix. When a signature scheme derives its nonce from an MD5 hash of controllable data, manufacturing a collision produces nonce reuse, enabling standard private key recovery.
 
 **References:** CONFidence CTF 2017
+
+---
+
+## Ed25519 Same-Nonce Key Recovery (hxp 2018)
+
+**Pattern:** An Ed25519 signer reuses the same private-key scalar with deterministic nonce derivation, but the public key changes between signatures (fault injection or swapped key material). Two signatures `(R1, S1, h1)` and `(R2, S2, h2)` share `a`, so `a = (S1 - S2) * inverse(h1 - h2) mod L`.
+
+```python
+L = 2**252 + 27742317777372353535851937790883648493
+a = (S1 - S2) * pow(h1 - h2, -1, L) % L   # recovered scalar
+```
+
+**Key insight:** Ed25519 is deterministic, but any implementation bug that desyncs `(r, k)` from `(H(privkey, msg))` produces classical nonce-reuse. Check implementations that sign across key rotations — the scalar often survives rekey.
+
+**References:** hxp CTF 2018 — writeup 12561
+
+---
+
+## Singular Curve ECDLP to Additive/Multiplicative Group (hxp 2018)
+
+**Pattern:** Challenge publishes an "elliptic curve" that is actually singular — its discriminant is zero. Compute the singularity by finding the double root of `f(x) = x^3 + ax + b`. Map the curve to either the additive group `(GF(p), +)` (cusp) or the multiplicative group `GF(p)^*` (node) where DLP is easy.
+
+```python
+# Find singular point r
+P.<x> = PolynomialRing(GF(p))
+f = x^3 + a*x + b
+r = (f.derivative()).roots()[0][0]
+# Shift curve so singularity is at origin
+# Then map (x, y) -> (x - r) / y  for nodal singularity
+```
+
+**Key insight:** Discriminant `-16(4a^3 + 27b^2)` zero means singular. Singular curves are either cusps (map to `(GF(p), +)`) or nodes (map to `GF(p)^*`) — both with polynomial-time DLP.
+
+**References:** hxp CTF 2018 — writeup 12563
