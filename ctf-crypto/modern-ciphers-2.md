@@ -20,6 +20,8 @@ Hash-based attacks, protocol-level exploits, ECB oracles, Rabin/RSA parity attac
 - [Rabin Cryptosystem LSB Parity Oracle (PlaidCTF 2016)](#rabin-cryptosystem-lsb-parity-oracle-plaidctf-2016)
 - [PBKDF2 Pre-Hash Bypass for Long Passwords (BackdoorCTF 2016)](#pbkdf2-pre-hash-bypass-for-long-passwords-backdoorctf-2016)
 - [MD5 Multi-Collision via Fastcol (BackdoorCTF 2016)](#md5-multi-collision-via-fastcol-backdoorctf-2016)
+- [GHASH Key Recovery over Prime Modulus (nullcon HackIM 2019)](#ghash-key-recovery-over-prime-modulus-nullcon-hackim-2019)
+- [SHA-1 Length Extension Plus AES-CBC Cookie Forgery (BSidesSF 2019)](#sha-1-length-extension-plus-aes-cbc-cookie-forgery-bsidessf-2019)
 
 See [modern-ciphers-3.md](modern-ciphers-3.md) for custom hash reversal, CRC32 brute-force, noisy RSA oracle, sponge collisions, CBC IV forgery, padding oracle bit-flip, SPN S-box intersection, AES-CFB IV recovery, three-round XOR, Unicode side channel, SHA-256 basis attack, and HMAC key recovery.
 
@@ -502,6 +504,59 @@ equivalent = hashlib.sha1(original_password.encode()).digest()
 ```
 
 **Key insight:** MD5 collision generation is practical with `fastcol` (~minutes per pair). Because MD5 uses Merkle-Damgard construction, collisions compose: if `H(A||X) == H(A||Y)`, then `H(A||X||Z) == H(A||Y||Z)` for any suffix Z. Chaining k collision pairs produces 2^k files with identical MD5. For CRC32 collisions, append bytes after PNG IEND chunk (parsers ignore trailing data) and brute-force the 4-byte CRC adjustment.
+
+---
+
+## GHASH Key Recovery over Prime Modulus (nullcon HackIM 2019)
+
+**Pattern (GenuineCounterMode):** A custom GCM-like scheme computes `tag = c + sum(b_i * H^(i+1)) mod n` where `n` is a 128-bit prime (not `GF(2^128)`). The 12-byte nonce has 10 bytes fixed from the session ID plus 2 random bytes, so nonce collisions arrive in roughly 256 encryption queries (birthday bound). With two colliding nonces, the equations for `tag1` and `tag2` share the same `c = E_K(nonce || counter)`, so subtracting eliminates `c` and leaves a linear equation in `H` modulo prime `n` — solvable by a single modular inverse, not `GF(2^128)` polynomial factoring.
+
+```python
+from Crypto.Util.number import bytes_to_long, long_to_bytes, inverse
+
+n = 327989969870981036659934487747327553919  # prime modulus (not GF(2^128))
+
+# 1. Request encryptions with single-block messages until two share a nonce
+# 2. With colliding (nonce, ct1, tag1) and (nonce, ct2, tag2):
+m1 = bytes_to_long(ct1)  # single 16-byte block
+m2 = bytes_to_long(ct2)
+t1 = bytes_to_long(tag1)
+t2 = bytes_to_long(tag2)
+H = ((t1 - t2) * inverse(m1 - m2, n)) % n
+
+# 3. Forge: encrypt "may i please have the galf", flip CTR bytes to 'flag'
+#    then recompute tag using recovered H and c = tag - sum(b_i * H^(i+1))
+c0 = (t1 - sum(bytes_to_long(b) * pow(H, i + 1, n) for i, b in enumerate(blocks1))) % n
+forged_tag = (c0 + sum(bytes_to_long(b) * pow(H, i + 1, n) for i, b in enumerate(forged_blocks))) % n
+```
+
+**Key insight:** GCM's security rests on `GHASH` operating over `GF(2^128)` where inversion is hard without the key. Swapping the modulus to a plain prime `n` collapses the authentication to textbook linear algebra mod `n` — two nonce-colliding tags give one linear equation per unknown, solved with `inverse(m1 - m2, n)`. Short-nonce (2 random bytes) designs guarantee birthday collisions in ~256 queries. Contrast with the `GF(2^128)` AES-GCM forbidden attack in [modern-ciphers.md](modern-ciphers.md#aes-gcm-nonce-reuse--forbidden-attack), which needs polynomial factoring over binary fields.
+
+---
+
+## SHA-1 Length Extension Plus AES-CBC Cookie Forgery (BSidesSF 2019)
+
+**Pattern (decrypto):** Cookie stores `user = iv || AES-CBC(key, plaintext)` plus a separate `signature = SHA1(secret || decrypt(ct))` tag. The session cookie leaks the AES key (e.g. trailing 32 bytes of a base64 session blob). To forge `UID 0`, length-extend the signature with `\nUID 0\n`, decrypt the current ciphertext to learn the plaintext, append hashpump's padding + extension, re-encrypt with the known key, and send both updated `user` and `signature`.
+
+```python
+import hashpumpy, binascii, base64, urllib
+from Crypto.Cipher import AES
+
+# Extract AES key from leaked rack.session cookie
+key = base64.b64decode(urllib.unquote(cookies['rack.session'].split('--')[0]))[-32:]
+user = binascii.unhexlify(cookies['user'])
+iv, ct = user[:16], user[16:]
+
+def decrypt(c): return AES.new(key, AES.MODE_CBC, iv).decrypt(c).rstrip(b'\x10\x0f\x0e...')
+def encrypt(p): pad = 16 - len(p) % 16; return AES.new(key, AES.MODE_CBC, iv).encrypt(p + bytes([pad])*pad)
+
+# Length-extend signature (secret length guessed = 8)
+new_sig, new_plain = hashpumpy.hashpump(cookies['signature'], decrypt(ct), b'\nUID 0\n', 8)
+cookies['signature'] = new_sig
+cookies['user']      = binascii.hexlify(iv + encrypt(new_plain))
+```
+
+**Key insight:** Hash length extension applies whenever the MAC is `H(secret || data)` over a Merkle-Damgard hash (MD5/SHA-1/SHA-256). If the *same* `data` also lives inside a *separately* keyed cipher whose key is recoverable, you can combine primitives: hashpumpy produces the extended plaintext and new tag, then you re-encrypt with the leaked AES key so the server's CBC decryption matches the extended string the signature now covers. Parse-order quirks (later fields overriding earlier ones) let the appended `\nUID 0\n` win.
 
 ---
 

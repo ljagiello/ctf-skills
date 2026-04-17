@@ -21,6 +21,8 @@ Techniques specific to hiding data in image formats (JPEG, PNG, BMP, GIF). For n
 - [GIF Frame PLTE Chunk Concatenation to ELF (IceCTF 2018)](#gif-frame-plte-chunk-concatenation-to-elf-icectf-2018)
 - [Nested-Resize QR Overlay at Survivor Pixels (SECCON 2018)](#nested-resize-qr-overlay-at-survivor-pixels-seccon-2018)
 - [ImageMagick +append Puzzle Stitching + gaps Solver (X-MAS CTF 2018)](#imagemagick-append-puzzle-stitching--gaps-solver-x-mas-ctf-2018)
+- [Steghide Passphrase in JPEG Header Metadata (Saudi/Oman CTF 2019)](#steghide-passphrase-in-jpeg-header-metadata-saudioman-ctf-2019)
+- [Corrupted PNG Magic and Lowercase Chunk Repair (Pragyan CTF 2019)](#corrupted-png-magic-and-lowercase-chunk-repair-pragyan-ctf-2019)
 
 ---
 
@@ -640,3 +642,50 @@ gaps --image=strip.png --size=273
 **Key insight:** CTF jigsaw challenges rarely require manual work. Carve pieces, stitch, run `gaps` — it uses a genetic algorithm to reassemble in minutes. Read `exiftool` on each piece for the size hint.
 
 **References:** X-MAS CTF 2018 — Message from Santa, writeup 12662
+
+---
+
+## Steghide Passphrase in JPEG Header Metadata (Saudi/Oman CTF 2019)
+
+**Pattern:** JPEG file with `steghide`-embedded payload whose passphrase is hidden in plain ASCII inside the JPEG header/metadata region. Standard tools (`exiftool`, `strings`) may miss it if the byte range isn't flagged as a proper EXIF/comment tag, but `xxd` on the first few hundred bytes reveals the string.
+
+```bash
+# Scan header for suspicious ASCII
+xxd info.jpg | head -20
+# 00000010: ffdb 0043 0008 6261 6469 7362 6164 0008  ...C..badisbad..
+#                      ^^^^^^^^^^^^^^^^^ passphrase at offset 0x18
+
+# Confirm steghide payload with the passphrase
+steghide --info info.jpg       # prompts for passphrase
+steghide extract -sf info.jpg -p badisbad
+```
+
+**Key insight:** Always scan the first ~256 bytes of a JPEG with `xxd`/`hexdump -C` for ASCII runs — authors sometimes stuff passphrases into reserved areas of JFIF/APPn segments where `exiftool` doesn't surface them, but they're trivially visible in a hex view. Pair the leak with `steghide`, `outguess`, or `stegseek` wordlist seeding.
+
+**References:** Quals Saudi and Oman National Cyber Security CTF 2019 — Hack a nice day, writeup 13232
+
+---
+
+## Corrupted PNG Magic and Lowercase Chunk Repair (Pragyan CTF 2019)
+
+**Pattern:** PNG is unreadable because the 8-byte magic is tampered (e.g. `89 50 4E 47 2E 0A 2E 0A` instead of the correct `89 50 4E 47 0D 0A 1A 0A`) and critical chunk names are lowercased (`idat` instead of `IDAT`). PNG decoders treat lowercase chunk names as "ancillary" and skip them, so the image looks empty until the case is fixed. Metadata (e.g. `exiftool` Artist field) then yields the next step.
+
+```bash
+# Step 1: patch magic bytes
+printf '\x89PNG\r\n\x1a\n' | dd of=broken.png conv=notrunc bs=1 count=8
+
+# Step 2: re-capitalise critical chunk names (IHDR, IDAT, IEND, PLTE)
+python3 -c "
+d = open('broken.png','rb').read()
+d = d.replace(b'idat', b'IDAT').replace(b'iend', b'IEND')
+open('fixed.png','wb').write(d)
+"
+
+# Step 3: pull hidden metadata
+exiftool fixed.png | grep -Ei 'artist|comment|desc'
+# Artist : md5_MEf89jf4h9   -> use md5(...) as zip password
+```
+
+**Key insight:** PNG has two orthogonal parseability gates: the 8-byte signature and the case of each chunk name (first letter uppercase = critical). Fix both before concluding the file is empty. `pngcheck -v` flags exactly which byte/chunk is wrong. Once readable, treat EXIF `Artist`, `Description`, and `tEXt`/`iTXt` chunks as prime hiding spots.
+
+**References:** Pragyan CTF 2019 — Magic PNGs, writeup 13833

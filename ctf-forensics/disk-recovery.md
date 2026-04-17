@@ -19,6 +19,8 @@
 - [XZ Stream Header Repair via CRC32 Reconstruction (Hackover 2018)](#xz-stream-header-repair-via-crc32-reconstruction-hackover-2018)
 - [ZipCrypto Known-Plaintext Cracking via bkcrack (Codegate 2019)](#zipcrypto-known-plaintext-cracking-via-bkcrack-codegate-2019)
 - [SQLite Serial-Type Byte Forensics (RITSEC 2018)](#sqlite-serial-type-byte-forensics-ritsec-2018)
+- [Recursive Binwalk Chain PNG->PDF->DOCX->PNG->Base64 (TAMUctf 2019)](#recursive-binwalk-chain-png-pdf-docx-png-base64-tamuctf-2019)
+- [Regex-Password Nested Zip Chain with exrex (UTCTF 2019)](#regex-password-nested-zip-chain-with-exrex-utctf-2019)
 - [See Also](#see-also)
 
 ---
@@ -621,6 +623,73 @@ def extract_hidden(path):
 **Key insight:** SQLite's varint serial-type scheme stores metadata *inline* with the payload, so an attacker who can flip one varint changes the interpretation of the next N bytes. Diff two versions byte-by-byte, cluster the diffs by record, and decode each varint to locate hidden text fields.
 
 **References:** RITSEC CTF 2018 — Lite Forensics, writeup 12223
+
+---
+
+## Recursive Binwalk Chain PNG->PDF->DOCX->PNG->Base64 (TAMUctf 2019)
+
+**Pattern:** One carrier file hides a chain of embedded documents — PNG with a PDF appended, the PDF embeds a DOCX (which is a ZIP), the DOCX embeds another PNG, and that PNG has Base64 appended after the IEND/EOF. Each layer changes container format to evade naive string searches.
+
+```bash
+# Layer 1-2: carve everything out of the outer PNG (pulls PDF, ZIP streams, etc.)
+binwalk --dd=".*" art.png
+cd _art.png.extracted
+file *                      # identify the Microsoft Word 2007+ blob
+
+# Layer 3: DOCX is a ZIP archive
+unzip 34591D -d docx/        # hex offset from binwalk becomes the filename
+ls docx/word/media/          # image1.png is the next-layer carrier
+
+# Layer 4: recurse binwalk into the inner PNG to pull an embedded PDF
+binwalk --dd=".*" docx/word/media/image1.png
+
+# Layer 5: check for data appended after %%EOF of the inner PDF
+strings _image1.png.extracted/*.pdf | tail -n 10
+# -> ZmxhZ3tQMGxZdEByX0QwX3kwdV9HM3RfSXRfTjB3P30K
+echo 'ZmxhZ3tQMGxZdEByX0QwX3kwdV9HM3RfSXRfTjB3P30K' | base64 -d
+```
+
+**Key insight:** When `grep flag` on the outermost file fails, assume each extracted file is itself a carrier. DOCX/XLSX/PPTX/APK/JAR are all ZIPs, so `unzip` works directly. PDFs commonly carry data *after* the final `%%EOF`, so always `strings | tail` or seek past the trailer. `binwalk --dd=".*"` writes every signature hit to disk so you can recurse with minimal typing.
+
+**References:** TAMUctf 2019 — I Heard You Like Files, writeups 13412 and 13587
+
+---
+
+## Regex-Password Nested Zip Chain with exrex (UTCTF 2019)
+
+**Pattern:** Outer zip contains a `hint.txt` (regex) and `archive.zip`; the regex enumerates the password set for the inner zip. Each extracted zip produces the next regex hint. Chain is deep (1000+ layers) so it must be scripted. `exrex.generate(regex)` materialises every string matching a regex, which is perfect for constrained password spaces.
+
+```python
+import exrex, zipfile, os
+
+hint = r'^  7  y  RU[A-Z]KKx2 R4\d[a-z]B  N$'
+archive = 'RegularZips.zip'
+
+for i in range(10000):
+    candidates = list(exrex.generate(hint))
+    out_dir = f'layer{i}'
+    os.makedirs(out_dir, exist_ok=True)
+    with zipfile.ZipFile(archive) as zf:
+        for pw in candidates:
+            try:
+                zf.extractall(out_dir, pwd=pw.encode())
+                print(f'[{i}] pw={pw}')
+                break
+            except Exception:
+                continue
+        else:
+            raise RuntimeError(f'no password matched regex at layer {i}')
+    with open(os.path.join(out_dir, 'hint.txt')) as f:
+        hint = f.read().strip()
+    archive = os.path.join(out_dir, 'archive.zip')
+    if not os.path.exists(archive):
+        print('FLAG IN', out_dir)
+        break
+```
+
+**Key insight:** When a zip's password is described by a regex, don't brute ASCII — use `exrex` to enumerate only matching strings (often just a handful of candidates per layer). Automate the extract-read-hint-repeat cycle; 1000 layers finish in seconds because the search space per layer is tiny.
+
+**References:** UTCTF 2019 — Regular Zips, writeups 13951 and 13861
 
 ---
 

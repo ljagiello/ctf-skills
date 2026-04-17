@@ -16,6 +16,7 @@
 - [LD_PRELOAD Hook via rbash-Allowed Variable Set (OTW Advent 2018)](#ld_preload-hook-via-rbash-allowed-variable-set-otw-advent-2018)
 - [/dev/tcp Exfiltration from Minimal Command Set (OTW Advent 2018)](#devtcp-exfiltration-from-minimal-command-set-otw-advent-2018)
 - [Layer-by-Layer Echo-Only Bash Escape (Insomnihack 2019)](#layer-by-layer-echo-only-bash-escape-insomnihack-2019)
+- [Closed-Stdout Jail with \r Truncation (Insomnihack 2019)](#closed-stdout-jail-with-r-truncation-insomnihack-2019)
 - [References](#references)
 
 ---
@@ -286,6 +287,34 @@ Build numbers using `++` on uninitialised variables, then index characters out o
 **Key insight:** Echo-only jails are escapable because bash's arithmetic context treats uninitialised variables as `0` and supports `++`, giving you any integer without digits. From there, `$'\NNN'` builds any byte, which builds any command.
 
 **References:** Insomnihack teaser 2019 — echoechoechoecho, writeup 12911
+
+---
+
+## Closed-Stdout Jail with \r Truncation (Insomnihack 2019)
+
+**Pattern:** A bash-exec service runs commands but has stdout (and stderr) closed, so normal output silently disappears. Additionally, the target file contains a `\r` early on that naive `cat` renders as "overwrite the line", hiding the flag behind it. Workaround is two-fold: redirect output to a still-open fd (stdin is connected to the network socket, or `/dev/tty`), and use `cat -A` / `od -c` / `xxd` so the carriage return shows as `^M` instead of truncating display.
+
+```bash
+# 1. confirm stdout is closed — output never returns
+echo hello                      # nothing
+echo hello 2>&1                 # still nothing (stderr also closed)
+
+# 2. redirect to stdin (fd 0), which is the network socket for nc-style services
+cat flag 1>&0
+# returns only the tail after \r because the terminal interprets \r literally
+
+# 3. use cat -A (show-all) so CR becomes ^M and the hidden prefix is revealed
+cat -A flag 1>&0
+# or: od -c flag 1>&0   /   xxd flag 1>&0   /   base64 flag 1>&0
+
+# Alternative: reopen a writable stdout
+exec 1>/dev/tty        # only works if a tty is attached
+exec 1>&0              # duplicate the socket fd onto stdout for future cmds
+```
+
+**Key insight:** "Commands work but produce no output" means stdout is closed — find any still-open fd (stdin to the network socket is always open) and redirect with `1>&0`. Once output flows, beware of display artefacts: `\r` truncates in raw `cat`, ANSI CSI sequences can blank lines, and `\x1b[2J` clears the terminal. Always inspect suspect files with `cat -A`, `od -c`, `xxd`, or `base64` so no byte is lost in translation.
+
+**References:** Insomnihack 2019 — myBrokenBash, writeups 13989 and 13990
 
 ---
 

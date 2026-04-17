@@ -20,6 +20,7 @@
 - [IBM AS/400 SAVF File EBCDIC Decoding (EKOPARTY 2017)](#ibm-as400-savf-file-ebcdic-decoding-ekoparty-2017)
 - [Intel SGX Enclave Reverse Engineering (Pwn2Win 2017)](#intel-sgx-enclave-reverse-engineering-pwn2win-2017)
 - [Glulx Interactive Fiction Bytecode Matrix Validation (PlaidCTF 2018)](#glulx-interactive-fiction-bytecode-matrix-validation-plaidctf-2018)
+- [Android Smali Injection to Defeat LocalBroadcastManager (TAMUctf 2019)](#android-smali-injection-to-defeat-localbroadcastmanager-tamuctf-2019)
 
 For core language reversing (Python, BF/esolangs, DOS, Unity, OPAL), see [languages.md](languages.md).
 For Go and Rust binary reversing, see [languages-compiled.md](languages-compiled.md).
@@ -552,3 +553,40 @@ print(bytes(answer.list()).decode())
 **Key insight:** Adventure-game VMs always keep the original story text in the dictionary and object tables — grep the bytecode for developer verbs (`xyzzy`, `debug`, `god`, `plugh`) to discover hidden rooms before reversing the check itself. Glulx validation routines are typically linear over 32-bit integers, so solving them with Sage matrix inversion is faster than symbolic execution.
 
 **References:** PlaidCTF 2018 — writeup 10019
+
+---
+
+## Android Smali Injection to Defeat LocalBroadcastManager (TAMUctf 2019)
+
+**Pattern (Local News):** APK registers a `BroadcastReceiver` through `LocalBroadcastManager.getInstance(this).registerReceiver(...)` that only decodes the flag when triggered by the app itself. External `adb shell am broadcast` is silently dropped because local broadcasts never leave the process:
+
+```bash
+$ adb shell cmd package query-receivers --brief -a com.tamu.ctf.START
+# No receivers found
+```
+
+Swapping the registration for `Context.registerReceiver` force-closes the app (manifest mismatch). Instead, clone the `onReceive` body and inline it into `onCreate` so the deobfuscator (e.g., Paranoid's `Deobfuscator$app$Debug.getString(0)`) runs at startup and the plaintext flag lands in `logcat`.
+
+Decompile, patch, rebuild, sign with a debug keystore, install, capture logcat:
+
+```smali
+# Inside MainActivity.smali, inserted before the final return of onCreate():
+const/4 v1, 0x0
+invoke-static {v1}, Lio/michaelrocks/paranoid/Deobfuscator$app$Debug;->getString(I)Ljava/lang/String;
+move-result-object v1
+invoke-static {v1, v1}, Landroid/util/Log;->d(Ljava/lang/String;Ljava/lang/String;)I
+```
+
+```bash
+apktool d app.apk -o app
+# patch MainActivity.smali ...
+apktool b app -o app/dist/app.apk
+jarsigner -keystore ~/.android/debug.keystore -storepass android \
+  app/dist/app.apk androiddebugkey
+adb install -r app/dist/app.apk
+adb logcat | grep -i flag
+```
+
+**Key insight:** `LocalBroadcastManager`-registered receivers cannot be invoked from `adb`, so the obvious "send the intent yourself" trick fails and static deobfuscation of Paranoid strings is painful. Smali patching sidesteps both: move the deobfuscation call to a path that runs automatically and redirect its output to `Log.d()`, turning a local-only receiver into a logcat-visible primitive.
+
+**References:** TAMUctf 2019 — Local News, writeup 13565

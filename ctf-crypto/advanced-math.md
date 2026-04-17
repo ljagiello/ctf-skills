@@ -19,6 +19,7 @@
 - [Affine Cipher over Non-Prime Modulus (Nullcon 2026)](#affine-cipher-over-non-prime-modulus-nullcon-2026)
 - [Introspective CRC via GF(2) Linear Algebra (Google CTF 2017)](#introspective-crc-via-gf2-linear-algebra-google-ctf-2017)
 - [Baby-Step Giant-Step for Sparse/Low Hamming Weight Exponents (SEC-T CTF 2017)](#baby-step-giant-step-for-sparselow-hamming-weight-exponents-sec-t-ctf-2017)
+- [Hensel's Lemma: Polynomial Root Lifting mod p^k (CONFidence CTF 2019 Teaser)](#hensels-lemma-polynomial-root-lifting-mod-pk-confidence-ctf-2019-teaser)
 
 ---
 
@@ -761,3 +762,37 @@ assert bin(x).count('1') <= 11
 **Key insight:** Sparse-exponent DLP with only k bits set is attackable with meet-in-the-middle: each half uses `C(n, k/2)` entries, reducing complexity from `O(2^k)` to `O(C(n, k/2))`. For k=11 in 128 bits, this is ~10^8 vs 2^128. Always check if the challenge reveals or constrains the Hamming weight of the exponent.
 
 **References:** SEC-T CTF 2017
+
+---
+
+## Hensel's Lemma: Polynomial Root Lifting mod p^k (CONFidence CTF 2019 Teaser)
+
+**Pattern (Bro, do you even lift?):** Challenge gives a polynomial `P(x)` whose unique root mod `N = p^k` is the flag, where `p` is a small known prime and `k` is large (e.g. `p ~ 2^16`, `k = 100`). Brute force over `p^k` is hopeless, but Hensel's lemma lifts any simple root mod `p` to a unique root mod `p^k` via Newton iteration: given `P(r) ≡ 0 mod p^i`, the lift is `r' = r - P(r) * inverse(P'(r), p) mod p^(i+1)`. Factor out the intermediate reductions to `mod p^(i+1)` each step or the integers blow up exponentially.
+
+```python
+# sage
+R.<x> = PolynomialRing(ZZ)
+pol   = ...           # polynomial with huge coefficients
+p     = 35671
+k     = 100
+
+# Step 1: roots mod p (small, enumerable)
+roots_p = [r for r in range(p) if pol(r) % p == 0]
+
+# Step 2: Newton lift to p, p^2, ..., p^k
+def hensel_lift(pol, root, p, k):
+    dpol = pol.derivative()
+    r = root
+    mod = p
+    for i in range(1, k):
+        mod_next = mod * p
+        # r' = r - P(r) * inverse(P'(r), p) mod p^(i+1)
+        inv = inverse_mod(int(dpol(r)) % p, p)
+        r = (r - int(pol(r)) * inv) % mod_next
+        mod = mod_next
+    return r
+
+flag_int = hensel_lift(pol, roots_p[0], p, k)
+```
+
+**Key insight:** Any polynomial equation `P(x) ≡ 0 mod p^k` with `p` small and `p` not dividing `P'(root)` collapses to enumerating roots mod `p` (cheap) plus `k - 1` Newton-style lifts. Each lift requires *reducing intermediate values mod `p^(i+1)` at every step* — Sage's naive `solve_right` or unreduced iteration grinds to a halt because `P(r)` grows as large integers. Works for any `N = p^k` or more generally `N = prod(p_i^{k_i})` by lifting each prime-power factor independently and recombining via CRT.

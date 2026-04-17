@@ -31,6 +31,7 @@
 - [radare2 Visual Panels for Custom VM Tracing (OTW Advent 2018)](#radare2-visual-panels-for-custom-vm-tracing-otw-advent-2018)
 - [libSegFault.so Register Dump at Crash (OTW Advent 2018)](#libsegfaultso-register-dump-at-crash-otw-advent-2018)
 - [r2pipe Binary Walking + DP Constraint Solver (OTW Advent 2018)](#r2pipe-binary-walking--dp-constraint-solver-otw-advent-2018)
+- [GDB Commands at strcmp to Recover Dynamic XOR Key (TAMUctf 2019)](#gdb-commands-at-strcmp-to-recover-dynamic-xor-key-tamuctf-2019)
 
 For Qiling/Triton emulation and Intel Pin / LD_PRELOAD side-channel techniques, see [tools-emulation.md](tools-emulation.md).
 
@@ -638,4 +639,41 @@ for fn in r.cmdj('aflj'):
 **Key insight:** Big binaries with hash chains are solvable if you treat each branch as an inequality on input bytes. r2pipe's JSON output is machine-readable; DP over position/value tuples prunes most branches before running.
 
 **References:** OverTheWire Advent Bonanza 2018 — Day 8, writeup 12771
+
+---
+
+## GDB Commands at strcmp to Recover Dynamic XOR Key (TAMUctf 2019)
+
+**Pattern (Obfuscaxor):** Binary uses the [obfy](https://github.com/fritzone/obfy) C++ template obfuscator to bury a simple `enc(input)` XOR loop under thousands of opaque predicates. The terminal check is still `strcmp(expected_ciphertext, enc(input))` — so instead of unwinding obfy, break at the `strcmp` call and dump both operands:
+
+```
+disassemble verify_key
+# ... 0x5555555560b9 <+96>: call   strcmp@plt
+break *verify_key+96
+commands
+  silent
+  printf "RDI (expected): "
+  x/4xg $rdi
+  printf "RSI (computed): "
+  x/4xg $rsi
+  continue
+end
+run
+```
+
+Feed a known plaintext (`AAAAAAAAA`) and record `computed_A[i]`. Because `enc` is a byte-wise XOR keystream, the key byte is recovered directly from the delta with the target:
+
+```python
+# input_char ^ key = computed_char, and we want: target_char ^ key = target_input
+def to_ans(got_A, expected):
+    return chr(got_A ^ ord('A') ^ expected)
+
+# Sanity: flip just one byte of input and confirm only one computed byte moves.
+```
+
+Chain the per-byte recovery over the full 16-byte target and reconstruct the correct key (`p3Asujmn9CEeCB3A` for this challenge).
+
+**Key insight:** When `strcmp` is the last gate, the obfuscator is irrelevant — its output still has to equal a fixed string at a known call site. GDB's `commands` block turns the breakpoint into an automatic oracle: one run with `AAAA...` leaks the keystream, and a second pass with any target string gives the valid input. Works for any keyed transform that is effectively a permutation of the input under a fixed key.
+
+**References:** TAMUctf 2019 — Obfuscaxor, writeup 13574
 

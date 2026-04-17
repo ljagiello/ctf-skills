@@ -281,7 +281,7 @@ See [linux-forensics.md](linux-forensics.md) for full browser credential decrypt
 - **Deleted partitions:** `testdisk` or `kpartx -av`. See [disk-advanced.md](disk-advanced.md).
 - **ZFS forensics:** Reconstruct labels, Fletcher4 checksums, PBKDF2 cracking. See [disk-advanced.md](disk-advanced.md).
 - **BSON reconstruction:** Reassemble BSON (Binary JSON) documents from raw bytes; parse with `bson` Python library. See [disk-and-memory.md](disk-and-memory.md#bson-binary-json-format-reconstruction-icectf-2016).
-- **TrueCrypt mounting:** Mount TrueCrypt/VeraCrypt volumes with known password using `veracrypt --mount` or `cryptsetup open --type tcrypt`. See [disk-and-memory.md](disk-and-memory.md#truecrypt-veracrypt-volume-mounting-grehack-ctf-2016).
+- **TrueCrypt mounting:** Mount TrueCrypt/VeraCrypt volumes with known password using `veracrypt --mount` or `cryptsetup open --type tcrypt`. See [disk-and-memory.md](disk-and-memory.md#truecrypt--veracrypt-volume-mounting-grehack-ctf-2016).
 - **Hardware signals:** VGA/HDMI TMDS/DisplayPort, Voyager audio, Saleae UART decode, Flipper Zero. See [signals-and-hardware.md](signals-and-hardware.md).
 - **Caps-lock LED Morse from video:** Track caps-lock LED pixel across security camera frames with OpenCV; on/off durations encode Morse code (short=dot, long=dash). See [signals-and-hardware.md](signals-and-hardware.md#caps-lock-led-morse-code-extraction-from-video-stem-ctf-2018).
 - **I2C protocol decoding:** Decode I2C bus captures (SDA/SCL lines) to extract data from EEPROM or sensor communications. See [signals-and-hardware.md](signals-and-hardware.md#i2c-bus-protocol-decoding-ekoparty-ctf-2016).
@@ -289,7 +289,7 @@ See [linux-forensics.md](linux-forensics.md) for full browser credential decrypt
 - **USB HID mouse drawing:** Render relative HID movements per draw mode as bitmap; separate modes, skip pen lifts, scale 5-8x. See [peripheral-capture.md](peripheral-capture.md#usb-hid-mousepen-drawing-recovery-ehax-2026).
 - **Side-channel power analysis:** Multi-dimensional power traces (positions × guesses × traces × samples). Average across traces, find sample with max variance, select guess with max power at leak point. See [signals-and-hardware.md](signals-and-hardware.md).
 - **Packet interval timing:** Binary data encoded as inter-packet delays in PCAP. Two interval values = two bit values. See [network-advanced.md](network-advanced.md).
-- **BMP bitplane QR:** Extract bitplanes 0-2 per RGB channel with NumPy; hidden QR often in bit 1 (not bit 0). See [stego-image.md](stego-image.md#bmp-bitplane-qr-code-extraction-steghide-bypass-ctf-2025).
+- **BMP bitplane QR:** Extract bitplanes 0-2 per RGB channel with NumPy; hidden QR often in bit 1 (not bit 0). See [stego-image.md](stego-image.md#bmp-bitplane-qr-code-extraction--steghide-bypass-ctf-2025).
 - **Image puzzle reassembly:** Edge-match pixel differences between piece borders, greedy placement in grid. See [stego-image.md](stego-image.md#image-jigsaw-puzzle-reassembly-via-edge-matching-bypass-ctf-2025).
 - **DeepSound audio stego with password cracking:** Extract hash with `deepsound2john.py`, crack with John, retrieve hidden files from WAV; always check both spectrogram and DeepSound. See [stego-advanced.md](stego-advanced.md#deepsound-audio-steganography-with-password-cracking-inshack-2018).
 - **QR code reconstruction from curved reflection:** Manually reconstruct QR from glass sphere reflection in video; flip, de-warp, use known plaintext prefix to fix early bytes, high ECC corrects the rest. See [steganography.md](steganography.md#qr-code-reconstruction-from-curved-glass-reflection-in-video-plaidctf-2018).
@@ -307,18 +307,18 @@ See [linux-forensics.md](linux-forensics.md) for full browser credential decrypt
 - **Git reflog/fsck squash recovery:** `git rebase --squash` leaves orphaned objects recoverable via `git fsck --unreachable --no-reflogs`. See [linux-forensics.md](linux-forensics.md).
 - **DNS trailing byte binary:** Extra bytes (`0x30`/`0x31`) appended after DNS question structure encode binary bits; 8-bit MSB-first chunks → ASCII. See [network-advanced.md](network-advanced.md).
 - **Fake TLS + mDNS key + printability merge:** TCP stream disguised as TLS hides ZIP; XOR key from mDNS TXT record; merge two decrypted arrays by selecting printable characters. See [network-advanced.md](network-advanced.md).
-- **Seed-based pixel permutation stego:** Deterministic pixel shuffle (Fisher-Yates with known seed) + multi-bitplane interleaved LSB extraction from Y channel → hidden QR code. See [stego-image.md](stego-image.md#seed-based-pixel-permutation-multi-bitplane-qr-l3m0nctf-2025).
+- **Seed-based pixel permutation stego:** Deterministic pixel shuffle (Fisher-Yates with known seed) + multi-bitplane interleaved LSB extraction from Y channel → hidden QR code. See [stego-image.md](stego-image.md#seed-based-pixel-permutation--multi-bitplane-qr-l3m0nctf-2025).
 - **BTRFS snapshot recovery:** Deleted files persist in BTRFS snapshots/alternate subvolumes. `mount -o subvol=@backup` accesses historical copies. See [disk-recovery.md](disk-recovery.md#btrfs-subvolumesnapshot-recovery-bsidessf-2026).
 - **JPEG XL TOC permutation:** JXL's progressive TOC permutation controls tile convergence order during partial decode. Truncate at increasing offsets, measure which tiles converge first → convergence order encodes flag. See [stego-advanced-2.md](stego-advanced-2.md#jpeg-xl-toc-permutation-steganography-bsidessf-2026).
 - **Kitty terminal graphics:** `ESC_G` protocol embeds zlib-compressed RGB image data in base64 chunks. Strip escape sequences, concatenate, decompress, reconstruct. See [steganography.md](steganography.md#kitty-terminal-graphics-protocol-decoding-bsidessf-2026).
 - **ANSI escape sequence stego:** Flag text interleaved between ANSI color codes and braille characters. Invisible when rendered; extract by stripping escape sequences and non-ASCII. See [steganography.md](steganography.md#ansi-escape-sequence-steganography-in-terminal-art-bsidessf-2026).
-- **Autostereogram solving:** Duplicate layer, difference blend, shift horizontally ~100px to reveal hidden 3D text. See [steganography.md](steganography.md#autostereogram-magic-eye-solving-bsidessf-2026).
+- **Autostereogram solving:** Duplicate layer, difference blend, shift horizontally ~100px to reveal hidden 3D text. See [steganography.md](steganography.md#autostereogram--magic-eye-solving-bsidessf-2026).
 - **Two-layer byte+line interleaving:** Two files byte-interleaved, then scanlines interleaved. Deinterleave even/odd bytes first (valid images), then even/odd lines. See [steganography.md](steganography.md#two-layer-byteline-interleaving-bsidessf-2026).
 - **SMB RID recycling:** Guest auth + LSARPC `LsaLookupSids` with incrementing RIDs enumerates AD accounts from PCAP. See [network-advanced.md](network-advanced.md#smb-rid-recycling-via-lsarpc-midnight-2026).
-- **Timeroasting (MS-SNTP):** NTP requests with machine RIDs extract HMAC-MD5 hashes from DC; crack with hashcat -m 31300. See [network-advanced.md](network-advanced.md#timeroasting-ms-sntp-hash-extraction-midnight-2026).
+- **Timeroasting (MS-SNTP):** NTP requests with machine RIDs extract HMAC-MD5 hashes from DC; crack with hashcat -m 31300. See [network-advanced.md](network-advanced.md#timeroasting--ms-sntp-hash-extraction-midnight-2026).
 - **Android forensics:** Extract APK with `adb pull`, analyze with `apktool`, check `shared_prefs/` and SQLite databases in `/data/data/<package>/`. See [disk-and-memory.md](disk-and-memory.md#android-forensics).
 - **Docker container forensics:** `docker save` exports layered tars; deleted files persist in earlier layers. `docker history --no-trunc` reveals build secrets. See [disk-and-memory.md](disk-and-memory.md#container-forensics-docker).
-- **Cloud storage forensics:** S3/GCP/Azure versioning preserves deleted objects. `list-object-versions` recovers deleted flags. See [disk-and-memory.md](disk-and-memory.md#cloud-storage-forensics-aws-s3-gcp-azure).
+- **Cloud storage forensics:** S3/GCP/Azure versioning preserves deleted objects. `list-object-versions` recovers deleted flags. See [disk-and-memory.md](disk-and-memory.md#cloud-storage-forensics-aws-s3--gcp--azure).
 - **APFS snapshot recovery:** Copy-on-write filesystem preserves historical file states in snapshots; use `icat` with different XID block offsets to read inodes across transaction IDs. See [disk-advanced.md](disk-advanced.md#apfs-snapshot-historical-file-recovery-srdnlenctf-2026).
 - **Windows KAPE triage:** Pre-collected artifact ZIPs; start with PowerShell history → Amcache → MFT → registry hives. See [disk-and-memory.md](disk-and-memory.md#windows-kape-triage-analysis-utctf-2026).
 - **WordPerfect macro XOR:** `.wcm` files contain macros with embedded encrypted data; XOR formula `(a+b)-2*(a&b)` = bitwise XOR. See [disk-advanced.md](disk-advanced.md#wordperfect-macro-xor-extraction-srdnlenctf-2026).
@@ -331,7 +331,7 @@ See [linux-forensics.md](linux-forensics.md) for full browser credential decrypt
 - **FAT16 free space recovery:** Flag hidden in unallocated clusters of FAT16 filesystem. Parse FAT table, enumerate free clusters (entry = 0x0000), read data region. See [disk-recovery.md](disk-recovery.md#fat16-free-space-data-recovery-bsidessf-2026).
 - **FAT16 deleted file recovery (fls/icat):** FAT deletion replaces first byte of directory entry with `0xE5` but data remains. `fls -r -d image.img` lists deleted entries, `icat image.img <inode>` recovers by inode. See [disk-recovery.md](disk-recovery.md#fat16-deleted-file-recovery-via-sleuth-kit-metactf-flash-2026).
 - **Ext2 orphaned inode recovery:** Deleted file leaves orphaned inode; `e2fsck -y disk.img` reconnects to `/lost+found`. Also use `debugfs` `lsdel` or `icat`. See [disk-recovery.md](disk-recovery.md#ext2-orphaned-inode-recovery-via-fsck-bsidessf-2026).
-- **Linux input_event keylogger parsing:** 24-byte `struct input_event` binary dump; filter `type==1` (EV_KEY), `value==1` (press), map keycodes via `input-event-codes.h`. See [signals-and-hardware.md](signals-and-hardware.md#linux-inputevent-keylogger-dump-parsing-pwn2win-2016).
+- **Linux input_event keylogger parsing:** 24-byte `struct input_event` binary dump; filter `type==1` (EV_KEY), `value==1` (press), map keycodes via `input-event-codes.h`. See [signals-and-hardware.md](signals-and-hardware.md#linux-input_event-keylogger-dump-parsing-pwn2win-2016).
 - **VBA macro cell data to binary:** Excel cells with numeric values; VBA `CByte((val-78)/3)` transforms to ELF bytes. Reimplement in Python, never run the macro. See [linux-forensics.md](linux-forensics.md#vba-macro-forensics---excel-cell-data-to-elf-binary-sharif-ctf-2016).
 - **RGB parity steganography:** Sum R+G+B per pixel; even=white, odd=black renders hidden binary bitmap. See [stego-image.md](stego-image.md#rgb-parity-steganography-break-in-2016).
 - **Hidden PDF objects:** Unreferenced content stream objects not in `/Kids` array. Add to `/Kids`, increment `/Count`, re-render. See [network-advanced.md](network-advanced.md#unreferenced-pdf-objects-with-hidden-pages-sharifctf-7-2016).
@@ -361,7 +361,7 @@ tshark -r capture.pcapng -Y "ntp && ip.src == <DC_IP>" -T fields -e udp.payload
 hashcat -m 31300 -a 0 -O hashes.txt rockyou.txt --username
 ```
 
-See [network-advanced.md](network-advanced.md#timeroasting-ms-sntp-hash-extraction-midnight-2026) for payload parsing script and full attack chain.
+See [network-advanced.md](network-advanced.md#timeroasting--ms-sntp-hash-extraction-midnight-2026) for payload parsing script and full attack chain.
 
 ## HTTP Exfiltration in PCAP
 

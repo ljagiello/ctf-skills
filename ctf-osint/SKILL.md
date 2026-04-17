@@ -181,7 +181,7 @@ Search Shodan by SSH host key fingerprint to identify servers: `shodan search "f
 
 ## Gaming Platform OSINT
 
-Lookup usernames across gaming platforms (Steam, Xbox, PSN, MMOs) for character profiles, activity, and linked accounts. See [social-media.md](social-media.md#gaming-platform-osint-mmo-character-lookup-csaw-ctf-2016).
+Lookup usernames across gaming platforms (Steam, Xbox, PSN, MMOs) for character profiles, activity, and linked accounts. See [social-media.md](social-media.md#gaming-platform-osint--mmo-character-lookup-csaw-ctf-2016).
 
 ## Resources
 

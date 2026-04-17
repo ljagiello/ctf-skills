@@ -21,6 +21,7 @@ Custom hash reversal, CRC brute-force, noisy RSA oracles, sponge collisions, CBC
 - [GF(p) Linear-System AES Key Recovery from PCAP Matrix (35C3 Junior 2018)](#gfp-linear-system-aes-key-recovery-from-pcap-matrix-35c3-junior-2018)
 - [SHA-1 Length Extension with UTF-8 High-Byte Bypass (OTW Advent 2018)](#sha-1-length-extension-with-utf-8-high-byte-bypass-otw-advent-2018)
 - [Cross-Session Cube-Root Recovery via CRT (X-MAS 2018)](#cross-session-cube-root-recovery-via-crt-x-mas-2018)
+- [CBC Previous-Block Byte Flipping for Cookie Privilege Escalation (picoCTF 2018)](#cbc-previous-block-byte-flipping-for-cookie-privilege-escalation-picoctf-2018)
 
 ---
 
@@ -422,3 +423,31 @@ assert exact
 **Key insight:** Håstad broadcast attack for `e = 3` generalises to any scenario where you see `m^e mod N_i` across enough moduli that `m^e < prod(N_i)`. CRT joins them; integer root extraction finishes.
 
 **References:** X-MAS CTF 2018 — Santa's list 2.0, writeup 12659
+
+---
+
+## CBC Previous-Block Byte Flipping for Cookie Privilege Escalation (picoCTF 2018)
+
+**Pattern (Secured Logon):** Server stores `{"username": "...", "admin": 0, ...}` encrypted with AES-CBC + base64, returned as a cookie. No MAC. To escalate from `admin: 0` to `admin: 1`, locate the byte offset of `'0'` inside some plaintext block `P_{n+1}`, then XOR the corresponding byte in the *previous* ciphertext block `C_n` with `ord('0') ^ ord('1')`. The attacker block `C_n` decrypts to garbage (which may break the preceding JSON field), but the targeted byte in `P_{n+1}` flips cleanly because `P_{n+1} = AES_dec(C_{n+1}) XOR C_n`.
+
+```python
+from base64 import b64encode, b64decode
+
+cookie = b64decode(stolen_cookie)              # IV || C1 || C2 || ... (or C0||... )
+buf    = bytearray(cookie)
+
+# Block layout for plaintext {'username': '', 'admin': 0, 'password': ''}:
+#   block 1: "{'username': '',"      <- will decrypt to garbage after flip
+#   block 2: " 'admin': 0, 'pa"      <- target byte 10 (the '0')
+#   block 3: "ssword': ''}"
+
+# To flip byte 10 of plaintext block 2, XOR byte 10 of ciphertext block 1.
+# With IV-prefixed layout: index = 16 (IV) + 0*16 (C1) + 10 = 26
+#   (or 0*16 + 10 = 10 if there is no separate IV prepended)
+offset = 10
+buf[offset] ^= ord('0') ^ ord('1')             # 0x30 ^ 0x31 = 0x01
+
+forged_cookie = b64encode(bytes(buf)).decode()
+```
+
+**Key insight:** In AES-CBC, `P_{n+1} = AES_dec(C_{n+1}) XOR C_n`. Flipping byte `i` of `C_n` flips byte `i` of `P_{n+1}` with zero side effects on `P_{n+1}`, but turns `P_n` (which was `AES_dec(C_n) XOR C_{n-1}`) into pseudo-random garbage. Works whenever the server (a) uses CBC without integrity checks, (b) parses the JSON/cookie leniently enough to tolerate a corrupted earlier block (unknown-key field, ignored garbage, lenient JSON parser), and (c) exposes the block boundary offset of the target byte. Contrast with [AES-CBC IV Bit-Flip (Google CTF 2016)](modern-ciphers-2.md#aes-cbc-iv-bit-flip-authentication-bypass-google-ctf-2016), which targets block 0 by flipping the IV and leaves all later blocks intact.

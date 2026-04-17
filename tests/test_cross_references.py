@@ -25,21 +25,49 @@ def _slugify_heading(heading: str) -> str:
     unusual consecutive special characters.
     """
     slug = heading.lower().strip()
-    # Remove markdown formatting
-    slug = re.sub(r"[*_`~]", "", slug)
+    # Remove markdown formatting (but keep underscores — GitHub preserves
+    # them in heading anchors, and they are common in identifiers like
+    # `__dict__` or `stub_execveat` inside heading inline code).
+    slug = re.sub(r"[*`~]", "", slug)
     # Remove HTML tags
     slug = re.sub(r"<[^>]+>", "", slug)
-    # Replace spaces and special chars
+    # GitHub strips non-alphanumeric chars (except space, hyphen, underscore)
+    # without collapsing adjacent whitespace — so `A + B` becomes `a--b`
+    # because the `+` is removed and both surrounding spaces become hyphens.
     slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s]+", "-", slug)
-    slug = slug.strip("-")
+    slug = slug.replace(" ", "-")
     return slug
+
+
+def _strip_fenced_code(text: str) -> str:
+    """Remove ```...``` fenced code blocks (keeps inline backtick content
+    intact so headings like `## `stub_execveat` Syscall` still produce a
+    slug containing `stub_execveat`).
+    """
+    out_lines = []
+    in_fence = False
+    for line in text.split("\n"):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            out_lines.append("")
+            continue
+        out_lines.append("" if in_fence else line)
+    return "\n".join(out_lines)
+
+
+def _strip_all_code(text: str) -> str:
+    """Strip fenced code blocks AND inline backtick code. Used before
+    extracting markdown links so that `obj['k']('a')` in a code sample
+    does not register as `[k](a)`.
+    """
+    text = _strip_fenced_code(text)
+    return re.sub(r"`[^`]*`", "", text)
 
 
 def _extract_headings(text: str) -> set[str]:
     """Extract all markdown headings as GitHub-style anchor slugs."""
     headings = set()
-    for m in re.finditer(r"^#{1,6}\s+(.+)$", text, re.MULTILINE):
+    for m in re.finditer(r"^#{1,6}\s+(.+)$", _strip_fenced_code(text), re.MULTILINE):
         headings.add(_slugify_heading(m.group(1)))
     return headings
 
@@ -53,7 +81,11 @@ def _extract_local_md_links(text: str, source_dir: Path) -> list[tuple[str, str 
     """Extract local markdown links as (file, anchor_or_None) tuples.
 
     Only returns links to .md files within the same directory (not URLs).
+    Code blocks and inline code are stripped first so JavaScript, Python,
+    and LaTeX samples that contain `[key](val)`-shaped syntax do not
+    register as markdown links.
     """
+    text = _strip_all_code(text)
     links = []
     for m in re.finditer(r"\[([^\]]*)\]\(([^)]+)\)", text):
         target = m.group(2)

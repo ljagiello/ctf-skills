@@ -16,6 +16,7 @@ Covers 2017+ era exotic crypto attacks (BB-84 QKD, ElGamal variants, Paillier or
 - [Rabin Cryptosystem with Polynomial Primes (X-MAS 2018)](#rabin-cryptosystem-with-polynomial-primes-x-mas-2018)
 - [LCG Period Detection for Unlimited Output Prediction (X-MAS 2018)](#lcg-period-detection-for-unlimited-output-prediction-x-mas-2018)
 - [Polynomial Coefficient Recovery via Vandermonde Linear System (X-MAS 2018)](#polynomial-coefficient-recovery-via-vandermonde-linear-system-x-mas-2018)
+- [Rabin Decryption via Four-Roots CRT Combination (Pragyan CTF 2019)](#rabin-decryption-via-four-roots-crt-combination-pragyan-ctf-2019)
 
 ---
 
@@ -339,4 +340,41 @@ coeffs = A.solve_right(b)
 **Key insight:** Any secret polynomial, Shamir-style sharing, or "interpolate a curve" oracle falls to a Vandermonde solve with `degree + 1` points. Sage's `solve_right` handles huge degrees.
 
 **References:** X-MAS CTF 2018 — writeup 12722
+
+---
+
+## Rabin Decryption via Four-Roots CRT Combination (Pragyan CTF 2019)
+
+**Pattern (Help Rabin):** Rabin encrypts `c = m^2 mod n` with `n = p*q` and `p, q ≡ 3 mod 4`. Once `p, q` are recovered (here by Fermat-style square-root search because `q = nextPrime(p+1)` sits right next to `p`), compute `mp = c^((p+1)/4) mod p` and `mq = c^((q+1)/4) mod q`, then combine via extended GCD to yield four square roots `±r, ±s`. Only one of the four decodes to readable text — that's the plaintext.
+
+```python
+from Crypto.Util.number import inverse
+
+def ext_gcd(a, b):
+    c0, c1, a0, a1, b0, b1 = a, b, 1, 0, 0, 1
+    while c1:
+        q, r = divmod(c0, c1)
+        c0, c1 = c1, r
+        a0, a1 = a1, a0 - q * a1
+        b0, b1 = b1, b0 - q * b1
+    return a0, b0, c0
+
+# p, q already recovered (e.g. via Fermat: p ~ sqrt(n))
+pe, qe = (p + 1) // 4, (q + 1) // 4
+mp, mq = pow(c, pe, p), pow(c, qe, q)
+yp, yq, _ = ext_gcd(p, q)                      # yp*p + yq*q == 1
+
+r1 = (yp * p * mq + yq * q * mp) % n
+r2 = n - r1
+s1 = (yp * p * mq - yq * q * mp) % n
+s2 = n - s1
+
+for cand in (r1, r2, s1, s2):
+    try:
+        pt = bytes.fromhex(hex(cand)[2:])
+        if pt.isascii(): print(pt)            # pick the readable one
+    except Exception: pass
+```
+
+**Key insight:** Rabin decryption inherently produces four candidates because `x^2 ≡ c mod n` has four roots mod `n = p*q`. When `p, q ≡ 3 mod 4`, per-prime roots are the closed-form exponentiation `c^((p+1)/4) mod p` — no Tonelli-Shelanks needed. Combine with Bezout coefficients `yp*p + yq*q = 1` to get the four CRT candidates `±(yp*p*mq ± yq*q*mp) mod n`, and select by plaintext sanity (ASCII, magic bytes, known prefix). The four-root ambiguity is why Rabin typically needs redundancy in the plaintext to be useful as a cryptosystem.
 

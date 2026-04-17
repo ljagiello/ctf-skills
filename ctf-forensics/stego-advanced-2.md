@@ -14,6 +14,7 @@ See also: [stego-advanced.md](stego-advanced.md) for audio steganography (FFT fr
 - [PDF Cross-Reference Table Covert Channel (SEC-T CTF 2017)](#pdf-cross-reference-table-covert-channel-sec-t-ctf-2017)
 - [ANSI Escape Code Steganography in Network Capture (Square CTF 2017)](#ansi-escape-code-steganography-in-network-capture-square-ctf-2017)
 - [Pixel-Wise ECB Deduplication for Image Recovery (BackdoorCTF 2017)](#pixel-wise-ecb-deduplication-for-image-recovery-backdoorctf-2017)
+- [Multi-Color QR Code Binary Mapping Brute Force (STEM CTF 2019)](#multi-color-qr-code-binary-mapping-brute-force-stem-ctf-2019)
 
 ---
 
@@ -425,3 +426,50 @@ reconstructed = Image.new('L', img.size)
 ```
 
 **Key insight:** ECB-mode pixel encryption leaks structure via identical ciphertexts for identical plaintext pixels. With only 256 possible grayscale values, the full lookup table is trivial to precompute. The encrypted image will show the same shapes/edges as the original — recognizable structure confirms ECB mode.
+
+---
+
+## Multi-Color QR Code Binary Mapping Brute Force (STEM CTF 2019)
+
+**Pattern:** A QR-like image uses N colors instead of black/white. A valid QR code requires only two states (black=1, white=0), so each color must map to one of those. With N non-trivial colors, iterate all 2^N binary partitions and try to decode each candidate. Typical N=6 produces 64 candidates; 3 of the 64 often decode (redundancy baked into QR error correction).
+
+```python
+from PIL import Image
+from itertools import product
+import subprocess, os
+
+img = Image.open('QvR.png').convert('RGB')
+px = img.load()
+w, h = img.size
+
+# Collect distinct non-pure colors (ignore black/white which are unambiguous)
+palette = set()
+for y in range(h):
+    for x in range(w):
+        c = px[x, y]
+        if c not in ((0, 0, 0), (255, 255, 255)):
+            palette.add(c)
+palette = sorted(palette)                       # deterministic order
+print(f'{len(palette)} variable colors -> {2**len(palette)} attempts')
+
+for bits in product([0, 1], repeat=len(palette)):
+    mapping = dict(zip(palette, bits))
+    out = Image.new('1', (w, h), 1)
+    op = out.load()
+    for y in range(h):
+        for x in range(w):
+            c = px[x, y]
+            if c == (0, 0, 0):       v = 0
+            elif c == (255, 255, 255): v = 1
+            else:                     v = mapping[c]
+            op[x, y] = v
+    fn = f'try_{"".join(map(str, bits))}.png'
+    out.save(fn)
+    r = subprocess.run(['zbarimg', '-q', fn], capture_output=True, text=True)
+    if r.stdout.strip():
+        print(fn, '->', r.stdout.strip())
+```
+
+**Key insight:** QR codes are strictly binary — any multi-color image that "looks like" a QR is hiding a 2^N coloring. Because QR has heavy Reed-Solomon error correction, multiple partitions can decode (each carries a different message in the same physical grid). Always try all 2^N mappings; with N<=8 the brute force is negligible and `zbarimg` filters the valid ones automatically.
+
+**References:** STEM CTF: Cyber Challenge 2019 — QvR Code, writeup 13375

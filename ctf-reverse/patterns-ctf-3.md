@@ -23,6 +23,7 @@
 - [BPF Filter Analysis via JIT Compilation to x64 Assembly (Midnight Sun CTF 2018)](#bpf-filter-analysis-via-jit-compilation-to-x64-assembly-midnight-sun-ctf-2018)
 - [Single-Byte XOR ROM Deobfuscation Sweep (X-MAS CTF 2018)](#single-byte-xor-rom-deobfuscation-sweep-x-mas-ctf-2018)
 - [WebKit Array.slice OOB CVE-2016-4622 (Codegate 2019)](#webkit-arrayslice-oob-cve-2016-4622-codegate-2019)
+- [Multi-Modulus CRT Keygen with Matrix Lookup Password (Pragyan CTF 2019)](#multi-modulus-crt-keygen-with-matrix-lookup-password-pragyan-ctf-2019)
 
 ---
 
@@ -753,6 +754,43 @@ let leak = oob.slice(-1, oob.length + 16)[0];  // reads past backing store
 **Key insight:** Any JIT/engine challenge that patches out a safety check almost always exposes a classic browser-CVE primitive. Diff the vendored source against upstream `ArrayPrototype.cpp`, `JSArray.cpp`, and `JITOperations.cpp` for removed `if`/`assert` statements — that's the bug.
 
 **References:** Codegate CTF 2019 — Butterfree, writeup 12902
+
+---
+
+## Multi-Modulus CRT Keygen with Matrix Lookup Password (Pragyan CTF 2019)
+
+**Pattern (Super Secure Vault):** `main` asks for a numeric `key` (<= 30 digits) and checks it against five independent modular equations derived from slicing a hardcoded big number `N = "27644437104591489104652716127"` into `[27644437, 10459, 1489, 1046527, 16127]`:
+
+```
+key mod 27644437 == 213
+key mod 10459    == 229
+key mod 1489     == 25
+key mod 1046527  == 83
+key mod 16127    == 135
+```
+
+The five moduli are pairwise coprime, so the Chinese Remainder Theorem yields the smallest valid `key = 3087629750608333480917556`. After `scanf`, `func2(password, key, N)` concatenates `key + N + "80"` into `v12`, then validates each password byte against a 10000-byte lookup table:
+
+```python
+# Round 1: index = 100*(10*d0 + d1) + 10*d_mid + d_mid+1
+# Round 2: index = 100*((10*d0+d1)**2 % 97) + ((10*d_mid+d_mid+1)**2 % 97)
+password = b""
+v8, v10 = 0, len(v12) // 2
+while v8 < len(v12) // 2:
+    idx = 100 * (10*v12[v8] + v12[v8+1]) + 10*v12[v10] + v12[v10+1]
+    password += bytes([matrix[idx]]); v8 += 2; v10 += 2
+v9, v11 = 0, len(v12) // 2
+while v9 < len(v12) // 2:
+    a = 10*v12[v9] + v12[v9+1]; b = 10*v12[v11] + v12[v11+1]
+    password += bytes([matrix[100*(a*a % 97) + b*b % 97]])
+    v9 += 2; v11 += 2
+```
+
+CRT (via `sympy.ntheory.modular.crt` or a manual `mul_inv` routine) plus `matrix` dumped from the binary reproduces the flag `pctf{R3v3rS1Ng_#s_h311_L0t_Of_Fun}`.
+
+**Key insight:** Five coprime moduli pin the key down uniquely modulo their product (~4.7e19), which fits in a 30-digit input — pick the smallest representative instead of brute-forcing, otherwise you waste hours on 100k+ equally valid but ugly keys. The second stage looks complicated but is really a pair of fixed index-generator functions over a static table; dump the table once and both rounds become direct array reads.
+
+**References:** Pragyan CTF 2019 — Super Secure Vault, writeup 13760
 
 ---
 

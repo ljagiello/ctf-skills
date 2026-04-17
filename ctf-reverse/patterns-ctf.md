@@ -18,6 +18,7 @@
 - [Custom binfmt Kernel Module with RC4 Flat Binaries (BSidesSF 2026)](#custom-binfmt-kernel-module-with-rc4-flat-binaries-bsidessf-2026)
 - [Hash-Resolved Imports / No-Import Ransomware (BSidesSF 2026)](#hash-resolved-imports--no-import-ransomware-bsidessf-2026)
 - [ELF Section Header Corruption for Anti-Analysis (BSidesSF 2026)](#elf-section-header-corruption-for-anti-analysis-bsidessf-2026)
+- [VM Trace Diffing Instead of Full Disassembly (CONFidence CTF 2019 Teaser)](#vm-trace-diffing-instead-of-full-disassembly-confidence-ctf-2019-teaser)
 
 ---
 
@@ -630,6 +631,39 @@ readelf -l stubborn_elf
 **When to recognize:** `readelf -S` crashes or shows garbage. `file` command identifies it as ELF. `readelf -l` (lowercase L, program headers) works fine. The binary runs normally despite tool failures.
 
 **References:** BSidesSF 2026 "stubborn-elf"
+
+---
+
+## VM Trace Diffing Instead of Full Disassembly (CONFidence CTF 2019 Teaser)
+
+**Pattern (Go Machine):** Go binary runs a 15-handler stack-VM (`0123456789OEQLCI` dispatch string) whose opcode meanings are rotated by an LCG-driven `shuffle` handler after every tick. Rewriting the interpreter faithfully is painful; the VM actually computes a simple 32-bit hash over 4-character input groups.
+
+Instead, attach a debugger-driven tracer to the dispatch routine and dump `(opcode, stack)` per step — then compare traces for two nearly identical inputs:
+
+```python
+# Pseudo-code for an IDAPython / gdb conditional-breakpoint tracer
+def on_dispatch():
+    op  = read_byte(bytecode + pc)
+    top = stack[:sp+1]
+    print(f"{decode(op)}\t({'|'.join(hex(x) for x in top)})")
+
+# Replay the dumped trace in plain Python; no bytecode parsing, no shuffle logic:
+elif line.startswith('save at (0x51)'):
+    return stack[top] == expected_hash   # calculated hash lands at mem[0x51]
+
+# Diff trace("abcd") vs trace("dcba") -> the same mul/mod sequence shows up,
+# revealing the real algorithm:
+def calc_hash(x, mod):
+    for _ in range(8):
+        x = x * x % mod
+    return x * x_original % mod
+```
+
+Dump the per-group moduli (`[0x88ca6b51, 0x8405b751, 0xbfa08c87, 0x82013f23, 0x4666751b, 0x5271083f]`) and expected hashes from the trace, then brute-force 4-character permutations of `string.printable` against `calc_hash`.
+
+**Key insight:** Custom VMs with self-modifying dispatch (shuffle, rotor, LCG-keyed opcode table) are designed to punish naive reimplementation. Recording the executed instruction stream bypasses the trick entirely — the trace is deterministic for a given input, and diffing two traces with a single-bit difference localises the "real" algorithm hiding under the VM overhead.
+
+**References:** CONFidence CTF 2019 Teaser — Go Machine, writeup 13947
 
 ---
 

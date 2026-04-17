@@ -31,6 +31,7 @@
 - [RSA CRT d_p NULL-Byte Overflow Primes Leak (P.W.N. CTF 2018)](#rsa-crt-d_p-null-byte-overflow-primes-leak-pwn-ctf-2018)
 - [Textbook RSA Signature Blinding via Message Factoring (P.W.N. CTF 2018)](#textbook-rsa-signature-blinding-via-message-factoring-pwn-ctf-2018)
 - [Last-Byte Modulus Overwrite via strlen-1 Null Truncation (OTW Advent 2018)](#last-byte-modulus-overwrite-via-strlen-1-null-truncation-otw-advent-2018)
+- [CRC32 Collision Oracle + RSA Homomorphic Signature Forgery (BSidesSF 2019)](#crc32-collision-oracle--rsa-homomorphic-signature-forgery-bsidessf-2019)
 
 See also: [rsa-attacks.md](rsa-attacks.md) for foundational RSA attacks (small e, Wiener, Fermat, Pollard, Hastad, common modulus, Manger oracle, Coppersmith).
 
@@ -754,3 +755,38 @@ for delta in range(256):
 **Key insight:** "Strip the last character" idioms (`buf[strlen-1] = 0`) are classic off-by-one when `strlen == 0`. They write one byte backwards into whatever sits before the buffer — often a crypto constant.
 
 **References:** OverTheWire Advent Bonanza 2018 — Day 14, writeup 12752
+
+---
+
+## CRC32 Collision Oracle + RSA Homomorphic Signature Forgery (BSidesSF 2019)
+
+**Pattern (rsaos):** Shell exposes `RSA(foldhash(cmd))` as a "signature" where `foldhash` is a 10-byte digest built from a CRC-like, factorable fold. Privileged commands are blocked, but signatures for arbitrary strings are handed out. Pick a target privileged command whose fold value factors entirely into primes `< 2^32`. For each small factor `f_i`, use [crchack](https://github.com/resilar/crchack) to craft an innocuous command whose CRC32 equals `f_i` exactly, get its signature, and multiply them modulo `N`. RSA's multiplicativity means the product is the signature of the fold *product*, which is the target fold.
+
+```python
+from primefac import primefac
+import subprocess, random
+
+def find_cmd_crc(target_crc):
+    while True:
+        open('/tmp/cmd', 'w').write(f'echo {random.randint(0, 10000)}')
+        cmd = subprocess.check_output(['./crchack/crchack', '/tmp/cmd', hex(target_crc)])
+        if b'\n' not in cmd:
+            return cmd
+
+def find_cmd_fac(priv):
+    while True:
+        c = f'{priv} {random.randint(0, 10000)}'.encode()
+        fs = list(primefac(foldhash(c)))
+        if all(f < 2**32 for f in fs):
+            return c, fs
+
+priv_cmd, factors = find_cmd_fac('get-flag')
+t = 1
+for f in factors:                               # each factor fits in CRC32 range
+    cmd = find_cmd_crc(f)
+    _, sig = get_sig(cmd)                        # oracle signs arbitrary cmd
+    t = (t * sig) % N                            # RSA: s1*s2 = sign(h1*h2)
+send_priv(priv_cmd, sig=hex(t % N))              # forged signature for get-flag
+```
+
+**Key insight:** Textbook RSA signatures are multiplicative: `sign(a) * sign(b) = sign(a*b) mod N`. If the "hash" is actually a linear/factorable function (CRC32, fold-XOR), factor the target digest into pieces small enough to fit in CRC output space, then use a CRC collision finder (`crchack`) to realise each factor as an innocuous message the oracle will sign. Multiply the signatures mod `N` to forge the privileged signature. Works for any signature scheme over a hash that is both homomorphic-friendly *and* collidable to specific targets.
