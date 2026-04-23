@@ -3,7 +3,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from scripts.skill_security_auditor import scan_skill
+from scripts.skill_security_auditor import SCRIPT_EXTENSIONS, scan_skill
 
 
 class SkillSecurityAuditorTests(unittest.TestCase):
@@ -1015,6 +1015,256 @@ class SkillSecurityAuditorTests(unittest.TestCase):
 
         self.assertFalse(
             any(finding["severity"] == "HIGH" for finding in result["findings"])
+        )
+
+
+    def test_script_file_with_rm_rf_is_flagged_critical(self):
+        """Dangerous commands in bundled scripts (not just markdown) must be caught."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "scripts/demo.sh": "#!/bin/bash\nrm -rf /\n",
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertEqual(result["verdict"], "FAIL")
+        self.assertTrue(
+            any(
+                finding["severity"] == "CRITICAL"
+                and "rm -rf /" in finding["message"]
+                and finding["file"].endswith("demo.sh")
+                for finding in result["findings"]
+            )
+        )
+
+    def test_script_file_with_os_system_fstring_is_flagged_high(self):
+        """HIGH patterns must fire on executable Python assets."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "scripts/demo.py": 'import os\nos.system(f"echo {user}")\n',
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertTrue(
+            any(
+                finding["severity"] == "HIGH"
+                and "os.system()" in finding["message"]
+                and finding["file"].endswith("demo.py")
+                for finding in result["findings"]
+            )
+        )
+
+    def test_script_file_with_aws_key_is_flagged_critical(self):
+        """Hardcoded secrets in scripts must still trigger CRITICAL findings."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "scripts/creds.py": 'AWS_KEY = "AKIAIOSFODNN7EXAMPLE"\n',
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertEqual(result["verdict"], "FAIL")
+        self.assertTrue(
+            any(
+                "AWS access key" in finding["message"]
+                and finding["file"].endswith("creds.py")
+                for finding in result["findings"]
+            )
+        )
+
+    def test_script_comment_not_flagged_for_high_pattern(self):
+        """Comment lines inside scripts are documentation, just like in fenced blocks."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "scripts/demo.py": '# os.system(f"unsafe {x}") would be bad\nprint("safe")\n',
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(
+                finding["severity"] == "HIGH"
+                and "os.system()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_script_ctf_exec_allowlist_still_applies(self):
+        """CTF allowlists (exec('id')) carry over to script-file scanning."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "scripts/poc.py": 'exec("id")\n',
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertFalse(
+            any(
+                finding["severity"] == "HIGH"
+                and "exec()" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+
+    def test_every_script_extension_is_scanned(self):
+        """Every extension in SCRIPT_EXTENSIONS actually gets scanned."""
+        for ext in SCRIPT_EXTENSIONS:
+            with self.subTest(ext=ext):
+                skill_dir = self._make_skill(
+                    textwrap.dedent(
+                        """\
+                        ---
+                        name: demo-skill
+                        description: Provides demo
+                        license: MIT
+                        allowed-tools: []
+                        ---
+                        """
+                    ),
+                    {
+                        f"scripts/payload{ext}": (
+                            'AWS_KEY = "AKIAIOSFODNN7EXAMPLE"\n'
+                        ),
+                    },
+                )
+
+                result = scan_skill(skill_dir)
+
+                self.assertTrue(
+                    any(
+                        finding["severity"] == "CRITICAL"
+                        and "AWS access key" in finding["message"]
+                        and finding["file"].endswith(f"payload{ext}")
+                        for finding in result["findings"]
+                    ),
+                    f"{ext} files not being scanned",
+                )
+
+    def test_script_with_backticks_is_not_misinterpreted_as_code_fence(self):
+        """Triple-backtick strings in a script must not toggle fence tracking off."""
+        skill_dir = self._make_skill(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            {
+                "scripts/demo.py": textwrap.dedent(
+                    '''\
+                    USAGE = """
+                    ```
+                    run me
+                    ```
+                    """
+                    rm_cmd = "rm -rf /"
+                    '''
+                ),
+            },
+        )
+
+        result = scan_skill(skill_dir)
+
+        self.assertTrue(
+            any(
+                finding["severity"] == "CRITICAL"
+                and "rm -rf /" in finding["message"]
+                for finding in result["findings"]
+            )
+        )
+
+    def test_invalid_utf8_script_produces_high_finding(self):
+        """Invalid UTF-8 in a script should produce the same unreadable_file finding."""
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        skill_dir = Path(temp_dir.name) / "demo-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            textwrap.dedent(
+                """\
+                ---
+                name: demo-skill
+                description: Provides demo
+                license: MIT
+                allowed-tools: []
+                ---
+                """
+            ),
+            encoding="utf-8",
+        )
+        (skill_dir / "scripts").mkdir()
+        (skill_dir / "scripts" / "broken.py").write_bytes(b"\xff\xfe\x00")
+
+        result = scan_skill(skill_dir)
+
+        self.assertTrue(
+            any(
+                finding["severity"] == "HIGH"
+                and finding["rule"] == "unreadable_file"
+                and finding["file"].endswith("broken.py")
+                for finding in result["findings"]
+            )
         )
 
 

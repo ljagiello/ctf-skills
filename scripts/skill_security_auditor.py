@@ -139,8 +139,13 @@ def has_shell_true_subprocess_call(line: str) -> bool:
     return match is not None
 
 
-def read_markdown_file(filepath: Path) -> tuple[str | None, dict | None]:
-    """Read a markdown file with strict UTF-8 handling."""
+# File extensions scanned in addition to Markdown. Scripts are treated as
+# entirely executable code (no fence tracking).
+SCRIPT_EXTENSIONS = (".py", ".sh", ".bash", ".js", ".ts", ".rb", ".pl")
+
+
+def read_text_file(filepath: Path) -> tuple[str | None, dict | None]:
+    """Read a text file with strict UTF-8 handling."""
     try:
         return filepath.read_text(encoding="utf-8"), None
     except UnicodeDecodeError as e:
@@ -176,20 +181,23 @@ def is_placeholder_xss_example(line: str) -> bool:
 def scan_file(filepath: Path) -> list:
     """Scan a single file and return findings."""
     findings = []
-    content, read_error = read_markdown_file(filepath)
+    content, read_error = read_text_file(filepath)
     if read_error is not None:
         findings.append(read_error)
         return findings
 
+    is_markdown = filepath.suffix.lower() == ".md"
     lines = content.splitlines()
 
-    # Check code blocks only (between ``` markers) for dangerous patterns
-    in_code_block = False
+    # For Markdown: track ``` fences. For scripts: the whole file is executable.
+    in_code_block = not is_markdown
     for i, line in enumerate(lines, 1):
         stripped = line.strip()
-        is_indented_code = line.startswith("    ") or line.startswith("\t")
+        is_indented_code = is_markdown and (
+            line.startswith("    ") or line.startswith("\t")
+        )
 
-        if stripped.startswith("```"):
+        if is_markdown and stripped.startswith("```"):
             in_code_block = not in_code_block
             continue
 
@@ -388,10 +396,13 @@ def scan_skill(skill_dir: Path) -> dict:
                         }
                     )
 
-    # Scan all markdown files
-    md_files = sorted(skill_dir.rglob("*.md"))
-    for md_file in md_files:
-        findings.extend(scan_file(md_file))
+    # Scan Markdown plus bundled scripts. Script assets are where real
+    # secrets/dangerous calls tend to hide; Markdown-only scanning misses them.
+    scan_targets: set[Path] = set(skill_dir.rglob("*.md"))
+    for ext in SCRIPT_EXTENSIONS:
+        scan_targets.update(skill_dir.rglob(f"*{ext}"))
+    for target in sorted(scan_targets):
+        findings.extend(scan_file(target))
 
     # Determine verdict
     crit = sum(1 for f in findings if f["severity"] == "CRITICAL")
