@@ -8,6 +8,21 @@
 npx skills add ljagiello/ctf-skills
 ```
 
+## Run with Friday Studio
+
+Want these skills as part of a real workflow — schedules, signals, MCP tools, memory, the works? Drop them into [Friday](https://hellofriday.ai/), the shareable AI workspace runtime from [Tempest Labs](https://hellofriday.ai/).
+
+Friday Studio loads skills into agent context on demand and runs them inside reproducible workspaces that you can trigger from chat, on a cron, or over HTTP. Everything runs locally, your data stays on your machine, and every step is logged so you can see exactly what the agent did during a challenge.
+
+To add these skills to Friday Studio:
+
+1. Install Friday from [hellofriday.ai](https://hellofriday.ai/) (macOS).
+2. Open **Skills** in the Studio sidebar and click **+ Add**.
+3. Import individual skills by reference (e.g. `ljagiello/ctf-skills/ctf-web`), or upload this repo as a folder.
+4. Reference them from any `workspace.yml`, or let agents load them automatically based on the skill description.
+
+See the [Friday Skills docs](https://docs.hellofriday.ai/core-concepts/skills) for the full workflow, and the [Friday blog](https://blog.hellofriday.ai/) — including [AI Drift: The Hidden Cost of Building with AI](https://blog.hellofriday.ai/ai-drift-the-hidden-cost-of-building-with-ai-e2b51415b3b0) — for the philosophy behind it.
+
 ## Environment Setup
 
 Two setup strategies depending on your workflow:
