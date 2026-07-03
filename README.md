@@ -8,6 +8,28 @@
 npx skills add ljagiello/ctf-skills
 ```
 
+### Autohand Code
+
+Autohand Code loads `SKILL.md` directories from `~/.autohand/skills/` or the current project's `.autohand/skills/` directory.
+
+Install all CTF skills globally:
+
+```bash
+git clone https://github.com/ljagiello/ctf-skills.git
+mkdir -p ~/.autohand/skills
+cp -R ctf-skills/ctf-* ctf-skills/solve-challenge ~/.autohand/skills/
+```
+
+Install only the skills needed for a project:
+
+```bash
+git clone https://github.com/ljagiello/ctf-skills.git
+mkdir -p .autohand/skills
+cp -R ctf-skills/ctf-web ctf-skills/solve-challenge .autohand/skills/
+```
+
+If a skill is later published to an Autohand Skills index, install it with `autohand --skill-install <skill-name>`, or add `--project` to install it into the current project.
+
 ## Run with Friday Studio
 
 Want these skills as part of a real workflow — schedules, signals, MCP tools, memory, the works? Drop them into [Friday](https://hellofriday.ai/), the shareable AI workspace runtime from [Tempest Labs](https://hellofriday.ai/).
