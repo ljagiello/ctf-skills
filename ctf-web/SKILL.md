@@ -37,6 +37,8 @@ go install github.com/ffuf/ffuf/v2@latest
 **Manual install:**
 - ysoserial — [GitHub](https://github.com/frohoff/ysoserial), requires Java (Java deserialization payloads)
 
+**MCP servers (optional):** Playwright MCP ([microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)) for browser-dependent challenges (DOM XSS, admin bot, SPA client secrets) — see [browser-automation-mcp.md](browser-automation-mcp.md).
+
 ## Additional Resources
 
 - [sql-injection.md](sql-injection.md) - SQL injection techniques: auth bypass, UNION extraction, filter bypasses, second-order SQLi, truncation, race-assisted leaks, INSERT ON DUPLICATE KEY UPDATE password overwrite, innodb_table_stats WAF bypass
@@ -59,6 +61,7 @@ go install github.com/ffuf/ffuf/v2@latest
 - [web3.md](web3.md) - Solidity and Web3 challenge notes
 - [cves.md](cves.md) - CVE-driven techniques you can match against challenge banners, headers, dependency leaks, or version strings
 - [field-notes.md](field-notes.md) - Long-form exploit notes: quick references for SQLi, XSS, LFI, JWT, SSTI, SSRF, command injection, XXE, deserialization, race conditions, auth bypass, and multi-stage chains
+- [browser-automation-mcp.md](browser-automation-mcp.md) - Playwright MCP for browser-dependent bugs: reproducing the admin bot for DOM XSS, live DOM/console/network inspection, authenticated multi-step flows, in-browser file upload; when to use Playwright MCP vs curl
 
 ## When to Pivot
 

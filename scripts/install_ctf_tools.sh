@@ -404,6 +404,18 @@ Manual installs (cannot be automated reliably):
   pycdc      — git clone https://github.com/zrax/pycdc && cmake . && make
                (Python 3.9+ bytecode decompiler; uncompyle6 only supports <=3.8)
   dnSpy      — https://github.com/dnSpy/dnSpy (Windows/.NET only)
+
+MCP servers (optional — agent-driven RE/web, configured in your MCP client):
+  IDA Pro MCP    — https://github.com/mrexodia/ida-pro-mcp
+                   pip install ida-pro-mcp && ida-pro-mcp --install
+  Ghidra MCP     — https://github.com/LaurieWired/GhidraMCP
+                   install the Ghidra extension, then run bridge_mcp_ghidra.py
+  JADX MCP       — https://github.com/zinja-coder/jadx-ai-mcp
+                   JADX-GUI plugin + jadx-mcp-server (uvx jadx-mcp-server)
+  WinDbg MCP     — https://github.com/svnscha/mcp-windbg
+                   pip install mcp-server-windbg (needs Windows cdb.exe)
+  Playwright MCP — https://github.com/microsoft/playwright-mcp
+                   npx @playwright/mcp@latest
 EOF
 }
 

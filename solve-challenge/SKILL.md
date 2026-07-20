@@ -63,6 +63,34 @@ export CTF_TOKEN="ctfd_..."  # Ask user for this
 
 Invoke `/ctf-misc` and load its `ctfd-navigation.md` for the full API reference and Python client class.
 
+#### CTF Platform Interaction via Playwright MCP
+
+When the platform is **not** CTFd, has no usable API, or gates challenges behind a
+JS-rendered UI / login, drive the platform in a real browser with **Playwright
+MCP** (`https://github.com/microsoft/playwright-mcp`). This lets the agent read
+challenge text, download attachments, keep a login session, and submit flags
+directly through the site.
+
+```text
+browser_navigate "https://ctf.example.com/challenges"
+browser_snapshot                 # list challenges, points, categories (rendered)
+browser_click <challenge ref>    # open a challenge card
+browser_snapshot                 # read description, hints, attachment links
+browser_click <attachment ref>   # download the challenge file (saved by the browser)
+# ... solve the challenge ...
+browser_type <flag input ref> "flag{...}"
+browser_click <submit ref>
+browser_snapshot                 # confirm "Correct" / points awarded
+```
+
+Login sessions (cookies/localStorage) persist across tool calls, so authenticate
+once and every later navigation is authorized. For general browser-automation
+tooling see [../ctf-web/browser-automation-mcp.md](../ctf-web/browser-automation-mcp.md).
+
+**Prefer a native API when one exists** (CTFd token flow above is faster and more
+reliable); use Playwright MCP for platforms without an API or when the challenge
+list only renders client-side.
+
 ### Step 1: Recon
 
 1. **Explore files** -- List the challenge directory, run `file *` on everything
