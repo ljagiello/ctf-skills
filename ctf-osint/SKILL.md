@@ -29,11 +29,14 @@ apt install whois dnsutils nmap libimage-exiftool-perl imagemagick curl
 brew install whois bind nmap exiftool imagemagick curl
 ```
 
+**MCP servers (optional):** Playwright MCP ([microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)) for browser-driven OSINT (JS-rendered pages, reverse-image/map flows) — see [tools-mcp.md](tools-mcp.md).
+
 ## Additional Resources
 
 - [social-media.md](social-media.md) - Twitter/X (user IDs, Snowflake timestamps, Nitter, memory.lol, Wayback CDX), Tumblr (blog checks, post JSON, avatars), BlueSky search + API, Unicode homoglyph steganography, Discord API, username OSINT (namechk, whatsmyname, Osint Industries), username metadata mining (postal codes), platform false positives, multi-platform chains, Strava fitness route OSINT
 - [geolocation-and-media.md](geolocation-and-media.md) - Image analysis, reverse image search (including Baidu for China), Google Lens cropped region search, reflected/mirrored text reading, geolocation techniques (railroad signs, infrastructure maps, MGRS), Google Plus Codes, EXIF/metadata, hardware identification, newspaper archives, IP geolocation, Google Street View panorama matching, What3Words micro-landmark matching, Google Maps crowd-sourced photo verification, Overpass Turbo spatial queries, music-themed landmark geolocation with key encoding
 - [web-and-dns.md](web-and-dns.md) - Google dorking (including TBS image filters), Google Docs/Sheets enumeration, DNS recon (TXT, zone transfers), Wayback Machine, FEC research, Tor relay lookups, GitHub repository analysis, Telegram bot investigation, WHOIS investigation (reverse WHOIS, historical WHOIS, IP/ASN lookup), fake service banner detection via nmap fingerprinting
+- [tools-mcp.md](tools-mcp.md) - Playwright MCP for OSINT: reading JS-rendered pages, screenshots, interactive reverse-image and map/Street View search flows, social media and Wayback snapshots, profile-API mining via `browser_network_requests` (list) + `browser_network_request part="response-body"` (payload)
 
 ---
 
