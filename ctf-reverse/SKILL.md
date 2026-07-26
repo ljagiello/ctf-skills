@@ -39,12 +39,12 @@ r2pm -ci r2ghidra   # Native Ghidra decompiler for radare2
 **Manual install:**
 - pwndbg — Linux: [GitHub](https://github.com/pwndbg/pwndbg), macOS: `brew install pwndbg/tap/pwndbg-gdb`
 
-**MCP servers (optional, agent-driven RE):** IDA Pro MCP ([mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp)), Ghidra MCP ([LaurieWired/GhidraMCP](https://github.com/LaurieWired/GhidraMCP)), JADX MCP ([zinja-coder/jadx-ai-mcp](https://github.com/zinja-coder/jadx-ai-mcp)) — see [tools-mcp.md](tools-mcp.md) for setup and usage.
+**MCP servers (optional, agent-driven RE):** IDA Pro MCP ([mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp)), Ghidra MCP ([bethington/ghidra-mcp](https://github.com/bethington/ghidra-mcp) — has a headless server, no GUI needed), JADX MCP ([zinja-coder/jadx-ai-mcp](https://github.com/zinja-coder/jadx-ai-mcp)) — see [tools-mcp.md](tools-mcp.md) for setup and usage.
 
 ## Additional Resources
 
 - [tools.md](tools.md) - Static analysis tools (GDB, Ghidra, radare2, IDA, Binary Ninja, dogbolt.org, RISC-V with Capstone, Unicorn emulation, Python bytecode, WASM, Android APK, .NET, packed binaries)
-- [tools-mcp.md](tools-mcp.md) - MCP server integration (agent-driven RE): IDA Pro MCP, Ghidra MCP (`list_strings filter=` → `get_xrefs_to` → decompile, name-vs-address argument contract, silent 100-entry pagination), JADX MCP (code-scope `search_classes_by_keyword`, `get_strings` = strings.xml only, `get_method_by_name` needs class+method, GUI plugin on :8650); pseudocode-first workflow (decompile before disassemble), recon→analysis→annotation loops, when to use MCP vs CLI
+- [tools-mcp.md](tools-mcp.md) - MCP server integration (agent-driven RE): IDA Pro MCP, Ghidra MCP (bethington/ghidra-mcp: headless `GhidraMCPHeadlessServer` on :8089 launched with a plain `java -cp` — no GUI, no Docker, no Maven since the release ships prebuilt jar+wheel; hard Ghidra 12.1.x major.minor gate; `bridge-mcp-ghidra --no-lazy` for all 222 tools; `/run_analysis` is not automatic; `/load_program` needs a JSON body and does **not** make the new binary the default target — pass `program=<name>` on every call once two are loaded; `list_functions` has no `limit`/`offset` in its schema but is NOT truncated (page with `list_functions_enhanced`/`search_functions(name_pattern, offset, limit)`); the `Function Count` vs `list_functions` gap is EXTERNAL imports, not hidden functions; `search_functions` matches substrings so `main` returns `__libc_start_main` first — anchor exactly; everything targets an **address**, never a name; big functions hit a decompiler timeout (check `get_function_by_address` body size first; `timeout=1200` did finish a 33 KB function, ~1 MB of C); **default analyzers drop call arguments on 32-bit PE — enable `Stack.Create Param Variables` + `WindowsPE x86 Propagate External Parameters` or the flag string stays invisible**; three-call flag path `list_strings filter=` → `get_xrefs_to` → `decompile_function address=`; headless and GUI plugin BOTH default to :8089 so they collide with each other — no Burp conflict, and `:8080` from LaurieWired-era notes does not apply), JADX MCP (self-serve `jadx-gui app.apk &` + wait on :8650, `get_main_application_classes_names` before the R-class-bloated bulk dump, `get_strings` = strings.xml only but that is where `R.string.*` comparison values live, code-scope `search_classes_by_keyword`, `get_method_by_name` needs class+method); crossing the JNI boundary — `dlopen` an Android `.so` on the host and call `Java_pkg_Class_method` through a fake `JNIEnv` instead of decompiling it, with bionic `liblog`/`libandroid` stubs and the versioned-`LIBC` stub libc, plus the harness-failure decision table (producer vs validator, `RegisterNatives`, arm-only ABI, decoding a segfault offset into a JNI slot via `offset/8`, and when to escalate to Frida or a real decompile); pseudocode-first workflow (decompile before disassemble), recon→analysis→annotation loops, when to use MCP vs CLI
 - [tools-dynamic.md](tools-dynamic.md) - Dynamic analysis tools: Frida (hooking, anti-debug bypass, memory scanning, Android/iOS), angr symbolic execution (path exploration, constraints, CFG), lldb (macOS/LLVM debugger), x64dbg (Windows)
 - [tools-emulation.md](tools-emulation.md) - Emulation frameworks and side-channel tooling: Qiling (cross-platform OS-level emulation), Triton (DSE), Intel Pin instruction-counting + genetic algorithm side channel, opcode-only trace reconstruction, LD_PRELOAD time freeze and memcmp side-channel for byte-by-byte bruteforce
 - [tools-advanced.md](tools-advanced.md) - Advanced tools (Part 1): VMProtect/Themida analysis, binary diffing (BinDiff, Diaphora), deobfuscation frameworks (D-810, GOOMBA, Miasm), Qiling framework, Triton DSE, Manticore, Rizin/Cutter, RetDec, custom VM bytecode lifting to LLVM IR
@@ -105,6 +105,22 @@ xxd binary | grep -i flag
 ./binary AAAA
 echo "test" | ./binary
 ```
+
+**Never pipe triage output through `head` on the first pass.** Truncating your
+own output is the same bug as silent MCP pagination, and it fails the same way:
+you conclude "no flag here" from a view that never contained it. A real case —
+`strings hello | grep -viE '...' | head -30` cut off `flag{real}` at line 22 of
+the *filtered* list, and `objdump -d --disassemble=main | sed -n '7,40p'` cut off
+the `cmp $0x2` / `jne` branch that gated it, on a 13-line C program. Grep for the
+signal instead of capping the volume:
+
+```bash
+strings binary | grep -inE "flag|ctf\{|congrat|correct|wrong"   # filter, don't truncate
+objdump -d --disassemble=main binary                            # whole function, always
+```
+
+If output really is too large, page it deliberately (`sed -n '200,400p'`) and say
+which slice you read — never let an unread tail become a negative conclusion.
 
 ## Initial Analysis
 

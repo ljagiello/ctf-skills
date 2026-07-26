@@ -408,8 +408,9 @@ Manual installs (cannot be automated reliably):
 MCP servers (optional — agent-driven RE/web, configured in your MCP client):
   IDA Pro MCP    — https://github.com/mrexodia/ida-pro-mcp
                    pip install ida-pro-mcp && ida-pro-mcp --install
-  Ghidra MCP     — https://github.com/LaurieWired/GhidraMCP
-                   install the Ghidra extension, then run bridge_mcp_ghidra.py
+  Ghidra MCP     — https://github.com/bethington/ghidra-mcp
+                   prebuilt release (extension jar + bridge wheel); headless
+                   GhidraMCPHeadlessServer, no GUI needed
   JADX MCP       — https://github.com/zinja-coder/jadx-ai-mcp
                    JADX-GUI plugin + jadx-mcp-server (uvx jadx-mcp-server)
   WinDbg MCP     — https://github.com/svnscha/mcp-windbg
