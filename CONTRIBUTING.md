@@ -1,4 +1,4 @@
-# Contributing to ctf-skills
+# Contributing to Dorothy-CTF-Skill
 
 Thanks for helping expand the CTF skills collection. This guide covers how to set up your environment, add techniques, create new skill categories, and get your PR merged.
 

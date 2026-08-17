@@ -6,7 +6,7 @@ This repository contains offensive security techniques documented for **authoriz
 
 ## Reporting Security Issues
 
-Please report the following via [GitHub Security Advisories](https://github.com/ljagiello/ctf-skills/security/advisories/new):
+Please report the following via [GitHub Security Advisories](https://github.com/D0R07HY/ctf-skills/security/advisories/new):
 
 - **Leaked credentials or PII** — Real API keys, passwords, tokens, or personally identifiable information accidentally included from writeup sources
 - **Malicious links** — URLs pointing to live malicious infrastructure rather than CTF challenge servers

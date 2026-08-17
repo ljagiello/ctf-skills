@@ -1,11 +1,11 @@
-# ctf-skills
+# Dorothy-CTF-Skill
 
 [Agent Skills](https://agentskills.io) for solving CTF challenges — web exploitation, binary pwn, crypto, reverse engineering, forensics, OSINT, and more. Works with any tool that supports the Agent Skills spec, including [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 ## Installation
 
 ```bash
-npx skills add ljagiello/ctf-skills
+npx skills add D0R07HY/ctf-skills
 ```
 
 ## Run with Friday Studio
@@ -18,7 +18,7 @@ To add these skills to Friday Studio:
 
 1. Install Friday from [hellofriday.ai](https://hellofriday.ai/) (macOS).
 2. Open **Skills** in the Studio sidebar and click **+ Add**.
-3. Import individual skills by reference (e.g. `ljagiello/ctf-skills/ctf-web`), or upload this repo as a folder.
+3. Import individual skills by reference (e.g. `D0R07HY/ctf-skills/ctf-web`), or upload this repo as a folder.
 4. Reference them from any `workspace.yml`, or let agents load them automatically based on the skill description.
 
 See the [Friday Skills docs](https://docs.hellofriday.ai/core-concepts/skills) for the full workflow, and the [Friday blog](https://blog.hellofriday.ai/) — including [AI Drift: The Hidden Cost of Building with AI](https://blog.hellofriday.ai/ai-drift-the-hidden-cost-of-building-with-ai-e2b51415b3b0) — for the philosophy behind it.

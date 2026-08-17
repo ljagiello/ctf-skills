@@ -1,5 +1,5 @@
 [project]
-name = "ctf-skills"
+name = "dorothy-ctf-skill"
 requires-python = ">=3.12"
 
 [tool.pytest.ini_options]
