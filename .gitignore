@@ -22,3 +22,6 @@ _site/
 # OS
 .DS_Store
 Thumbs.db
+
+# Portable CTF toolkit (bundled python env + binaries)
+ctf-tools/
