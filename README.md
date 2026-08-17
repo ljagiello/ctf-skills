@@ -5,7 +5,7 @@
 ## Installation
 
 ```bash
-npx skills add D0R07HY/ctf-skills
+npx skills add D0R07HY/Dorothy-skills
 ```
 
 ## Run with Friday Studio
