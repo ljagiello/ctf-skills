@@ -59,13 +59,21 @@ jobs:
 
             SKILL_FILES=""
             while IFS= read -r file; do
-              dir=$(echo "$file" | cut -d'/' -f1)
-              case "$dir" in
-                ""|.github|.claude|.codex|.gemini|scripts|docs) continue ;;
-              esac
-              if [ -f "$dir/SKILL.md" ]; then
-                SKILL_FILES+="./$dir/SKILL.md"$'\n'
-              fi
+              [ -z "$file" ] && continue
+              # Walk up from the changed file until we find the owning skill
+              # directory (a dir with SKILL.md). Handles nested collections
+              # like Dorothy-Hex-Skill/<name>/ as well as top-level skills.
+              dir=$(dirname "$file")
+              while [ "$dir" != "." ] && [ "$dir" != "/" ]; do
+                case "$dir" in
+                  .github*|.claude*|.codex*|.gemini*|scripts*|docs*) break ;;
+                esac
+                if [ -f "$dir/SKILL.md" ]; then
+                  SKILL_FILES+="./$dir/SKILL.md"$'\n'
+                  break
+                fi
+                dir=$(dirname "$dir")
+              done
             done <<< "$CHANGED"
 
             LABEL="Changed skills"

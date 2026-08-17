@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = REPO_ROOT / "_site"
 
 # Fallback if git remote is unavailable (e.g., in CI without full clone)
-_DEFAULT_REPO_URL = "https://github.com/ljagiello/ctf-skills"
+_DEFAULT_REPO_URL = "https://github.com/D0R07HY/ctf-skills"
 
 
 def _detect_repo_url() -> str:
@@ -106,8 +106,12 @@ def parse_frontmatter(text: str) -> dict[str, str]:
 
 
 def discover_skills() -> list[Path]:
-    """Find all directories containing a SKILL.md."""
-    return sorted(p.parent for p in REPO_ROOT.glob("*/SKILL.md"))
+    """Find all directories containing a SKILL.md.
+
+    Matches top-level skills (ctf-*) and skills nested in collections
+    (Dorothy-Hex-Skill/*).
+    """
+    return sorted(p.parent for p in REPO_ROOT.glob("**/SKILL.md"))
 
 
 def count_techniques(skill_dir: Path) -> list[dict[str, str]]:
@@ -326,7 +330,7 @@ def build_html(skills: list[dict]) -> str:
         </div>
       </div>
       <div class="install-box">
-        <code>npx skills add ljagiello/ctf-skills</code>
+        <code>npx skills add {_get_repo_url().removeprefix("https://github.com/")}</code>
       </div>
     </header>
     <div class="grid">
@@ -352,7 +356,7 @@ def main() -> None:
         techniques = count_techniques(skill_dir)
         skills.append(
             {
-                "dir_name": skill_dir.name,
+                "dir_name": skill_dir.relative_to(REPO_ROOT).as_posix(),
                 "description": fm.get("description", ""),
                 "techniques": techniques,
             }
