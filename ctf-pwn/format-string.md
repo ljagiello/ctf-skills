@@ -160,7 +160,6 @@ stack_chk_addr = arb_read(pie_base + got_stack_chk_offset)
 ```
 
 **5. Cross-reference libc database:**
-- https://libc.blukat.me/
 - https://libc.rip/
 - Input multiple function addresses to identify exact libc version
 
