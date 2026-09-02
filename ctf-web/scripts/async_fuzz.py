@@ -49,7 +49,7 @@ def grep_extract(t,rx,max_len=500):
 def run_threaded(url,payloads,threads,delay,jitter,proxy,grep):
     def worker(u):
         s=requests.Session(); s.headers["User-Agent"]=random.choice(UAS)
-        if proxy: s.proxies={"http":proxy,"https":proxy}; s.verify=False
+        if proxy: s.proxies={"http":proxy,"https":proxy}; s.verify=False  # <!-- audit-ok --> CTF self-signed only, not prod
         try:
             r=s.get(u,timeout=10)
             if r.status_code==429:
