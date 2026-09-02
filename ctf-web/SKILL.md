@@ -36,6 +36,14 @@ go install github.com/ffuf/ffuf/v2@latest
 
 **Manual install:**
 - ysoserial — [GitHub](https://github.com/frohoff/ysoserial), requires Java (Java deserialization payloads)
+- PayloadsAllTheThings — git clone to ctf-web/payloads/PayloadsAllTheThings (auto via install script or lazy clone)
+  ```bash
+  bash scripts/install_ctf_tools.sh pat   # PAT only
+  bash scripts/install_ctf_tools.sh all   # all tools including PAT
+  # manual fallback:
+  git clone --depth 1 https://github.com/swisskyrepo/PayloadsAllTheThings.git ctf-web/payloads/PayloadsAllTheThings
+  ```
+  > PAT is optional and on-demand — not required at load time. The skill works without it (graceful degrade): `pat-reference.md` provides an offline index with exemplar payloads; bulk wordlists require the clone above.
 
 ## Additional Resources
 
@@ -59,6 +67,7 @@ go install github.com/ffuf/ffuf/v2@latest
 - [web3.md](web3.md) - Solidity and Web3 challenge notes
 - [cves.md](cves.md) - CVE-driven techniques you can match against challenge banners, headers, dependency leaks, or version strings
 - [field-notes.md](field-notes.md) - Long-form exploit notes: quick references for SQLi, XSS, LFI, JWT, SSTI, SSRF, command injection, XXE, deserialization, race conditions, auth bypass, and multi-stage chains
+- [pat-reference.md](pat-reference.md) — PayloadsAllTheThings index: bulk payloads for XSS/SQLi/SSRF/SSTI/LFI/Command Injection/Upload (requires PAT clone, see Prerequisites)
 
 ## When to Pivot
 
@@ -75,6 +84,29 @@ go install github.com/ffuf/ffuf/v2@latest
 3. Enumerate hidden functionality from JS bundles, response headers, routes, and alternate methods.
 4. Classify the likely bug family: injection, authz, parser mismatch, upload, trust proxy, state machine, or client-side execution.
 5. Build the smallest proof first: leak, bypass, or primitive. Save full exploit chaining for later.
+
+### Bulk payloads (PayloadsAllTheThings — on-demand)
+
+This skill works without PAT at load time (graceful degrade): `pat-reference.md` and inline exemplars are available offline; bulk payloads require a PAT clone. After mapping the trust boundary (First-Pass Workflow), check [pat-reference.md](pat-reference.md) for the PAT directory that matches your bug class, then search bulk payloads:
+
+```bash
+# PAT payload search (requires PAT clone — see Prerequisites; gracefully skipped if missing)
+ls ctf-web/payloads/PayloadsAllTheThings 2>/dev/null | head
+grep -R "onerror" "ctf-web/payloads/PayloadsAllTheThings/XSS Injection" 2>/dev/null | head
+```
+
+Or via agent tools (no clone required for the index itself):
+
+```
+Glob ctf-web/payloads/PayloadsAllTheThings/**/*.md
+Grep "union select" ctf-web/payloads/PayloadsAllTheThings
+```
+
+If `ctf-web/payloads/PayloadsAllTheThings/.git` is missing, the agent lazy-clones on demand:
+
+```bash
+[ -d "ctf-web/payloads/PayloadsAllTheThings/.git" ] || git clone --depth 1 https://github.com/swisskyrepo/PayloadsAllTheThings.git ctf-web/payloads/PayloadsAllTheThings
+```
 
 ## Quick Start Commands
 

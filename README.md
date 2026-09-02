@@ -43,7 +43,16 @@ bash scripts/install_ctf_tools.sh apt
 bash scripts/install_ctf_tools.sh brew
 bash scripts/install_ctf_tools.sh gems
 bash scripts/install_ctf_tools.sh go
+bash scripts/install_ctf_tools.sh pat      # PayloadsAllTheThings only (web)
 bash scripts/install_ctf_tools.sh manual
+```
+
+`pat` installs [PayloadsAllTheThings](https://github.com/swisskyrepo/PayloadsAllTheThings) for `ctf-web` payload wordlists — web-only, not needed for crypto/pwn/reverse/forensics/etc. `all` includes `pat` (clones to `~/.ctf-tools/PayloadsAllTheThings` and links to `ctf-web/payloads/PayloadsAllTheThings`).
+
+Quick PAT setup if you only need web payloads:
+
+```bash
+bash scripts/install_ctf_tools.sh pat
 ```
 
 Preview what would be installed (skips already-present packages):
@@ -59,6 +68,16 @@ bash scripts/install_ctf_tools.sh --verify
 ```
 
 Use `--force` to reinstall everything regardless of what's already present. Install logs are saved to `~/.ctf-tools/`.
+
+For Coppersmith lattice attacks without Sage (pure-Python via `fpylll` + `sympy`), optionally clone the reference implementation:
+
+```bash
+git clone https://github.com/jvdsn/crypto-attacks ~/.ctf-tools/crypto-attacks
+pip install -r ~/.ctf-tools/crypto-attacks/requirements.txt
+# Alternative (flaky, no reliable PyPI as of 2026-09): pip install coppersmith
+```
+
+See `bash scripts/install_ctf_tools.sh manual` for all manual steps.
 
 The full package lists now live in [scripts/install_ctf_tools.sh](scripts/install_ctf_tools.sh).
 

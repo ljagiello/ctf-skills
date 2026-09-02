@@ -76,6 +76,10 @@ After adding a technique, update the parent `SKILL.md`:
 
 Update the skill's row in `README.md`: increment the **Files** count if you added a new file, and add the technique name to the **Description** column.
 
+### PayloadsAllTheThings — external bulk payloads (ctf-web)
+
+Bulk web payloads live externally in [PayloadsAllTheThings](https://github.com/swisskyrepo/PayloadsAllTheThings) — on-demand clone, gitignored at `ctf-web/payloads/` and `~/.ctf-tools/PayloadsAllTheThings` (installed via `bash scripts/install_ctf_tools.sh pat`, included in `all`). Don't copy bulk wordlists into technique files. Instead, add a reference to `ctf-web/pat-reference.md` and include at most 2–3 exemplar payloads inline with attribution. The installer and `ctf-web` skill handle lazy cloning when the payloads dir is missing.
+
 ## Creating a New Skill Category
 
 A new skill category is a directory at the repo root containing at minimum a `SKILL.md` file.
@@ -109,16 +113,30 @@ Frontmatter rules enforced by tests:
 
 ## Running Tests Locally
 
+Prefer `uv` for local verification (faster, isolated). Bare `python`/`python3` also works.
+
 ```bash
 # Run all tests
-python -m pytest tests/ -v
+uv run python -m pytest tests/ -v
+# or: python -m pytest tests/ -v
 
 # Run just the frontmatter validation
-python -m pytest tests/test_skill_frontmatter.py -v
+uv run python -m pytest tests/test_skill_frontmatter.py -v
+
+# Crypto snippet vectors (pure-Python, Sage fallbacks collapsed)
+uv run python -m pytest tests/test_crypto_snippets.py -v
+# or: python -m pytest tests/test_crypto_snippets.py -v
+
+# Verify all ctf-crypto python code blocks compile / syntax-check
+uv run python scripts/verify_crypto_examples.py
+# or: python scripts/verify_crypto_examples.py
 
 # Run the security auditor on a specific skill
-python3 scripts/skill_security_auditor.py ctf-web --strict --json
+uv run python scripts/skill_security_auditor.py ctf-web --strict --json
+# or: python3 scripts/skill_security_auditor.py ctf-web --strict --json
 ```
+
+Local scratch (one-off experiments, ad-hoc scripts) goes in `scratch/` or `debug.py` — both are gitignored. Committed test vectors live under `tests/fixtures/` (explicitly not ignored). Don't commit `.venv/`/`venv/` or `/tmp/` either.
 
 ### Running pre-commit checks manually
 
