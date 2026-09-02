@@ -16,7 +16,7 @@ Use this skill as a routing and execution guide for web-heavy challenges. Keep t
 
 **Python packages (all platforms):**
 ```bash
-pip install sqlmap flask-unsign requests
+pip install sqlmap flask-unsign requests httpx
 ```
 
 **Linux (apt):**
@@ -67,6 +67,7 @@ go install github.com/ffuf/ffuf/v2@latest
 - [web3.md](web3.md) - Solidity and Web3 challenge notes
 - [cves.md](cves.md) - CVE-driven techniques you can match against challenge banners, headers, dependency leaks, or version strings
 - [field-notes.md](field-notes.md) - Long-form exploit notes: quick references for SQLi, XSS, LFI, JWT, SSTI, SSRF, command injection, XXE, deserialization, race conditions, auth bypass, and multi-stage chains
+- [python-requests.md](python-requests.md) - Python requests toolkit: session scaffold, Burp-Intruder-like fuzzer (sync + ThreadPoolExecutor + httpx async), payload deploy from pat-reference.md wordlists, header/param spray, cookie/JWT, proxy
 - [pat-reference.md](pat-reference.md) — PayloadsAllTheThings index: bulk payloads for XSS/SQLi/SSRF/SSTI/LFI/Command Injection/Upload (requires PAT clone, see Prerequisites)
 
 ## When to Pivot

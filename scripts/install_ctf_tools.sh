@@ -121,6 +121,7 @@ PIP_PACKAGES=(
   "frida-tools==14.8.0:frida"
   "qiling==1.4.6:qiling"
   "requests==2.32.5:requests"
+  "httpx==0.27.2:httpx"
   "flask-unsign==1.2.1:flask_unsign"
   "sqlmap==1.10.3:sqlmap"
   "ropper==1.13.13:ropper"
