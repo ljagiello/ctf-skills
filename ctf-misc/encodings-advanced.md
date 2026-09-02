@@ -137,7 +137,7 @@ with open('output.png', 'wb') as f:
 Some challenges require decoding 25+ sequential layers of different encodings. Build an automated decoder:
 
 ```python
-import base64, zlib, bz2, codecs
+import base64, zlib, gzip, bz2, lzma, codecs
 
 def auto_decode(data):
     """Try each encoding and return first successful decode"""
@@ -145,8 +145,10 @@ def auto_decode(data):
         ('base64', lambda d: base64.b64decode(d)),
         ('base32', lambda d: base64.b32decode(d)),
         ('base16', lambda d: base64.b16decode(d.upper())),
-        ('zlib',   lambda d: zlib.decompress(d if isinstance(d, bytes) else d.encode())),
-        ('bz2',    lambda d: bz2.decompress(d if isinstance(d, bytes) else d.encode())),
+        ('zlib',   lambda d: zlib.decompress(d if isinstance(d, bytes) else d.encode())),  # 78 01 / 78 9c
+        ('gzip',   lambda d: gzip.decompress(d if isinstance(d, bytes) else d.encode())),  # 1f 8b
+        ('bz2',    lambda d: bz2.decompress(d if isinstance(d, bytes) else d.encode())),   # BZh
+        ('lzma',   lambda d: lzma.decompress(d if isinstance(d, bytes) else d.encode())),  # fd 37 7a 58 5a 00
         ('rot13',  lambda d: codecs.decode(d, 'rot_13')),
         ('hex',    lambda d: bytes.fromhex(d if isinstance(d, str) else d.decode())),
         ('binary', lambda d: bytes(int(d[i:i+8], 2) for i in range(0, len(d.strip()), 8))),
@@ -172,6 +174,57 @@ for i in range(50):  # Max layers
 ```
 
 Add Brainfuck detection (presence of `+-<>[].,` characters only) and other esoteric languages as needed.
+
+### QR Polyglot Workflow — PNG/JAR/ZIP Overlap
+
+**Pattern:** A `.png` that is also a valid ZIP/JAR (polyglot). `file` reports multiple types, QR remains decodable but hides appended archive data after `IEND`.
+
+**Workflow:**
+```bash
+file polyglot.png              # e.g. "PNG image data, Zip archive data"
+binwalk polyglot.png           # list embedded files/offsets
+pngcheck -v polyglot.png       # verify chunks, show trailing bytes after IEND
+7z l polyglot.png              # list archive contents even with PNG header
+# extract appended ZIP/JAR
+tail -c +$(($(grep -aob IEND polyglot.png | tail -1 | cut -d: -f1)+8)) polyglot.png > hidden.zip
+# or simpler: binwalk -e / 7z x
+
+# LSB / bit-plane stego inside QR PNG
+zsteg -a polyglot.png          # check all bit planes
+zsteg --all polyglot.png
+zsteg -E b1,r,msb,xy polyglot.png  # brute bit planes
+```
+
+**Key insight:** Valid QR polyglots abuse PNG's `IEND` as logical EOF — decoders stop at `IEND` but ZIP readers scan for `PK` end-of-central-directory anywhere in file. Always run `pngcheck` + `7z l` + `tail after IEND` + `zsteg bit planes` on QR images that `file`/`binwalk` flags as multi-format.
+
+**References:**
+- MDPI Applied Sciences — QR suboptimal / error-correction capacity analysis showing QR masks hide polyglot payloads (`MDPI` QR suboptimal)
+- arXiv  — polyglot / stego-in-image survey and PNG chunk abuse (`arxiv polyglot`)
+
+---
+
+### Brainfuck Dual-Interpreter — bf_eval==eval Equality Craft via Ellipsis
+
+**Pattern:** Restricted Python where `eval` is filtered but `bf_eval` (or similar Brainfuck interpreter) is exposed; `bf_eval` internally calls `eval` after Brainfuck execution. Craft payload so `bf_eval(code) == eval(code)` to smuggle Python through the Brainfuck path.
+
+**Technique:** Use `...` (`Ellipsis`) object — `...` is a singleton that evaluates truthily and is syntactically valid in both interpreters. Pad Brainfuck code with `...` to make both interpreters return the same value:
+
+```python
+# Ellipsis craft — bf_eval==eval equality
+# In Python: ... == Ellipsis, and ... is truthy / ignored in some contexts
+# In BF: `...` are treated as no-ops/comments (non-BF chars ignored)
+
+payload = "..." + bf_code + "..."  # bf_eval ignores ... ; eval sees Ellipsis tuple padding
+assert bf_eval(payload) == eval(payload)  # equality gate bypass
+
+# Example: execute os.system via bf_eval which wraps eval
+bf_payload = "..." + ",[.,]" + "..."  # BF no-op padding via Ellipsis
+# If bf_eval does: return eval(bf_interpret(code))
+# then bf_interpret("...") == "" -> eval("") fallback, but "..." as Python is Ellipsis
+# Use: bf_eval("...;__import__('os').system('id')") == eval("...;__import__('os').system('id')")
+```
+
+**Key insight:** Dual-interpreter jails compare `bf_eval(x) == eval(x)` to allow only "pure Brainfuck" inputs. `...` (`Ellipsis`) bridges the gap because Brainfuck ignores non-`+-<>[].,` characters while Python evaluates `...` as a valid constant — craft with `...` prefix/suffix so both sides produce identical output and bypass the equality check.
 
 ---
 

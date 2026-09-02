@@ -55,6 +55,7 @@ brew install ffmpeg qrencode
 - If the challenge is a real binary exploit instead of a jail, toy VM, or encoding problem, switch to `/ctf-pwn` or `/ctf-reverse`.
 - If the input is mostly files, images, audio, or packet captures that need recovery work first, switch to `/ctf-forensics`.
 - For ML/AI techniques (model attacks, adversarial examples, LLM jailbreaking), see `/ctf-ai-ml`.
+- If the NodeJS sandbox uses **vm2** (`npm ls vm2`), check for **CVE-2023-37466** via `Promise[@@species]` with `nesting:true` — the exception handler escapes the context; see `ctf-web/js-sandbox` for the full exploit chain. In misc challenges with bundled JS, always run `npm ls vm2` to detect vulnerable vm2 before trying other escapes.
 
 ## Quick Start Commands
 
