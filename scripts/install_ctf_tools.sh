@@ -144,6 +144,7 @@ PIP_PACKAGES=(
   "lief==0.17.6:lief"
   "dnspython==2.8.0:dns"
   "dnslib==0.9.26:dnslib"
+  "segno==1.6.2:segno"
   "dissect.cobaltstrike==1.2.1:dissect.cobaltstrike"
 )
 
@@ -257,7 +258,7 @@ install_apt() {
     gdb radare2 binutils binwalk foremost libimage-exiftool-perl
     tshark sleuthkit ffmpeg steghide testdisk john pcapfix
     nmap whois dnsutils hashcat strace ltrace imagemagick curl jq
-    apktool upx qemu-system-x86 sagemath qrencode
+    apktool upx qemu-system-x86 sagemath qrencode libzbar0
   )
 
   # Collect packages that need installing

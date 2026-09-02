@@ -16,12 +16,12 @@ Quick reference for miscellaneous CTF challenges. Each technique has a one-liner
 
 **Python packages (all platforms):**
 ```bash
-pip install z3-solver pwntools Pillow numpy requests dnslib
+pip install "pwntools==4.15.0" "segno==1.6.2" z3-solver Pillow numpy requests dnslib
 ```
 
 **Linux (apt):**
 ```bash
-apt install ffmpeg qrencode
+apt install libzbar0 qrencode ffmpeg
 ```
 
 **macOS (Homebrew):**
