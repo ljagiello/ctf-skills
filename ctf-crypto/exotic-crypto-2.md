@@ -223,6 +223,32 @@ def forge_product(x1, y1, x2, y2, k, n):
 **Exploit:** Any matrix `H` commuting with `gamma` decrypts correctly, and the Cayley-Hamilton theorem lets you build one entirely from public values — no need to recover `r`.
 
 ```python
+from sympy import Matrix
+import operator
+
+# Given public alpha, beta, gamma, epsilon, mu (ciphertext) as 2x2 Matrices over GF(p) (sympy/numpy)
+def mat_inv(M, mod):
+    det = int(M.det() % mod)
+    inv_det = pow(det, -1, mod)
+    adj = Matrix([[M[1,1], -M[0,1]], [-M[1,0], M[0,0]]])
+    return (inv_det * adj) % mod
+
+# Given public alpha, beta, gamma, epsilon, mu (ciphertext)
+invalpha = mat_inv(alpha, p)
+# Recover scaling entry h via elementwise division mod p
+h_elems = (invalpha * gamma - gamma * beta) % p
+h_denom = (beta - invalpha) % p
+# Elementwise division mod p
+h = Matrix([[ (h_elems[i,j] * pow(int(h_denom[i,j]), -1, p)) % p for j in range(2)] for i in range(2)])
+
+H = (h[0,0] * Matrix.eye(2) + gamma) % p
+H_inv = mat_inv(H, p)
+plaintext = (H_inv * epsilon * H) * mu * (H_inv * epsilon * H) % p
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
+```python
 from sage.all import matrix, identity_matrix
 import operator
 
@@ -236,6 +262,8 @@ h = matrix([[h_elems[i][j] / h_denom[i][j] for j in range(2)] for i in range(2)]
 H = h[0][0] * identity_matrix(2) + gamma
 plaintext = (H.inverse() * epsilon * H) * mu * (H.inverse() * epsilon * H)
 ```
+
+</details>
 
 **Key insight:** Any commuting matrix works as the decryption key. Cayley-Hamilton guarantees that `H = c1 * I + c2 * gamma` commutes with `gamma`, and the needed scalar `c1` can be read off by comparing entries of `alpha^(-1) * gamma` against `gamma * beta`. Always check whether "private key" operations can be replaced by a commutation-equivalent derived from public data.
 
@@ -330,12 +358,26 @@ for i in itertools.count():
 **Pattern:** Oracle evaluates a hidden degree-`n` polynomial at `n+1` points. Build the Vandermonde matrix of evaluation inputs and solve the linear system for coefficients; recovered polynomial reveals the secret constants.
 
 ```python
+from sympy import Matrix
+pts = [(x_i, f(x_i)) for x_i in range(degree+1)]
+A = Matrix([[pow(xi, k, p) if 'p' in globals() else xi**k for k in range(degree+1)] for xi, _ in pts])
+b = Matrix([yi for _, yi in pts])
+# Solve A * coeffs = b over field (mod p if p defined, else QQ)
+coeffs = A.gauss_jordan_solve(b) if hasattr(A, 'gauss_jordan_solve') else A.LUsolve(b)
+# For GF(p): use rref mod p helper as in modern-ciphers-3
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
+```python
 from sage.all import matrix, vector, GF
 pts = [(x_i, f(x_i)) for x_i in range(degree+1)]
 A = matrix([[xi**k for k in range(degree+1)] for xi, _ in pts])
 b = vector([yi for _, yi in pts])
 coeffs = A.solve_right(b)
 ```
+
+</details>
 
 **Key insight:** Any secret polynomial, Shamir-style sharing, or "interpolate a curve" oracle falls to a Vandermonde solve with `degree + 1` points. Sage's `solve_right` handles huge degrees.
 

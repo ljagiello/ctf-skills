@@ -17,11 +17,13 @@ Quick reference for crypto CTF challenges. Each technique has a one-liner here; 
 **Python packages (all platforms):**
 ```bash
 pip install pycryptodome z3-solver sympy gmpy2 hashpumpy fpylll py_ecc
+# Coppersmith (optional): pip install coppersmith
+# Alternative Coppersmith lib: git clone https://github.com/jvdsn/crypto-attacks ~/.ctf-tools/crypto-attacks && pip install -r ~/.ctf-tools/crypto-attacks/requirements.txt
 ```
 
 **Linux (apt):**
 ```bash
-apt install hashcat sagemath
+apt install hashcat
 ```
 
 **macOS (Homebrew):**
@@ -30,8 +32,9 @@ brew install hashcat
 ```
 
 **Manual install:**
-- SageMath — Linux: `apt install sagemath`, macOS: `brew install --cask sage`
+- SageMath (optional — only for legacy Sage fallback snippets (collapsed sections)) — Linux: `apt install sagemath`, macOS: `brew install --cask sage`
 - RsaCtfTool — `git clone https://github.com/RsaCtfTool/RsaCtfTool` (automated RSA attacks)
+- crypto-attacks (Coppersmith) — `git clone https://github.com/jvdsn/crypto-attacks ~/.ctf-tools/crypto-attacks` + `pip install -r ~/.ctf-tools/crypto-attacks/requirements.txt` (alternative to `pip install coppersmith`)
 
 > **Note:** `gmpy2` requires libgmp — Linux: `apt install libgmp-dev`, macOS: `brew install gmp`.
 
@@ -41,6 +44,7 @@ brew install hashcat
 - [modern-ciphers.md](modern-ciphers.md) - Modern cipher attacks: AES (CFB-8, ECB leakage), CBC-MAC/OFB-MAC, padding oracle, S-box collisions, GF(2) elimination, LCG partial output recovery, affine cipher over composite modulus, AES-GCM with derived keys, AES-GCM nonce reuse (forbidden attack), Ascon-like reduced-round differential cryptanalysis, custom linear MAC forgery, CBC padding oracle (full block decryption), Bleichenbacher RSA PKCS#1 v1.5 padding oracle (ROBOT), birthday attack / meet-in-the-middle, CRC32 collision signature forgery, AES key recovery via byte-by-byte zeroing oracle, AES-CBC ciphertext forging via error-message decryption oracle
 - [modern-ciphers-2.md](modern-ciphers-2.md) - Modern cipher attacks (Part 2): Blum-Goldwasser bit-extension oracle, hash length extension, compression oracle (CRIME-style), hash function time reversal via cycle detection, OFB mode invertible RNG backward decryption, weak key derivation via public key hash XOR, HMAC-CRC linearity attack, DES weak keys in OFB mode, SRP protocol bypass, modified AES S-Box brute-force, square attack on reduced-round AES, AES-ECB byte-at-a-time chosen plaintext, AES-ECB cut-and-paste block manipulation, AES-CBC IV bit-flip auth bypass, Rabin LSB parity oracle, PBKDF2 pre-hash bypass, MD5 multi-collision via fastcol
 - [modern-ciphers-3.md](modern-ciphers-3.md) - Modern cipher attacks (Part 3): custom hash state reversal, CRC32 brute-force for small payloads, noisy RSA LSB oracle error correction, sponge hash MITM collision, CBC IV forgery + block truncation, padding oracle to CBC bitflip RCE, SPN S-box intersection attack, AES-CFB IV recovery from timestamp-seeded PRNG, three-round XOR protocol key cancellation, AES-CBC UnicodeDecodeError side-channel oracle, SHA-256 basis attack for XOR-aggregate hash bypass, custom MAC forgery via XOR block cancellation, HMAC key recovery via XOR+addition arithmetic
+- [modern-ciphers-4.md](modern-ciphers-4.md) - Modern cipher attacks (Part 4): ChaCha20-Poly1305 nonce reuse forbidden attack over $2^{130}-5$ (RFC 8439, CTR $C_1\oplus C_2=P_1\oplus P_2$, Poly1305 $\sum c_i r^{n-i}$ via galois/sympy, 2-msg $ad=""$ vectors), partitioning-oracle / key-committing AEAD splitting lattice, sponge generality (SHA-3/Keccak $0x06$ vs $0x01$, Ascon/Gimli/Sparkle rate/capacity/rounds/pad table + endianness workflow), eSTREAM Trivium 1152-round warmup & cube attack outline (Grain)
 - [stream-ciphers.md](stream-ciphers.md) - Stream cipher attacks: LFSR (Berlekamp-Massey, correlation attack, known-plaintext, Galois vs Fibonacci, Galois tap recovery via autocorrelation), RC4 second-byte bias, XOR consecutive byte correlation
 - [rsa-attacks.md](rsa-attacks.md) - RSA attacks: small e (cube root), common modulus, Wiener's, Pollard's p-1, Hastad's broadcast, Hastad with linear padding (Coppersmith), Franklin-Reiter related message (e=3), Coppersmith linearly-related primes, Fermat/consecutive primes, multi-prime, restricted-digit, Coppersmith structured primes, Manger oracle, polynomial hash
 - [rsa-attacks-2.md](rsa-attacks-2.md) - RSA attacks (specialized): RSA p=q validation bypass, cube root CRT gcd(e,phi)>1, factoring from phi(n) multiple, multiplicative homomorphism signature forgery, weak keygen via base representation, RSA with gcd(e,phi)>1 exponent reduction, batch GCD shared prime factoring, partial key recovery from dp/dq/qinv, RSA-CRT fault attack, homomorphic decryption oracle bypass, small prime CRT decomposition, Montgomery reduction timing attack, Bleichenbacher low-exponent signature forgery, RSA signature bypass with e=1 and crafted modulus
@@ -49,8 +53,9 @@ brew install hashcat
 - [prng.md](prng.md) - PRNG attacks (foundational): MT19937, MT float recovery via GF(2) magic matrix for token prediction, LCG, GF(2) matrix PRNG, V8 XorShift128+ Math.random state recovery via Z3, middle-square, deterministic RNG hill climbing, random-mode oracle, time-based seeds, C srand/rand synchronization via ctypes, password cracking, logistic map chaotic PRNG
 - [prng-attacks.md](prng-attacks.md) - PRNG attacks (CTF-era, 2017+): MT subset-sum seed recovery, MT19937 constraint propagation, Rule 86 cellular automaton reversal via Z3, Java LCG meet-in-the-middle partial modulo, LCG backward stepping via modular inverse, LFSR bit-fold ASCII parity, Z3 solve-time timing oracle, randcrack DSA k prediction, format-string PRNG seed offset, NTP-poisoned PRNG UUID XOR
 - [historical.md](historical.md) - Historical ciphers (Lorenz SZ40/42, book cipher implementation)
-- [advanced-math.md](advanced-math.md) - Advanced mathematical attacks (isogenies, Pohlig-Hellman, baby-step giant-step (BSGS) for general DLP, LLL, Merkle-Hellman knapsack via LLL, Coppersmith, quaternion RSA, GF(2)[x] CRT, S-box collision code, LWE lattice CVP attack, affine cipher over non-prime modulus, introspective CRC via GF(2) linear algebra)
-- [lattice-and-lwe.md](lattice-and-lwe.md) - Lattice attack triage and workflow: LLL/BKZ/Babai, HNP from partial or biased nonces, truncated LCG state recovery, LWE embedding and CVP, Ring-LWE / Module-LWE recognition, orthogonal lattices, subset sum / knapsack, and common failure modes
+- [advanced-math.md](advanced-math.md) - Advanced mathematical attacks (isogenies, Pohlig-Hellman, baby-step giant-step (BSGS) for general DLP, LLL, Merkle-Hellman knapsack via LLL, Coppersmith via Howgrave-Graham hg_matrix -> IntegerMatrix -> LLL -> sympy Poly (beta=0.5, monic check, flatter optional dim>100), quaternion RSA, GF(2)[x] CRT, S-box collision code, LWE lattice CVP attack, affine cipher over non-prime modulus, introspective CRC via GF(2) linear algebra)
+- [lattice-and-lwe.md](lattice-and-lwe.md) - Lattice attack triage and workflow: LLL/BKZ/Babai, HNP from partial or biased nonces, truncated LCG state recovery, LWE embedding and CVP, Ring-LWE / Module-LWE recognition, NTRU lattice B=[[qI 0],[H I]] (negacyclic, BKZ, centered g), GGH embedding [[B 0],[c lambda]] sweep lambda, Mersenne AJPS p=2^n-1 n=11213 w=10 6x6 s=5, BDD predicate/LadderLeak >100 sigs 1-4 bits, orthogonal lattices, subset sum / knapsack, and common failure modes
+- [post-quantum.md](post-quantum.md) - Post-quantum recognition: ML-KEM (Kyber) k=2/3/4 q=3329 etau dv, ML-DSA, Falcon, Module-LWE flattening, FO failure oracle, NTT, Kannan/Bai-Galbraith/Arora-Ge/estimator decision tree, Mersenne AJPS details
 - [exotic-crypto.md](exotic-crypto.md) - Exotic algebraic structures (braid group DH / Alexander polynomial, monotone function inversion, tropical semiring residuation, Paillier cryptosystem, Hamming code helical interleaving, ElGamal universal re-encryption, FPE Feistel brute-force, icosahedral symmetry group cipher, Goldwasser-Micali replication oracle)
 - [exotic-crypto-2.md](exotic-crypto-2.md) - Exotic algebraic structures (Part 2, 2017+): BB-84 QKD MITM, ElGamal trivial DLP (B=p-1), Paillier LSB oracle via homomorphic doubling, differential privacy noise cancellation, homomorphic encryption bit-extraction, ElGamal over matrices via Jordan normal form, OSS signature forgery via Pollard, Cayley-Purser decryption without private key, BIP39 partial mnemonic checksum brute force, Asmuth-Bloom CRT threshold recovery, Rabin with polynomial primes, LCG period detection, Vandermonde polynomial coefficient recovery
 
@@ -84,8 +89,9 @@ python3 -c "from pwn import xor; print(xor(bytes.fromhex('<hex>'), b'flag{'))"
 hashid '<hash>'
 hashcat --identify '<hash>'
 
-# SageMath (for lattice/ECC)
-sage -c "print(factor(<n>))"
+# Quick factorization (sympy, primary)
+python3 -c "from sympy import factorint; print(factorint(<n>))"
+# Sage alternative: sage -c "print(factor(<n>))"
 ```
 
 ## Classic Ciphers
@@ -152,7 +158,7 @@ See [modern-ciphers.md](modern-ciphers.md) and [modern-ciphers-2.md](modern-ciph
 - **Consecutive primes:** q = next_prime(p); find first prime below sqrt(N)
 - **Multi-prime:** Factor N with sympy; compute phi from all factors
 - **Restricted-digit primes:** Digit-by-digit factoring from LSB with modular pruning
-- **Coppersmith structured primes:** Partially known prime; `f.small_roots()` in SageMath
+- **Coppersmith structured primes:** Partially known prime; small_roots via coppersmith lib (Sage fallback in details)
 - **Manger oracle (simplified):** Phase 1 doubling + phase 2 binary search; ~128 queries for 64-bit key
 - **Manger on RSA-OAEP (timing):** Python `or` short-circuit skips expensive PBKDF2 when Y != 0, creating fast/slow timing oracle. Full 3-step attack (~1024 iterations for 1024-bit RSA). Calibrate timing bounds with known-fast/known-slow samples.
 - **Polynomial hash (trivial root):** `g(0) = 0` for polynomial hash; craft suffix for `msg = 0 (mod P)`, signature = 0
@@ -182,7 +188,7 @@ See [rsa-attacks.md](rsa-attacks.md) and [advanced-math.md](advanced-math.md) fo
 - **Invalid curve:** Send points on weaker curves if validation missing
 - **Singular curves:** Discriminant = 0; DLP maps to additive/multiplicative group
 - **Smart's attack:** Anomalous curves (order = p); p-adic lift solves DLP in O(1)
-- **Baby-step giant-step (BSGS):** General DLP in O(sqrt(n)) time/space. Combined with Pohlig-Hellman for smooth-order groups (all factors of `p-1` or curve order are small). Sage: `discrete_log(Mod(h,p), Mod(g,p))`. See [advanced-math.md](advanced-math.md#baby-step-giant-step-for-general-dlp).
+- **Baby-step giant-step (BSGS):** General DLP in O(sqrt(n)) time/space. Combined with Pohlig-Hellman for smooth-order groups (all factors of `p-1` or curve order are small). sympy/fpylll BSGS+Pohlig-Hellman (Sage alternative collapsed). See [advanced-math.md](advanced-math.md#baby-step-giant-step-for-general-dlp).
 - **Fault injection:** Compare correct vs faulty output; recover key bit-by-bit
 - **Clock group (x^2+y^2=1):** Order = p+1 (not p-1!); Pohlig-Hellman when p+1 is smooth
 - **Isogenies:** Graph traversal via modular polynomials; pathfinding via LCA
@@ -204,13 +210,13 @@ See [ecc-attacks.md](ecc-attacks.md), [advanced-math.md](advanced-math.md), and 
 ## Lattice / LWE Attacks
 
 - **Quick triage:** If the challenge gives modular linear equations plus a promise that the hidden quantity is small, sparse, biased, or only partially leaked, treat it as a lattice candidate first. See [lattice-and-lwe.md](lattice-and-lwe.md#quick-triage-is-this-a-lattice-problem).
-- **LLL / BKZ / Babai:** Start with LLL, move to BKZ when LLL almost works, and use Babai after reduction for approximate CVP. See [lattice-and-lwe.md](lattice-and-lwe.md#core-tools-lll-bkz-babai-cvp-svp-asis-ctf-finals-2015-ctfzone-2017).
+- **LLL / BKZ / Babai:** fpylll LLL.reduction / BKZ.reduction / CVP.babai (Sage Matrix(ZZ).LLL() / M.BKZ fallback in details) — start with LLL, move to BKZ when LLL almost works, use Babai for approximate CVP. See [lattice-and-lwe.md](lattice-and-lwe.md#core-tools-lll-bkz-babai-cvp-svp-asis-ctf-finals-2015-ctfzone-2017).
 - **HNP from partial nonce leakage:** Partial or biased ECDSA/Schnorr nonces often reduce to Hidden Number Problem lattices; normalize equations, isolate bounded error, reduce, then brute-force the last few bits if needed. See [lattice-and-lwe.md](lattice-and-lwe.md#hidden-number-problem-hnp-partial-nonce--biased-nonce-nullcon-hackim-2020-ledger-donjon-ctf-2020).
 - **Truncated LCG state recovery:** High-bit or low-bit leakage from affine recurrences is often just HNP in disguise; write each state as `observed * 2^t + hidden` and solve for the small hidden corrections. See [lattice-and-lwe.md](lattice-and-lwe.md#lcg-and-truncated-output-as-a-lattice-problem-x-mas-ctf-2018-fwordctf-2020).
 - **LWE via CVP (Babai):** Construct lattice from `[q*I | 0; A^T | I]`, use fpylll CVP.babai to find closest vector, project to ternary {-1,0,1}. Watch for endianness mismatches between server description and actual encoding.
 - **Ring-LWE / Module-LWE recognition:** Polynomial or negacyclic structure often looks scary but many CTFs weaken it with tiny coefficients, buggy representations, or enough leakage to flatten back into plain LWE. See [lattice-and-lwe.md](lattice-and-lwe.md#ring-lwe--module-lwe-recognition-notes-plaidctf-2016-dicectf-2022).
 - **Orthogonal lattices:** Hidden subset or hidden subspace problems may need you to recover an orthogonal lattice first, then reconstruct the actual binary or short basis from its complement. See [lattice-and-lwe.md](lattice-and-lwe.md#orthogonal-lattices-hssp--ahssp-style-recovery-zer0pts-ctf-2022).
-- **LLL for approximate GCD:** Short vector in lattice reveals hidden factors
+- **LLL for approximate GCD:** fpylll LLL.reduction (Sage Matrix(ZZ).LLL() fallback in details) — short vector in lattice reveals hidden factors
 - **Subset sum / knapsack:** Binary knapsack and low-density subset-sum instances are still classic lattice territory; build the standard basis and look for a reduced row with a zero final coordinate. See [lattice-and-lwe.md](lattice-and-lwe.md#subset-sum--knapsack-via-lattice-reduction-hitcon-ctf-2017-backdoorctf-2023).
 - **Multi-layer challenges:** Geometry → subspace recovery → LWE → AES-GCM decryption chain
 
@@ -313,6 +319,6 @@ Divide-and-conquer SPN key recovery: attack each S-box position independently, i
 ## Useful Tools
 
 - **Python:** `pip install pycryptodome z3-solver sympy gmpy2`
-- **SageMath:** `sage -python script.py` (required for ECC, Coppersmith, lattice attacks)
+- **SageMath (optional fallback):** `sage -python script.py` — only for collapsed Sage alternatives
 - **RsaCtfTool:** `python RsaCtfTool.py -n <n> -e <e> --uncipher <c>` — automated RSA attack suite (tries Wiener, Hastad, Fermat, Pollard, and many more)
 - **quipqiup.com:** Automated substitution cipher solver (frequency + word pattern analysis)

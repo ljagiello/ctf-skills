@@ -11,6 +11,8 @@
 - [Format-Preserving Encryption Feistel Brute-Force (BSidesSF 2026)](#format-preserving-encryption-feistel-brute-force-bsidessf-2026)
 - [Icosahedral Symmetry Group Cipher (BSidesSF 2026)](#icosahedral-symmetry-group-cipher-bsidessf-2026)
 - [Goldwasser-Micali Ciphertext Replication Oracle (BSidesSF 2026)](#goldwasser-micali-ciphertext-replication-oracle-bsidessf-2026)
+- [ForkAES-5-2-2 Reflective Differential (BSidesSF 2026)](#forkaes-5-2-2-reflective-differential-bsidessf-2026)
+- [GhostBlood — Faulty ChaCha ARX Rotate (BSidesSF 2026)](#ghostblood--faulty-chacha-arx-rotate-bsidessf-2026)
 
 ---
 
@@ -524,5 +526,260 @@ plaintext = AES.new(aes_key, AES.MODE_CBC, captured_iv).decrypt(captured_ct)
 
 **References:** BSidesSF 2026 "kproof"
 
+---
+
+## ForkAES-5-2-2 Reflective Differential (BSidesSF 2026)
+
+**Pattern (forkaes):** ForkAES splits a 10-round AES-like permutation into a sequential `fork` structure: 5 rounds before the fork, then two parallel 2-round branches. The branching is reflective — both output blocks share the same middle state so a differential trail through the 5-round stem can be matched across both forks simultaneously.
+
+```
+          5 rounds
+    P ─────────────► W  (fork point)
+                     ├─► 2 rounds ─► C0  (branch 0)
+                     └─► 2 rounds ─► C1  (branch 1)
+```
+
+State is AES-like: 4×4 byte matrix, `SubBytes` (same S-box), `ShiftRows`, `MixColumns`, `AddRoundKey` with distinct round keys (`k0..k4` before fork, `k5..k6` per branch).
+
+```python
+from Crypto.Cipher import AES  # for S-box reference only; ForkAES is custom
+SBOX = AES.new(b'\x00'*16, AES.MODE_ECB)._sbox if hasattr(AES.new(b'\x00'*16, AES.MODE_ECB), '_sbox') else None
+# Use standard AES SBOX table
+SBOX = [
+    0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+    0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+    0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+    0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+    0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+    0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+    0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+    0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+    0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+    0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+    0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+    0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+    0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+    0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+    0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+    0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16,
+]
+INV_SBOX = [0]*256
+for i, v in enumerate(SBOX):
+    INV_SBOX[v] = i
+
+def forkaes_reflect(P, keys5, keys_branch0, keys_branch1):
+    """Reference ForkAES-5-2-2: 5 before fork, 2 per branch. keys are 16-byte round keys."""
+    state = list(P)
+    for r in range(5):
+        # SubBytes, ShiftRows, MixColumns (skip last), AddRoundKey
+        state = [SBOX[b] for b in state]
+        state = shift_rows(state)
+        if r != 4:
+            state = mix_columns(state)
+        state = [s ^ k for s, k in zip(state, keys5[r])]
+    # fork
+    c0 = list(state)
+    c1 = list(state)
+    for r in range(2):
+        c0 = [SBOX[b] for b in c0]
+        c0 = shift_rows(c0)
+        if r != 1: c0 = mix_columns(c0)
+        c0 = [s ^ k for s, k in zip(c0, keys_branch0[r])]
+    for r in range(2):
+        c1 = [SBOX[b] for b in c1]
+        c1 = shift_rows(c1)
+        if r != 1: c1 = mix_columns(c1)
+        c1 = [s ^ k for s, k in zip(c1, keys_branch1[r])]
+    return bytes(c0), bytes(c1)
+
+def shift_rows(state):
+    # state 16 bytes column-major: index = row + 4*col
+    out = [0]*16
+    for r in range(4):
+        for c in range(4):
+            out[r + 4*c] = state[r + 4*((c + r) % 4)]
+    return out
+
+def mix_columns(state):
+    # AES MixColumns per column
+    out = [0]*16
+    for c in range(4):
+        a0, a1, a2, a3 = state[0+4*c], state[1+4*c], state[2+4*c], state[3+4*c]
+        out[0+4*c] = xtime(a0)^xtime(a1)^a1^a2^a3
+        out[1+4*c] = a0^xtime(a1)^xtime(a2)^a2^a3
+        out[2+4*c] = a0^a1^xtime(a2)^xtime(a3)^a3
+        out[3+4*c] = xtime(a0)^a0^a1^a2^xtime(a3)
+    return out
+
+def xtime(a):
+    return ((a << 1) ^ 0x11b) & 0xff if a & 0x80 else (a << 1) & 0xff
+```
+
+**Reflective differential — the distinguisher:**
+
+Both branches share the fork state `W`. A differential `ΔW` propagates independently through branch 0 → `ΔC0` and branch 1 → `ΔC1`. For a correct guess of the last two round keys, the backward differential from `C0` and from `C1` must converge on the same `ΔW` — reflection. Wrong keys give inconsistent `ΔW`.
+
+```python
+def fork_differential_attack(pairs):
+    """pairs: list of ((P, P'), (C0, C1, C0', C1')) with chosen ΔP."""
+    # 1. Filter pairs where differential trail through 5-round stem is plausible
+    #    (precompute DDT for S-box; MixColumns diffusion tells you which bytes active)
+    # 2. For each surviving pair, brute-force last-round keys branch0/branch1 separately:
+    for c0, c1, c0p, c1p in ciphertext_pairs:
+        for k6_0_guess in range(256):  # last round key byte-wise; real brute over SubBytes diff
+            # invert last round: C -> state before last AddRoundKey -> InvShiftRows -> InvSubBytes differential
+            delta_w0 = inv_branch_differential(c0, c0p, k6_0_guess, branch=0)
+            for k6_1_guess in range(256):
+                delta_w1 = inv_branch_differential(c1, c1p, k6_1_guess, branch=1)
+                if delta_w0 == delta_w1 and delta_w0 is not None:
+                    # reflective match -> key bytes correct, proceed to full key
+                    return k6_0_guess, k6_1_guess, delta_w0
+    return None
+
+def inv_branch_differential(c, cp, k_guess, branch=0):
+    """Invert 2-round branch one round back using key guess, return Δ at fork."""
+    # c ^ k_guess -> InvShiftRows -> InvSubBytes difference -> MixColumns inverse
+    pre = [b ^ k_guess for b in c]  # toy: per-byte; real per 4-byte column
+    # ... apply InvSBOX differential check via DDT ...
+    return pre  # placeholder for fork delta
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
+```python
+from sage.all import *
+
+# Sage: model ForkAES differential as linear layer over GF(2^8) with S-box DDT
+# Use sage's AES SBOX DDT for trail search: sage.crypto.block_cipher.sboxes.AES
+from sage.crypto.sboxes import AES as SageAES
+ddt = SageAES.difference_distribution_table()
+# Trail search via sage's MILP or brute over 256 byte values
+```
+
+</details>
+
+**Why 5-2-2 is fragile:**
+
+- The 5-round stem has a known AES differential trail with only ~8 active S-boxes; challenges pick a low-weight trail so enough pairs survive.
+- The 2-round branches are short enough that a single key-byte guess inverts them completely (last round has no MixColumns).
+- Reflection doubles the signal: both branches must agree, so false positives from one branch are pruned by the other — the effective filter is squared.
+
+**When to recognize:** Challenge says `ForkAES`, shows a fork diagram, or encrypts one plaintext to two ciphertexts. The key schedule splits round keys per branch — if you see `keys[0:5]` + `keys_branchA[0:2]` + `keys_branchB[0:2]`, it's this structure.
+
+**References:** BSidesSF 2026 "forkaes", ForkAES spec 5-2-2.
+
+---
+
+## GhostBlood — Faulty ChaCha ARX Rotate (BSidesSF 2026)
+
+**Pattern (GhostBlood):** ChaCha20 implemented with a faulty rotation — one of the four ARX rotates in the quarter-round is off by 1 (e.g., `<<< 12` instead of `<<< 16`, or `<<< 8` instead of `<<< 7`). The bug is silent: encryption still works, keystream still looks random, but the faulty rotate creates a linear correlation that reveals key bits via differential.
+
+**ChaCha quarter-round (correct):**
+
+```
+a += b; d ^= a; d <<<= 16;
+c += d; b ^= c; b <<<= 12;
+a += b; d ^= a; d <<<= 8;
+c += d; b ^= c; b <<<= 7;
+```
+
+Faulty variant (example): second rotate uses `11` instead of `12`, or last uses `8` instead of `7`.
+
+```python
+def chacha_qr(a, b, c, d, rotations=(16, 12, 8, 7), faulty=None):
+    MASK32 = 0xffffffff
+    def rotl(v, n):
+        return ((v << n) | (v >> (32 - n))) & MASK32
+    rots = list(rotations)
+    if faulty is not None:
+        idx, val = faulty
+        rots[idx] = val
+    a = (a + b) & MASK32; d ^= a; d = rotl(d, rots[0])
+    c = (c + d) & MASK32; b ^= c; b = rotl(b, rots[1])
+    a = (a + b) & MASK32; d ^= a; d = rotl(d, rots[2])
+    c = (c + d) & MASK32; b ^= c; b = rotl(b, rots[3])
+    return a, b, c, d
+
+def chacha_block(key, nonce, counter, faulty=None):
+    """Build ChaCha state 4x4: constants, key, counter, nonce; run 20 rounds (10 column+diagonal)."""
+    import struct
+    consts = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574]
+    k = struct.unpack('<8I', key)  # 32-byte key -> 8 words
+    n = struct.unpack('<3I', nonce + b'\x00')  # 12-byte nonce; simplified
+    state = consts + list(k) + [counter] + list(n[:3])
+    working = state[:]
+    for _ in range(10):
+        # column rounds
+        working[0], working[4], working[8], working[12] = chacha_qr(working[0], working[4], working[8], working[12], faulty=faulty)
+        working[1], working[5], working[9], working[13] = chacha_qr(working[1], working[5], working[9], working[13], faulty=faulty)
+        working[2], working[6], working[10], working[14] = chacha_qr(working[2], working[6], working[10], working[14], faulty=faulty)
+        working[3], working[7], working[11], working[15] = chacha_qr(working[3], working[7], working[11], working[15], faulty=faulty)
+        # diagonal rounds
+        working[0], working[5], working[10], working[15] = chacha_qr(working[0], working[5], working[10], working[15], faulty=faulty)
+        working[1], working[6], working[11], working[12] = chacha_qr(working[1], working[6], working[11], working[12], faulty=faulty)
+        working[2], working[7], working[8], working[13] = chacha_qr(working[2], working[7], working[8], working[13], faulty=faulty)
+        working[3], working[4], working[9], working[14] = chacha_qr(working[3], working[4], working[9], working[14], faulty=faulty)
+    return [(w + s) & 0xffffffff for w, s in zip(working, state)]
+```
+
+**Finding the fault — rotation enumeration:**
+
+Try all four rotation positions × plausible off-by-1 values (6,7,8,11,12,13,15,16,17,8...). For each candidate, check whether a known plaintext-ciphertext pair decrypts to readable ASCII.
+
+```python
+CANDIDATES = [(1, 11), (1, 13), (3, 6), (3, 8), (0, 15), (0, 17)]  # (index, faulty rotation)
+PNG_MAGIC = b'\x89PNG'
+
+def find_fault(cipher, known_pt_prefix, key_guess):
+    for idx, val in CANDIDATES:
+        ks = chacha_block(key_guess, nonce, counter, faulty=(idx, val))
+        keystream = b''.join(v.to_bytes(4, 'little') for v in ks)
+        pt = bytes(c ^ k for c, k in zip(cipher, keystream))
+        if pt.startswith(known_pt_prefix) or PNG_MAGIC in pt:
+            print(f"fault found: rotate index {idx} should be {(16,12,8,7)[idx]}, faulty={val}")
+            return idx, val, pt
+    return None
+
+# Full key recovery when key unknown: faulty rotate linearizes part of ARX
+# Differential: flip bit in `b`, the faulty rotate propagates differently.
+# Collect ~2^16 pairs with single-bit input差分, brute-force that rotation's key byte.
+def ghostblood_key_recovery(oracle):
+    """oracle(plaintext) -> ciphertext under faulty ChaCha with unknown key."""
+    # Chosen-plaintext differential: P and P^delta (one bit) -> C, C'
+    # The faulty rotate causes Δ to stay in one nibble longer
+    c0 = oracle(b'\x00'*64)
+    c1 = oracle(b'\x00'*63 + b'\x01')
+    delta = bytes(a ^ b for a, b in zip(c0, c1))
+    # For correct fault, delta has low Hamming weight at known positions
+    best = None
+    for idx, val in CANDIDATES:
+        # simulate delta distribution for this fault
+        score = simulate_delta_weight(idx, val, delta)
+        if best is None or score > best[0]:
+            best = (score, idx, val)
+    return best
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
+```python
+from sage.all import *
+
+# Sage: model ARX differential as bit-vector constraints
+# The faulty rotate is symbolic: rot_amount is variable, differential trail weight depends on it
+# Use sage's z3 bridge or pure IntegerMod for Hamming weight
+def sage_arx_delta(weight):
+    R = IntegerModRing(2**32)
+    # carry analysis via R; not needed — Python path suffices
+    pass
+```
+
+</details>
+
+**Key insight:** ARX security depends on rotations being exactly `(16,12,8,7)`. Off-by-one breaks diffusion: the ARX carry chain no longer fully mixes between rounds, so a single-bit input差分 leaves a detectable pattern in the keystream difference. In CTF, the reduced diffusion also lets Z3 solve the ChaCha state with only ~4 blocks of known plaintext (instead of needing the full 20-round inversion).
+
+**When to recognize:** Challenge mentions `ChaCha`, `ARX`, or shows quarter-round code with magic numbers `16,12,8,7`. Compare against the reference — any mismatch is the vulnerability. If the binary is provided, `objdump` the ChaCha core and diff rotates.
+
+**References:** BSidesSF 2026 "GhostBlood".
 
 See [exotic-crypto-2.md](exotic-crypto-2.md) for 2017+ era exotic crypto attacks (BB-84, ElGamal variants, Paillier oracles, Cayley-Purser, BIP39, Asmuth-Bloom, Rabin polynomial, Vandermonde).

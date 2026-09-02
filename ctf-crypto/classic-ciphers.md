@@ -561,6 +561,7 @@ for c1 in range(len(s)):
     for c2 in range(len(s)):
         if (c1 + c2) % len(s) == known_sum:
             # test this key pair
+            pass
 ```
 
 **Key insight:** Palindrome key structure (k2 = reverse(k1)) halves the effective keyspace. Each plaintext position depends on the sum of two key characters at mirrored positions. Known plaintext of length >= key_length/2 fully constrains these sums, reducing the remaining brute-force dramatically. This generalizes to any polyalphabetic cipher where key symmetry reduces independent key variables.

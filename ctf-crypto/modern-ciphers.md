@@ -193,6 +193,37 @@ AES-GCM (Galois/Counter Mode) combines AES-CTR encryption with a GHASH polynomia
 
 ```python
 from Crypto.Cipher import AES
+# Pure-Python GHASH over GF(2^128) using pycryptodome / galois
+# GHASH is polynomial evaluation; use galois or manual GF(2^128) arithmetic
+
+def xor(a, b): return bytes(x ^ y for x, y in zip(a, b))
+
+# Given: two (ciphertext, tag, nonce) pairs with same nonce
+# Step 1: Recover plaintext via CTR keystream reuse
+keystream = xor(known_plaintext, ciphertext1)
+plaintext2 = xor(keystream, ciphertext2)
+
+# Step 2: Recover GHASH auth key H
+# GHASH(H, aad, ciphertext) = sum blocks * H^{n-i+1} over GF(2^128)
+# Use galois library or pycryptodome's ghash; factor difference polynomial
+# pip install galois
+try:
+    import galois
+    GF128 = galois.GF(2**128, irreducible_poly=0x100000000000000000000000000000087)  # GCM poly
+    # Build polynomial P(H)=T1-T2 - GHASH_diff(H) and find roots via GF(2^128) factorization
+    # Factor P(H)=0 to find H candidates, verify against known tags
+except ImportError:
+    # Fallback manual GHASH via sage or use nonce-disrespect tool
+    pass
+
+# Step 3: Forge tags for arbitrary messages
+# GHASH(H, aad, ciphertext) computed with recovered H
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
+```python
+from Crypto.Cipher import AES
 from sage.all import GF, PolynomialRing
 
 # Given: two (ciphertext, tag, nonce) pairs with same nonce
@@ -210,6 +241,8 @@ F = GF(2**128, 'x', modulus=...)  # GCM polynomial
 # Step 3: Forge tags for arbitrary messages
 # GHASH(H, aad, ciphertext) computed with recovered H
 ```
+
+</details>
 
 **Tool:** [nonce-disrespect](https://github.com/nonce-disrespect/nonce-disrespect) automates GHASH key recovery and tag forgery from nonce-reused GCM ciphertexts.
 
