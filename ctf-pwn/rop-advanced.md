@@ -219,15 +219,19 @@ writes = {
 ```python
 from pwn import *
 
-context.binary = elf = ELF('./binary')
+elf = ELF('./binary', checksec=False)
+context.binary = elf
 context.log_level = 'debug'
+
+HOST = args.HOST or 'host'
+PORT = args.PORT or 1337
 
 def conn():
     if args.GDB:
-        return gdb.debug([exe], gdbscript='init-pwndbg\ncontinue')
+        return gdb.debug(elf.path, gdbscript='init-pwndbg\ncontinue')
     elif args.REMOTE:
-        return remote('host', port)
-    return process('./binary')
+        return remote(HOST, PORT)
+    return process(elf.path)
 
 io = conn()
 # exploit here
