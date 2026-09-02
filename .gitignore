@@ -16,8 +16,27 @@ venv/
 *.swo
 *~
 
+# PayloadsAllTheThings — on-demand clone, not vendored
+ctf-web/payloads/
+.ctf-tools/
+PayloadsAllTheThings/
+
+# Local crypto scratch — never committed
+scratch/
+debug.py
+/tmp/
+
+# Keep test fixtures committed (not ignored)
+!tests/fixtures/
+!tests/fixtures/**
+
 # Generated
 _site/
+
+# Local planning / advisor artifacts — not for upstream PR
+.superpowers/
+plans/
+docs/superpowers/
 
 # OS
 .DS_Store
