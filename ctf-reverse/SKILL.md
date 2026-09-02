@@ -41,6 +41,7 @@ r2pm -ci r2ghidra   # Native Ghidra decompiler for radare2
 
 ## Additional Resources
 
+- [unicorn-emulation.md](unicorn-emulation.md) - Unicorn CPU emulation: raw binary assembly emulation, hooks, ARM/MIPS/Thumb, mixed-mode, firmware MMIO, Keystone+Capstone trace inversion, shellcode unpack, custom VM, vs Qiling decision (sometimes easier to rev with just unicorn + binary + assembly than full GDB/angr)
 - [tools.md](tools.md) - Static analysis tools (GDB, Ghidra, radare2, IDA, Binary Ninja, dogbolt.org, RISC-V with Capstone, Unicorn emulation, Python bytecode, WASM, Android APK, .NET, packed binaries)
 - [tools-dynamic.md](tools-dynamic.md) - Dynamic analysis tools: Frida (hooking, anti-debug bypass, memory scanning, Android/iOS), angr symbolic execution (path exploration, constraints, CFG), lldb (macOS/LLVM debugger), x64dbg (Windows)
 - [tools-emulation.md](tools-emulation.md) - Emulation frameworks and side-channel tooling: Qiling (cross-platform OS-level emulation), Triton (DSE), Intel Pin instruction-counting + genetic algorithm side channel, opcode-only trace reconstruction, LD_PRELOAD time freeze and memcmp side-channel for byte-by-byte bruteforce
