@@ -102,6 +102,9 @@ gem_installed() {
 #
 # Format: "pip_name==version:import_name"
 # The import_name is used for skip-if-installed checks.
+# Requires Python >=3.12 (pyproject.toml `requires-python`).
+# uv alternative: uv venv --python 3.12 && uv pip install "pwntools==4.15.0" "ROPgadget==7.7" "ropper==1.13.13"
+# Optional cross-arch (ARM/MIPS): apt install qemu-user qemu-user-static qemu-user-binfmt gdb-multiarch binutils-multiarch libc6-armhf-cross libc6-arm64-cross libc6-mips-cross
 # ---------------------------------------------------------------------------
 
 PIP_PACKAGES=(
@@ -248,6 +251,8 @@ install_python() {
 install_apt() {
   require_cmd apt-get || return 1
 
+  # Optional cross-arch (ARM/MIPS) — not auto-installed; run manually if needed:
+  #   apt install qemu-user qemu-user-static qemu-user-binfmt gdb-multiarch binutils-multiarch libc6-armhf-cross libc6-arm64-cross libc6-mips-cross
   local packages=(
     gdb radare2 binutils binwalk foremost libimage-exiftool-perl
     tshark sleuthkit ffmpeg steghide testdisk john pcapfix

@@ -16,12 +16,25 @@ Quick reference for binary exploitation (pwn) CTF challenges. Each technique has
 
 **Python packages (all platforms):**
 ```bash
-pip install pwntools ropper ROPgadget
+pip install "pwntools==4.15.0" "ROPgadget==7.7" "ropper==1.13.13"
+# or via script: bash scripts/install_ctf_tools.sh python
 ```
+
+**uv alternative (requires Python >=3.12):**
+```bash
+uv venv --python 3.12 && uv pip install "pwntools==4.15.0" "ROPgadget==7.7" "ropper==1.13.13"
+```
+
+Requires Python >=3.12 (see `pyproject.toml` `requires-python`).
 
 **Linux (apt):**
 ```bash
 apt install gdb binutils strace ltrace qemu-system-x86
+```
+
+**Optional cross-arch (ARM/MIPS — Debian/Ubuntu):**
+```bash
+apt install qemu-user qemu-user-static gdb-multiarch binutils-multiarch libc6-armhf-cross libc6-arm64-cross libc6-mips-cross
 ```
 
 **macOS (Homebrew):**
@@ -36,7 +49,7 @@ gem install one_gadget seccomp-tools
 
 **Manual install:**
 - pwndbg — Linux: [GitHub](https://github.com/pwndbg/pwndbg), macOS: `brew install pwndbg/tap/pwndbg-gdb`
-- checksec — included with pwntools
+- checksec — included with pwntools (`checksec --file=binary`)
 
 ## Additional Resources
 
