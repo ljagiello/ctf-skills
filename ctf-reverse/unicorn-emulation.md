@@ -1007,7 +1007,7 @@ def hook_dispatch(mu, address, size, user_data):
 mu.hook_add(UC_HOOK_CODE, hook_dispatch)
 ```
 
-Iterative solver: brute-force VM input byte-by-byte via `try_byte` pattern above. For LLVM IR lifting, see [tools-advanced.md](tools-advanced.md#custom-vm-bytecode-lifting-to-llvm-ir).
+Iterative solver: brute-force VM input byte-by-byte via `try_byte` pattern above. For LLVM IR lifting, see [tools-advanced.md](tools-advanced.md#custom-vm-bytecode-lifting-to-llvm-ir-google-ctf-2017).
 
 ---
 
@@ -1310,4 +1310,4 @@ Verification prints `ok: nested VM flag recovered` when the VM check passes. Pat
 - Keystone: `Ks(KS_ARCH_X86, KS_MODE_64).asm(...)` for trace inversion.
 - Qiling: `Qiling(path, rootfs)` when syscalls are needed — see [tools-emulation.md](tools-emulation.md#qiling-framework-cross-platform-emulation) for anti-debug and input fuzzing.
 - QEMU vs angr vs Triton: concrete/system vs symbolic — see comparison table above; VMProtect/Themida devirtualization via [tools-advanced.md](tools-advanced.md#vmprotect-analysis).
-- Prior art: [tools.md](tools.md#unicorn-emulation), [field-notes.md](field-notes.md#unicorn-emulation-complex-state), [anti-analysis-ctf.md](anti-analysis-ctf.md#instruction-trace-inversion-with-keystone-and-unicorn-meepwn-ctf-2017), [tools-emulation.md](tools-emulation.md#qiling-framework-cross-platform-emulation), [tools-advanced.md](tools-advanced.md#custom-vm-bytecode-lifting-to-llvm-ir).
+- Prior art: [tools.md](tools.md#unicorn-emulation), [field-notes.md](field-notes.md#unicorn-emulation-complex-state), [anti-analysis-ctf.md](anti-analysis-ctf.md#instruction-trace-inversion-with-keystone-and-unicorn-meepwn-ctf-2017), [tools-emulation.md](tools-emulation.md#qiling-framework-cross-platform-emulation), [tools-advanced.md](tools-advanced.md#custom-vm-bytecode-lifting-to-llvm-ir-google-ctf-2017).
