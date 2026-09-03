@@ -141,7 +141,6 @@ def load_pat(category="XSS Injection", cap=200):
                 break
         if len(out) >= cap:
             break
-        break  # first file only; remove to aggregate all
     return out
 def load_pat_urls(category, url_template, cap=200):
     for p in load_pat(category, cap=cap):
@@ -186,7 +185,6 @@ def blind_sqli_char_feed(url_template, charset=None, prefix_tmpl="' OR ASCII(SUB
             payload = prefix_tmpl.format(i=i, c=ord(ch))
             yield url_template.replace("FUZZ", urllib.parse.quote(payload, safe=""))
         i += 1
-        break
 def discovery_feed(base_with_FUZZ, words_path, exts=("", ".php", ".bak", ".txt")):
     for w in wordlist_stream(words_path):
         for e in exts:

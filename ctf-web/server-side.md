@@ -183,6 +183,7 @@ greeting = "Hello, {name}!".format(name=user_input)
 ```go
 {{.ReadFile "/flag.txt"}}
 ```
+**Note:** `{{.ReadFile ...}}` only works if the application exposes a `ReadFile` function in its `template.FuncMap` (e.g. `template.New("x").Funcs(template.FuncMap{"ReadFile": os.ReadFile})`) — Go's `text/template` has no file-read builtin, so this payload confirms a custom `FuncMap` entry, not default template behavior.
 
 ### EJS Server-Side Template Injection
 **Pattern (Checking It Twice):** User input passed to `ejs.render()` in error paths.

@@ -27,7 +27,7 @@ def apply_processing(p, chain):
         elif kind=="final_urlencode": cur=urllib.parse.quote(cur,safe="")
     return cur
 def parse_chain(s): return [tuple(x.split(":",1)) if ":" in x else (x,"") for x in s.split(",") if x] if s else []
-def render(url,p): return url.replace("FUZZ",urllib.parse.quote(str(p),safe=""))
+def render(url,p): return url.replace("FUZZ",urllib.parse.quote(urllib.parse.unquote(str(p)),safe=""))  # unquote first: quote exactly once even if input already encoded
 def sniper(url,payloads,chain):
     for p in payloads:
         c=apply_processing(p,chain)
@@ -37,12 +37,12 @@ def pitchfork(url,sets,chain):
     for combo in zip(*sets):
         pcs=[apply_processing(p,chain) for p in combo]
         if None in pcs: continue
-        yield render(url,urllib.parse.quote("|".join(pcs),safe=""))
+        yield render(url,"|".join(pcs))
 def cluster(url,sets,chain,cap=50000):
     import itertools
     for combo in itertools.islice(itertools.product(*sets),cap):
         pcs=[str(apply_processing(p,chain) or "") for p in combo]
-        yield render(url,urllib.parse.quote("|".join(pcs),safe=""))
+        yield render(url,"|".join(pcs))
 def grep_match(t,pats): return any(re.search(p,t,re.I) if p.startswith("re:") else p.lower() in t.lower() for p in pats)
 def grep_extract(t,rx,max_len=500):
     m=re.search(rx,t,re.S); return (m.group(1)[:max_len] if m and m.lastindex else m.group(0)[:max_len] if m else "")
@@ -64,15 +64,22 @@ def run_threaded(url,payloads,threads,delay,jitter,proxy,grep):
         for f in as_completed(futs):
             u,code,n,hit=f.result(); print(f"{u} -> {code} {n} {'HIT' if hit else ''}")
             if hit: return u
-def run_async(url,payloads,conc,grep):
+def run_async(url,payloads,conc,grep=None,proxy=None):
     async def _run():
         if not HAS_HTTPX: print("httpx not installed"); return
         limits=httpx.Limits(max_connections=conc,max_keepalive_connections=20)
-        async with httpx.AsyncClient(limits=limits,timeout=10,follow_redirects=True) as client:
+        kwargs={"limits":limits,"timeout":10,"follow_redirects":True,"verify":False}
+        if proxy: kwargs["proxy"]=proxy
+        async with httpx.AsyncClient(**kwargs) as client:
             sem=asyncio.Semaphore(conc)
             async def fetch(u):
                 async with sem:
-                    try: r=await client.get(u); hit=grep_match(r.text,grep) if grep else r.status_code not in (200,404); print(f"{u} {r.status_code} {len(r.text)} {'HIT' if hit else ''}"); return u if hit else None
+                    try:
+                        r=await client.get(u)
+                        if r.status_code==429:
+                            try: await asyncio.sleep(int(r.headers.get("Retry-After","1")))
+                            except: await asyncio.sleep(1)
+                        hit=grep_match(r.text,grep) if grep else r.status_code not in (200,404); print(f"{u} {r.status_code} {len(r.text)} {'HIT' if hit else ''}"); return u if hit else None
                     except (httpx.RequestError,Exception): return None
             res=await asyncio.gather(*(fetch(u) for u in payloads)); return next((x for x in res if x),None)
     return asyncio.run(_run())
@@ -96,4 +103,4 @@ if __name__=="__main__":
     elif args.attack=="ram": urls=list(ram(args.url,payloads,[]))
     elif args.attack=="pitchfork": urls=list(pitchfork(args.url,[payloads,payloads],[]))
     else: urls=list(cluster(args.url,[payloads,payloads],[]))
-    (run_async(args.url,urls,args.threads,args.grep) if args.use_async else run_threaded(args.url,urls,args.threads,args.delay,args.jitter,args.proxy,args.grep))
+    (run_async(args.url,urls,args.threads,args.grep,args.proxy or None) if args.use_async else run_threaded(args.url,urls,args.threads,args.delay,args.jitter,args.proxy,args.grep))
