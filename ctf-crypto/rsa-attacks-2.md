@@ -292,14 +292,9 @@ def implicit_factor_lsb(N1, N2, t, alpha=0.5):
     # Demo lattice (univariate slice) for X small:
     #   f(x)= x - p1_low ??? Use hg_matrix([c0,1], N1, X, beta=0.5, m=4, t=1), LLL.reduction, roots
     if X > 1_000_000:
-        try:
-            from advanced_math import hg_matrix  # type: ignore
-            rows = hg_matrix([0, 1], N1, X, beta=beta, m=4, t=1)  # placeholder monic
-            B = IntegerMatrix.from_matrix(rows)
-            LLL.reduction(B)
-        except Exception:
-            pass
-        # Real attack needs bivariate; for demo return None and advise tool
+        # Real attack needs bivariate lattice; copy hg_matrix from
+        # advanced-math.md inline here, then LLL.reduction(B).
+        # For demo return None and advise tool
         return None
     # Brute force for tiny X demo
     return None
@@ -693,11 +688,11 @@ def factor_triangle(n1, n2, n3):
 
 ```python
 phi = p*(p-1)*(q-1)
-# Reduce enc to mod-q by inverse_mod(q, phi)
-qinv = inverse_mod(q, phi)
+# Reduce enc to mod-q via pow(q, -1, phi)
+qinv = pow(q, -1, phi)
 enc = pow(enc, qinv, n) % q
 # Now m < q; invert e*p^2 over phi(q) = q-1
-pinv = inverse_mod(p*p, q-1)
+pinv = pow(p*p, -1, q-1)
 m = pow(enc, pinv, q)
 ```
 

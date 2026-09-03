@@ -522,16 +522,20 @@ def mov_attack(p, a, b, Gx, Gy, Qx, Qy, r):
     E = EllipticCurve(Fp, [a, b])
     G = E(Gx, Gy)
     Q = E(Qx, Qy)
-    k = G.order().divisors()  # or compute embedding_degree(p, r)
-    # find embedding degree
+    k = 1
+    while (pow(p, k, r) - 1) % r != 0 and k <= 6:
+        k += 1
+    if k > 6:
+        return None  # MOV not applicable for large embedding degree
     Fpk = GF(p**k, 'alpha')
     Ek = EllipticCurve(Fpk, [a, b])
     Gk = Ek(Gx, Gy)
     Qk = Ek(Qx, Qy)
-    # find independent R in E[r]
     R = None
-    for pt in Ek.points():
-        if pt.order() == r and pt.weil_pairing(Gk, r) != Fpk(1):
+    cofactor = Ek.order() // r
+    for _ in range(100):
+        pt = Ek.random_point() * cofactor
+        if pt != Ek(0) and pt.weil_pairing(Gk, r) != Fpk(1):
             R = pt
             break
     if R is None:

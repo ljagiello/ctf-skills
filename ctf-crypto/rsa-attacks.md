@@ -176,13 +176,8 @@ def boneh_durfee_lattice(N, e, delta=0.28, m=4, t=1):
         return None  # caller brute-forces for demo
     # Build HG-style rows scaled by X^i Y^j (monic check lc==1)
     f_coeffs = [1, N+1]  # placeholder univariate slice f(x)= (N+1)*x+1 mod e when y=0
-    from ctf_crypto_advanced_math import hg_matrix  # if vendored, else inline from advanced-math.md
-    # Fallback inline import of hg_matrix defined in advanced-math.md
-    try:
-        from advanced_math import hg_matrix  # type: ignore
-    except ImportError:
-        pass
-    # Actual bivariate construction needs 2D monomials; for CTF copy RsaCtfTool's lattice:
+    # Actual bivariate construction needs 2D monomials; for CTF copy RsaCtfTool's lattice.
+    # See advanced-math.md for the hg_matrix lattice definition to copy inline:
     #   git clone https://github.com/RsaCtfTool/RsaCtfTool && python RsaCtfTool.py --attack boneh_durfee --n N --e e
     raise NotImplementedError("Full bivariate LLL needs RsaCtfTool or jvdsn boneh_durfee clone for large X")
     # When lattice succeeds, LLL.reduction then Poly roots give k,d, then p+q = (e*d-1)//k - N -1
@@ -233,8 +228,7 @@ from sympy import Poly, symbols
 import math
 x = symbols("x")
 
-# hg_matrix imported from advanced-math.md (copy definition there)
-# from advanced_math import hg_matrix, hg_small_roots  # or inline copy
+# hg_matrix lattice definition lives in advanced-math.md (copy it inline here)
 
 def partial_d_recover(N, e, known, t, lsb=True):
     """Recover d = known + 2^t * x when |x| < 2^{bitlen(d)-t}.
@@ -611,7 +605,8 @@ def stereotyped_recover(n, e, c, K, suffix_bits=200):
     K: integer of known prefix (e.g., int.from_bytes(b'squ1rrel{', 'big') << suffix_bits)
     X: explicit bound X < n^{1/e}, not None. e=3 => X ≈ int(pow(n, 1/3))
     """
-    X = int(pow(n, 1.0 / e))  # explicit, satisfies X < n^{1/e}
+    from sympy import integer_nthroot
+    X, _ = integer_nthroot(n, e)  # explicit, satisfies X < n^{1/e}
     if suffix_bits < 64:
         X = 1 << suffix_bits
     # f(x) = (K+x)^e - c mod n, expand and make monic (lc==1)

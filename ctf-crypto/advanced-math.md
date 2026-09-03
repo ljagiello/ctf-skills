@@ -962,7 +962,7 @@ plaintext = cipher.decrypt_and_verify(ciphertext, tag)
 ```python
 def crt2(r1, m1, r2, m2):
     """CRT: x = r1 (mod m1) and x = r2 (mod m2)"""
-    m1_inv = pow(m1, m2 - 2, m2)  # Fermat's little theorem
+    m1_inv = pow(m1, -1, m2)
     t = ((r2 - r1) * m1_inv) % m2
     return (r1 + m1 * t) % (m1 * m2)
 
@@ -1120,7 +1120,7 @@ def hensel_lift(pol, root, p, k):
     for i in range(1, k):
         mod_next = mod * p
         # r' = r - P(r) * inverse(P'(r), p) mod p^(i+1)
-        inv = inverse_mod(int(dpol(r)) % p, p)
+        inv = pow(int(dpol(r)) % p, -1, p)
         r = (r - int(pol(r)) * inv) % mod_next
         mod = mod_next
     return r
