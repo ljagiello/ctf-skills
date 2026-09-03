@@ -146,6 +146,7 @@ PIP_PACKAGES=(
   "dnslib==0.9.26:dnslib"
   "segno==1.6.2:segno"
   "dissect.cobaltstrike==1.2.1:dissect.cobaltstrike"
+  "python-evtx==0.7.4:Evtx"
 )
 
 # ---------------------------------------------------------------------------

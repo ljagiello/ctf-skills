@@ -80,9 +80,9 @@ fls -r image.dd              # List files
 photorec image.dd            # Carve deleted files
 
 # Memory forensics (Volatility 3)
-vol3 -f memory.dmp windows.info
-vol3 -f memory.dmp windows.pslist
-vol3 -f memory.dmp windows.filescan
+vol -f memory.dmp windows.info
+vol -f memory.dmp windows.pslist
+vol -f memory.dmp windows.filescan
 ```
 
 See [disk-and-memory.md](disk-and-memory.md) for full Volatility plugin reference, VM forensics, and coredump analysis.
@@ -136,7 +136,7 @@ See [windows.md](windows.md) for detailed parsing code and anti-forensics detect
 ## Steganography
 
 ```bash
-steghide extract -sf image.jpg
+steghide extract -sf image.jpg -p ""
 zsteg image.png              # PNG/BMP analysis
 stegsolve                    # Visual analysis
 ```
@@ -186,10 +186,10 @@ tar -xvf machine.ova
 7z x disk.vmdk -oextracted "Windows/System32/config/SAM" -r
 
 # Memory (Volatility 3)
-vol3 -f memory.dmp windows.pslist
-vol3 -f memory.dmp windows.cmdline
-vol3 -f memory.dmp windows.netscan
-vol3 -f memory.dmp windows.dumpfiles --physaddr <addr>
+vol -f memory.dmp windows.pslist
+vol -f memory.dmp windows.cmdline
+vol -f memory.dmp windows.netscan
+vol -f memory.dmp windows.dumpfiles --physaddr <addr>
 
 # String carving
 strings -a -n 6 memdump.bin | grep -E "FLAG|SSH_CLIENT|SESSION_KEY"

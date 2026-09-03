@@ -77,11 +77,14 @@ from torchvision import transforms
 from PIL import Image
 
 # Load the challenge model
-model = torch.load("challenge_model.pt", map_location="cpu")
+# NOTE (PyTorch 2.6+): torch.load defaults to weights_only=True, which blocks
+# full pickled models. CTF model files need weights_only=False (only load
+# files you trust — untrusted pickles can execute arbitrary code).
+model = torch.load("challenge_model.pt", map_location="cpu", weights_only=False)
 model.eval()
 
 # Target: the output we want to invert (e.g., a specific embedding or class)
-target_output = torch.load("target_embedding.pt")  # shape depends on model
+target_output = torch.load("target_embedding.pt", weights_only=False)  # shape depends on model
 
 # Initialize random input (e.g., 3x224x224 image)
 input_tensor = torch.randn(1, 3, 224, 224, requires_grad=True)
@@ -136,8 +139,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-# Load the encoder model
-encoder = torch.load("encoder.pt", map_location="cpu")
+# Load the encoder model (weights_only=False required on PyTorch 2.6+ for pickled models)
+encoder = torch.load("encoder.pt", map_location="cpu", weights_only=False)
 encoder.eval()
 
 # Initialize two random inputs
@@ -360,8 +363,8 @@ import torch.nn.functional as F
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
-# Load challenge model
-model = torch.load("target_model.pt", map_location="cpu")
+# Load challenge model (weights_only=False required on PyTorch 2.6+ for pickled models)
+model = torch.load("target_model.pt", map_location="cpu", weights_only=False)
 model.eval()
 
 def get_prediction_metrics(model, x, true_label):
