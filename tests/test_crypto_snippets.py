@@ -946,3 +946,24 @@ class TestCryptoSnippets(unittest.TestCase):
         w = M.babai(target)
         closest = B.multiply_left(w)
         self.assertEqual(len(closest), 3)
+
+    # --- ML-KEM flatten: negacyclic convolution matrix -----------------------
+
+    def test_flatten_mlkem_negacyclic(self) -> None:
+        # Toy N=4, k=1 mirror of flatten_mlkem in ctf-crypto/post-quantum.md:
+        # each poly maps to its negacyclic matrix over Z_q (x^N + 1).
+        q = 3329
+        N = 4
+        a = [1, 2, 3, 4]
+        s = [1, 1, 0, 0]
+        M = [[0] * N for _ in range(N)]
+        for r in range(N):
+            for c in range(N):
+                if r >= c:
+                    M[r][c] = a[r - c] % q
+                else:
+                    M[r][c] = (-a[N + r - c]) % q
+        prod = [sum(M[r][c] * s[c] for c in range(N)) % q for r in range(N)]
+        # (1+2x+3x^2+4x^3)(1+x) = 1+3x+5x^2+7x^3-4x^4 mod (x^4+1)
+        # x^4 = -1, so constant term is 1-4 = -3.
+        self.assertEqual(prod, [(-3) % q, 3, 5, 7])

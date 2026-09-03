@@ -16,7 +16,7 @@
 
 ```python
 # flatten Module-LWE to plain LWE for lattice attack (SandboxAQ style)
-def flatten_mlkem(A_poly, s_poly, e_poly, q=3329):
+def flatten_mlkem(A_poly, s_poly=None, e_poly=None, q=3329):
     """A_poly: k x k list of polys length 256, s_poly: k polys.
     Returns A_flat (256k x 256k), s_flat (256k), e_flat (256k).
     Each poly -> 256x256 negacyclic matrix.
@@ -24,17 +24,25 @@ def flatten_mlkem(A_poly, s_poly, e_poly, q=3329):
     k = len(A_poly)
     N = 256
     dim = k * N
-    # build A_flat block matrix
-    A_flat = [[0]*dim for _ in range(dim)]
+    A_flat = [[0] * dim for _ in range(dim)]
     for i in range(k):
         for j in range(k):
-            poly = A_poly[i][j]  # length N
+            poly = list(A_poly[i][j]) + [0] * (N - len(A_poly[i][j]))
             for r in range(N):
                 for c in range(N):
-                    # negacyclic: if c > r then -(poly[(c-r) mod N]) else poly[c-r]
-                    # simplified
-                    pass
-    return A_flat
+                    if r >= c:
+                        A_flat[i * N + r][j * N + c] = poly[r - c] % q
+                    else:
+                        A_flat[i * N + r][j * N + c] = (-poly[N + r - c]) % q
+    s_flat = []
+    if s_poly is not None:
+        for s in s_poly:
+            s_flat.extend(list(s) + [0] * (N - len(s)))
+    e_flat = []
+    if e_poly is not None:
+        for e in e_poly:
+            e_flat.extend(list(e) + [0] * (N - len(e)))
+    return A_flat, s_flat, e_flat
 ```
 
 **FO failure oracle:** ML-KEM uses Fujisaki-Okamoto transform -- decryption failure leaks `e` via `du/dv` compression (lossy). CTF may give failure oracle (yes/no) -> use via BDD.
