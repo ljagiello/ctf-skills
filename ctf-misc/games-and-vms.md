@@ -247,7 +247,8 @@ for gate_type, in1, in2, out in gates:
 if solver.check() == sat:
     model = solver.model()
     # Extract 125 bits, encode as base32 in 5-bit groups
-    bits = [1 if is_true(model[inputs[i]]) else 0 for i in range(125)]
+    # model_completion=True so unconstrained inputs evaluate to False instead of None
+    bits = [1 if is_true(model.eval(inputs[i], model_completion=True)) else 0 for i in range(125)]
     # Convert to product key format
     key = bits_to_base32(bits)
     print(f"Product key: {key}")

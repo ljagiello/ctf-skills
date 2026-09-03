@@ -110,13 +110,17 @@ def try_xor(data, key_hint='flag'):
     """Single-byte brute 256 + repeating-key hint; xor_flag heuristic."""
     raw = data.encode() if isinstance(data, str) else data
     best = None
-    # single-byte brute 256
+    # First pass: exact hint match (case-sensitive) — avoids FLAG false positive
+    # (e.g. key 0x20 maps FLAG->flag; exact pass prefers the true key).
     for key in range(256):
         decoded = bytes(b ^ key for b in raw)
-        # xor_flag heuristic: printable + contains key_hint
-        xor_flag_score = decoded.count(key_hint.encode()) if key_hint else 0
+        if key_hint and decoded.count(key_hint.encode()) > 0:
+            return decoded
+    # Second pass: case-insensitive flag + printable fallback
+    for key in range(256):
+        decoded = bytes(b ^ key for b in raw)
         printable = all(32 <= b < 127 or b in b'\n\r\t' for b in decoded[:64]) if decoded else False
-        if xor_flag_score or (printable and b'flag' in decoded.lower()):
+        if printable and b'flag' in decoded.lower():
             return decoded
         if printable and best is None:
             best = decoded
@@ -128,58 +132,70 @@ def try_xor(data, key_hint='flag'):
             return decoded
     return best
 
+def _as_text(raw: bytes):
+    """Decode only for str-only passes; return None if not text-safe."""
+    try:
+        return raw.decode('ascii')
+    except UnicodeDecodeError:
+        return None
+
 def auto_decode(data):
+    # Keep raw bytes across passes — never lossy-decode mid-chain with
+    # errors='replace' (that corrupts the next pass's input). Text-only
+    # decoders (hex/base64) run on the ASCII view; compression/xor run on bytes.
+    raw = data.encode() if isinstance(data, str) else bytes(data)
     while True:
-        data = data.strip() if isinstance(data, str) else data
-        if isinstance(data, str) and data.startswith('REAL_DATA_FOLLOWS:'):
-            data = data.split(':', 1)[1]
+        text = _as_text(raw)
+        s = text.strip() if text is not None else None
+        if s is not None and s.startswith('REAL_DATA_FOLLOWS:'):
+            raw = s.split(':', 1)[1].encode()
             continue
         # Distinguish zlib (78 01/78 9c) vs gzip (1f 8b) vs bz2 vs lzma magic before text decoders
-        raw = data.encode() if isinstance(data, str) else data
         if raw.startswith(b'\x78\x01') or raw.startswith(b'\x78\x9c'):  # zlib
             try:
-                data = zlib.decompress(raw).decode('ascii', errors='replace')
+                raw = zlib.decompress(raw)
                 continue
             except Exception:
                 pass
         if raw.startswith(b'\x1f\x8b'):  # gzip 1f 8b
             try:
-                data = gzip.decompress(raw).decode('ascii', errors='replace')
+                raw = gzip.decompress(raw)
                 continue
             except Exception:
                 pass
         if raw.startswith(b'BZh'):  # bz2
             try:
-                data = bz2.decompress(raw).decode('ascii', errors='replace')
+                raw = bz2.decompress(raw)
                 continue
             except Exception:
                 pass
         if raw.startswith(b'\xfd7zXZ\x00'):  # lzma/xz
             try:
-                data = lzma.decompress(raw).decode('ascii', errors='replace')
+                raw = lzma.decompress(raw)
                 continue
             except Exception:
                 pass
         # xor branch — try_xor(data, key_hint='flag') single-byte brute 256 + repeating-key hint
-        xor_res = try_xor(data, key_hint='flag')
-        if xor_res and b'flag' in xor_res.lower():
-            data = xor_res.decode('ascii', errors='replace')
+        # (two-pass: exact hint first, then case-insensitive printable fallback)
+        xor_res = try_xor(raw, key_hint='flag')
+        if xor_res is not None and xor_res != raw and b'flag' in xor_res.lower():
+            raw = xor_res
             continue
-        # Prioritize hex when ambiguous — hex-first rule
-        if isinstance(data, str) and all(c in '0123456789abcdefABCDEF' for c in data) and len(data) % 2 == 0 and len(data) > 0:
+        # Prioritize hex when ambiguous — hex-first rule (str-only passes)
+        if s is not None and len(s) % 2 == 0 and len(s) > 0 and all(c in '0123456789abcdefABCDEF' for c in s):
             try:
-                data = bytes.fromhex(data).decode('ascii', errors='replace')
+                raw = bytes.fromhex(s)
                 continue
             except Exception:
                 pass
-        if isinstance(data, str) and set(data) <= set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=') and len(data) % 4 == 0:
+        if s is not None and len(s) % 4 == 0 and set(s) <= set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='):
             try:
-                data = base64.b64decode(data).decode('ascii', errors='replace')
+                raw = base64.b64decode(s)
                 continue
             except Exception:
                 pass
         break
-    return data
+    return raw
 ```
 
 **Ignore troll flags** — check for "keep decoding" or "REAL_DATA_FOLLOWS:" markers.

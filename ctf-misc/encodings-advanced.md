@@ -185,9 +185,14 @@ file polyglot.png              # e.g. "PNG image data, Zip archive data"
 binwalk polyglot.png           # list embedded files/offsets
 pngcheck -v polyglot.png       # verify chunks, show trailing bytes after IEND
 7z l polyglot.png              # list archive contents even with PNG header
-# extract appended ZIP/JAR
-tail -c +$(($(grep -aob IEND polyglot.png | tail -1 | cut -d: -f1)+8)) polyglot.png > hidden.zip
-# or simpler: binwalk -e / 7z x
+# extract appended ZIP/JAR — prefer archive-aware extraction:
+binwalk -e polyglot.png        # carve by signature (robust)
+7z x polyglot.png -oout/       # 7z scans for central directory (robust)
+# NOTE: `tail -c` after IEND is fragile — it assumes the payload starts at a
+# fixed offset past the IEND marker and breaks on stray chunks, ancillary data,
+# or non-appended (interleaved) polyglots. Prefer `binwalk -e` / `7z x` above.
+# Last-resort manual carve only:
+# tail -c +$(($(grep -aob IEND polyglot.png | tail -1 | cut -d: -f1)+8)) polyglot.png > hidden.zip
 
 # LSB / bit-plane stego inside QR PNG
 zsteg -a polyglot.png          # check all bit planes
@@ -402,14 +407,13 @@ MaxiCode is a hexagonal 2D barcode used by UPS, occasionally found in CTF forens
 # Decode using zxing library:
 # Online: https://zxing.org/w/decode.jspx (upload image)
 
-# Python:
-# pip install zxing pyzbar
+# Python — prefer zxing-cpp (pyzbar/ZBar does not support MaxiCode):
+# pip install zxing-cpp Pillow
 python3 -c "
-from pyzbar.pyzbar import decode
+import zxingcpp
 from PIL import Image
-results = decode(Image.open('maxicode.gif'), symbols=[pyzbar.ZBarSymbol.CODE128])
-# Note: pyzbar may not support MaxiCode directly
-# Use zxing Java library instead:
+results = zxingcpp.read_barcodes(Image.open('maxicode.gif'))
+for r in results: print(r.format, r.text)
 "
 
 # Java zxing command-line:
