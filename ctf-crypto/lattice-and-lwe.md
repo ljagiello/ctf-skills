@@ -794,28 +794,30 @@ def ggh_embed_lattice(B_pub, c, lam=1):
 
 def ggh_solve(B_pub, c):
     best = None
+    best_err = None
     for lam in [1,2,4,8,16,32,64,128]:
         B = ggh_embed_lattice(B_pub, c, lam)
         LLL.reduction(B)
         # CVP vs Babai nuance:
-        # CVP.closest_vector exact (exponential) for dim<50; else Babai via GSO
+        # CVP.closest_vector(B, target) is exact (exponential), use for dim<50;
+        # else Babai nearest plane via GSO.Mat(B).babai(target) (approximate, fast).
+        target = list(c) + [lam]
         try:
-            # exact CVP when feasible
-            target = [0]*B.ncols
-            target[-1] = lam  # not; actually CVP needs separate target
-            # For embedding, closest vector to 0 in last coord gives e
-            # Use fpylll CVP if dimension moderate
-            closest = CVP.closest_vector(B, target)
-            cand = closest
+            # exact CVP when feasible; returns the lattice point directly
+            cand = list(CVP.closest_vector(B, target))
         except Exception:
-            # Babai nearest plane fallback (GSO.Mat.babai)
-            from fpylll import GSO
+            # Babai nearest plane fallback: babai returns coefficient vector w,
+            # so map it back to the lattice point with multiply_left.
             M = GSO.Mat(B)
             M.update_gso()
-            cand = M.babai(list(c)+[lam])
-        # check cand
-        if best is None or sum(v*v for v in cand) < sum(v*v for v in best):
+            w = M.babai(target)
+            cand = list(B.multiply_left(w))
+        # error-vector candidate: target minus lattice point, drop embed coord
+        e_cand = [c[i] - cand[i] for i in range(len(c))]
+        err = sum(v*v for v in e_cand)
+        if best is None or err < best_err:
             best = cand
+            best_err = err
     return best
 
 # GSO.Mat.babai vs CVP.closest_vector:

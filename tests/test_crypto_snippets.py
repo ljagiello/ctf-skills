@@ -921,3 +921,28 @@ class TestCryptoSnippets(unittest.TestCase):
         root, exact = integer_nthroot(c, e)
         # c is not perfect cube in integers (wrapped)
         self.assertFalse(exact)
+
+    # --- fpylll Babai nearest plane via GSO.Mat ------------------------------
+
+    def test_fpylll_babai_pattern(self) -> None:
+        if pytest is not None:
+            pytest.importorskip("fpylll")
+            pytest.importorskip("cysignals")
+        else:
+            try:
+                import fpylll  # noqa: F401
+                import cysignals  # noqa: F401
+            except ImportError:
+                self.skipTest("fpylll/cysignals not installed")
+        try:
+            from fpylll import IntegerMatrix, LLL, GSO
+        except ImportError as e:  # pragma: no cover
+            self.skipTest(f"fpylll import failed: {e}")
+        B = IntegerMatrix.from_matrix([[10, 2, 1], [0, 11, 3], [0, 0, 12]])
+        LLL.reduction(B)
+        target = [10, 11, 12]
+        M = GSO.Mat(B)
+        M.update_gso()
+        w = M.babai(target)
+        closest = B.multiply_left(w)
+        self.assertEqual(len(closest), 3)

@@ -849,7 +849,7 @@ key = lo  # ~64 queries for 64-bit key
 
 **LWE solving with fpylll (CVP/Babai):**
 ```python
-from fpylll import IntegerMatrix, LLL, CVP
+from fpylll import IntegerMatrix, LLL, CVP, GSO
 import numpy as np
 
 q = 3329  # Common LWE modulus (Kyber uses this)
@@ -882,8 +882,13 @@ def solve_lwe_cvp(A, b, q, n, m):
     # Target vector: (b | 0...0)
     target = [int(b[i]) for i in range(m)] + [0] * n
 
-    # CVP via Babai's nearest plane
-    closest = CVP.babai(B, target)
+    # CVP via Babai's nearest plane (GSO.Mat.babai).
+    # Exact alternative for small dims (<40): CVP.closest_vector(B, target).
+    from fpylll import GSO
+    M_gso = GSO.Mat(B)
+    M_gso.update_gso()
+    w = M_gso.babai(target)
+    closest = B.multiply_left(w)
 
     # Extract secret from last n components
     s_candidate = [closest[m + j] for j in range(n)]
