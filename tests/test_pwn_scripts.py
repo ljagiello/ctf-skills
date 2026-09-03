@@ -126,7 +126,7 @@ def _srop_execve_frames(binsh_addr: int, frame_cls=_FakeSigreturnFrame, variants
     variants = variants or ["classic", "with_rsp", "alt_regs"]
     for name in variants:
         frame = frame_cls()
-        frame.rax = SYS_rt_sigreturn
+        frame.rax = SYS_execve  # 59 for execve syscall
         frame.rip = 0x4010A0
         frame.rdi = binsh_addr
         frame.rsi = 0
@@ -204,7 +204,7 @@ class TestPwnScripts(unittest.TestCase):
         mock_rop_instance.call.assert_called()
 
     def test_srop_frame_uses_sigreturn(self) -> None:
-        """SigreturnFrame rax = SYS_rt_sigreturn."""
+        """SigreturnFrame rax = SYS_execve (59) for target execution."""
         binsh = 0x404000
         frames = list(_srop_execve_frames(binsh, frame_cls=_FakeSigreturnFrame))
         self.assertGreaterEqual(len(frames), 3)
@@ -215,15 +215,14 @@ class TestPwnScripts(unittest.TestCase):
 
         # direct frame assertion
         frame = _FakeSigreturnFrame()
-        # mock constants.SYS_rt_sigreturn
-        mock_constants = MagicMock(SYS_rt_sigreturn=SYS_rt_sigreturn)
+        mock_constants = MagicMock(SYS_execve=SYS_execve, SYS_rt_sigreturn=SYS_rt_sigreturn)
         with patch.dict("sys.modules", {"pwn": MagicMock(SigreturnFrame=_FakeSigreturnFrame, constants=mock_constants)}):
             f = _FakeSigreturnFrame()
-            f.rax = mock_constants.SYS_rt_sigreturn
+            f.rax = mock_constants.SYS_execve
             f.rip = 0x4010A0
-            self.assertEqual(f.rax, SYS_rt_sigreturn)
-            self.assertEqual(f.rax, 15)
-            self.assertEqual(bytes(f)[:8], _p64(SYS_rt_sigreturn))
+            self.assertEqual(f.rax, SYS_execve)
+            self.assertEqual(f.rax, 59)
+            self.assertEqual(bytes(f)[:8], _p64(SYS_execve))
 
         # also verify _srop_execve_frames sets rax correctly via patched frame
         captured = {}
@@ -234,7 +233,7 @@ class TestPwnScripts(unittest.TestCase):
                 captured["instance"] = self
 
         list(_srop_execve_frames(binsh, frame_cls=CapturingFrame, variants=["classic"]))
-        self.assertEqual(captured["instance"].rax, SYS_rt_sigreturn)
+        self.assertEqual(captured["instance"].rax, SYS_execve)
         self.assertEqual(captured["instance"].rdi, binsh)
 
     def test_shellcraft_avoid(self) -> None:

