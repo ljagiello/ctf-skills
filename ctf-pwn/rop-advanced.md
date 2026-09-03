@@ -247,7 +247,7 @@ def find_offset(exe):
     p.sendlineafter(b'>', cyclic(500))
     p.wait()
     # x64: read saved RIP from stack pointer
-    offset = cyclic_find(p.corefile.read(p.corefile.sp, 4))
+    offset = cyclic_find(p.corefile.read(p.corefile.sp, 8))
     # x86: use pc directly
     # offset = cyclic_find(p.corefile.pc)
     log.warn(f'Offset: {offset}')
