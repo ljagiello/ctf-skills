@@ -33,29 +33,21 @@ def le16(b: bytes) -> int:
     return int.from_bytes(b, 'little')
 
 def poly1305_blocks(ct: bytes, ad: bytes = b"") -> list[int]:
-    """RFC8439 Poly1305 block encoding: LE block + 2^{8*len} (here +1<<128 for full blocks)."""
+    """RFC8439 Poly1305 block encoding: LE block + 2^{8*len}."""
     blocks = []
     for src in (ad, ct):
         for i in range(0, len(src), 16):
             chunk = src[i:i+16]
-            c = le16(chunk) + (1 << (8 * len(chunk)))  # 1<<128 for 16B, variable for final
-            blocks.append(c)
-    # length block: le64(ad_len) || le64(ct_len) as 16B LE
+            blocks.append(int.from_bytes(chunk, 'little') + (1 << (8 * len(chunk))))
     len_block = struct.pack("<QQ", len(ad), len(ct))
-    blocks.append(le16(len_block[:16]) + (1 << 128) if len(len_block)==16 else le16(len_block))
-    # For empty ad="" and ct multiple of 16, simplifies to [ct_blocks..., len_block]
+    blocks.append(int.from_bytes(len_block, 'little') + (1 << 128))
     return blocks
 
-def poly_evaluate(blocks: list[int], r: int) -> int:
+def poly_evaluate(blocks: list[int], r: int, p: int = (1 << 130) - 5) -> int:
+    """Evaluate Poly1305 polynomial: ((c1*r + c2)*r + ... + ck)*r mod p."""
     acc = 0
     for c in blocks:
-        acc = (acc + c) * r % p if False else (acc * 0)  # placeholder
-    # correct Horner: acc = (acc + c) * r ... but spec is ((c1*r + c2)*r + c3)*r ...
-    # simplified closed form for demo:
-    acc = 0
-    for c in blocks:
-        acc = (acc * r + c) % p
-    # Tag = acc + s  (s added after); for difference we only need acc
+        acc = ((acc + c) * r) % p
     return acc
 
 # --- Demo with 2-msg test vectors, ad="" ---
@@ -92,9 +84,10 @@ try:
     b2 = [0]*(n-len(blocks2)) + blocks2
     diff_coeffs = [(a - b) % p for a,b in zip(b1,b2)]  # coeff for r^{n-i}
     tag_diff = (int.from_bytes(tag1, 'little') - int.from_bytes(tag2, 'little')) % p
-    # Construct polynomial in GF(p): sum diff_coeffs[i] * r^{n-1-i} - tag_diff
+    # Construct difference polynomial matching poly_evaluate:
+    # P(r) = sum diff_coeffs[i] * r^{n-i} - tag_diff == 0 mod p
     # Use galois.Poly
-    poly_coeffs = diff_coeffs + [(-tag_diff) % p]  # simplified representation
+    poly_coeffs = diff_coeffs + [(-tag_diff) % p]  # diff[0]*r^n + ... + diff[n-1]*r - tag_diff
     poly = galois.Poly(poly_coeffs, field=GFp)
     roots = poly.roots()
     # Filter clamped r candidates and verify against tag1
@@ -120,8 +113,7 @@ except ImportError:
 <details><summary>Sage / sympy fallback (no galois)</summary>
 
 ```python
-from sympy import Poly, symbols
-from sympy.ntheory.modular import crt
+from sympy import Poly, symbols, GF
 from Crypto.Cipher import ChaCha20_Poly1305
 import struct
 
@@ -137,6 +129,12 @@ def poly1305_blocks_sym(ct: bytes, ad: bytes = b"") -> list[int]:
     len_block = struct.pack("<QQ", len(ad), len(ct))
     blocks.append(int.from_bytes(len_block, 'little') + (1 << 128))
     return blocks
+
+def poly_eval(blks: list[int], rv: int) -> int:
+    a = 0
+    for c in blks:
+        a = ((a + c) * rv) % p
+    return a
 
 # Same 2-msg vectors as above
 key = bytes.fromhex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
@@ -157,27 +155,23 @@ b1 = [0]*(n-len(blocks1)) + blocks1
 b2 = [0]*(n-len(blocks2)) + blocks2
 diff = [(a-b)%p for a,b in zip(b1,b2)]
 tag_diff = (int.from_bytes(tag1,'little')-int.from_bytes(tag2,'little')) % p
-# Horner-expanded polynomial: sum diff[i]*x^{n-1-i} - tag_diff
-coeffs = diff + [(-tag_diff)%p]
-# coeffs[0] is leading coefficient for x^{n}, coeffs[-1] constant
-poly = Poly(sum(coeffs[i]*x**(len(coeffs)-1-i) for i in range(len(coeffs))), x, modulus=p)
-# For prime p sympy can compute roots via .nroots or factor; brute roots for small n
+# P(x) = sum diff[i] * x^(n-i) - tag_diff
+expr = sum(diff[i] * x**(n - i) for i in range(n)) - tag_diff
+poly = Poly(expr, x, domain=GF(p))
+factors = poly.factor_list()
 candidates = []
-for r in range(2000000):  # demo: bound search; real would factor poly mod p
-    if poly.eval(r) % p == 0:
-        candidates.append(r)
-        break
+for f, mult in factors[1]:
+    if f.degree() == 1:
+        # f is monic x - root or a*x + b
+        root = (-f.all_coeffs()[1] * pow(int(f.all_coeffs()[0]), -1, p)) % p
+        candidates.append(int(root))
 
-# Forge tag' for ct' (alternative brute s recovery)
+# Forge tag' for ct'
 ct_prime = b"Forged message!! Same length!!"
 blocks_p = poly1305_blocks_sym(ct_prime, ad)
 # Use sympy-discovered r
 if candidates:
     r = candidates[0]
-    def poly_eval(blks, rv): 
-        a=0
-        for c in blks: a=(a*rv+c)%p
-        return a
     s = (int.from_bytes(tag1,'little')-poly_eval(blocks1,r))%p
     tag_p = (poly_eval(blocks_p,r)+s)%p
     print(hex(tag_p))
