@@ -73,7 +73,7 @@ mu.hook_add(UC_HOOK_CODE, hook_code)
 try:
     mu.emu_start(CODE_ADDR, CODE_ADDR + len(CODE), timeout=2 * 1000000, count=10000)
 except UcError as e:
-    print(f"UcError {e} errno={mu.errno} at 0x{mu.reg_read(UC_X86_REG_RIP):x}")
+    print(f"UcError {e} errno={e.errno} at 0x{mu.reg_read(UC_X86_REG_RIP):x}")
 ```
 
 `emu_start(begin, until, timeout, count)` — `timeout` is microseconds, `count` is insn limit. Reaching `until`, `emu_stop()` in a hook, or an unmapped fetch ends emulation. Map stack away from `0x0` so null derefs fault instead of silently succeeding.
@@ -95,7 +95,7 @@ def hook_code(mu, address, size, user_data):
     print(f"0x{address:x} [{size}B] RAX=0x{rax:x}")
 
 mu.hook_add(UC_HOOK_CODE, hook_code)
-# Filtered: mu.hook_add(UC_HOOK_CODE, hook_code, begin=0x401000, end=0x401000)
+# Filtered: mu.hook_add(UC_HOOK_CODE, hook_code, begin=0x401000, end=0x401200)
 
 def hook_block(mu, address, size, user_data):
     print(f"block 0x{address:x} size={size}")
@@ -274,7 +274,9 @@ for r32, r64 in reg_map.items():
     mu32.reg_write(r32, mu64.reg_read(r64) & 0xffffffff)
 mu32.reg_write(UC_X86_REG_EFLAGS, mu64.reg_read(UC_X86_REG_RFLAGS) & 0xffffffff)
 for xr in [UC_X86_REG_XMM0, UC_X86_REG_XMM1, UC_X86_REG_XMM2, UC_X86_REG_XMM3,
-           UC_X86_REG_XMM4, UC_X86_REG_XMM5, UC_X86_REG_XMM6, UC_X86_REG_XMM7]:
+           UC_X86_REG_XMM4, UC_X86_REG_XMM5, UC_X86_REG_XMM6, UC_X86_REG_XMM7,
+           UC_X86_REG_XMM8, UC_X86_REG_XMM9, UC_X86_REG_XMM10, UC_X86_REG_XMM11,
+           UC_X86_REG_XMM12, UC_X86_REG_XMM13, UC_X86_REG_XMM14, UC_X86_REG_XMM15]:
     mu32.reg_write(xr, mu64.reg_read(xr))
 
 eip = int.from_bytes(mu32.mem_read(mu32.reg_read(UC_X86_REG_ESP), 4), "little")
@@ -607,19 +609,19 @@ for base in (0x40000000, 0x40010000, 0x40020000, 0xe000e000):
     mu.mem_map(base, 0x1000)
 
 def hook_invalid(mu, access, address, size, value, user_data):
-    # access is UC_MEM_* or UC_ERR_* depending on unicorn version
+    # access is one of the UC_MEM_* constants
     # Filter: only handle known peripheral ranges, let others fault
-    if access == UC_ERR_READ_UNMAPPED:
+    if access == UC_MEM_READ_UNMAPPED:
         print(f"READ_UNMAPPED 0x{address:x} size={size}")
         return False
-    elif access == UC_ERR_WRITE_UNMAPPED:
+    elif access == UC_MEM_WRITE_UNMAPPED:
         print(f"WRITE_UNMAPPED 0x{address:x} val=0x{value:x}")
         return False
-    elif access == UC_ERR_FETCH_UNMAPPED:
+    elif access == UC_MEM_FETCH_UNMAPPED:
         print(f"FETCH_UNMAPPED 0x{address:x} — bad branch, stop")
         mu.emu_stop()
         return False
-    elif access in (UC_ERR_READ_PROT, UC_ERR_WRITE_PROT):
+    elif access in (UC_MEM_READ_PROT, UC_MEM_WRITE_PROT):
         mu.mem_protect(address & ~0xfff, 0x1000, UC_PROT_ALL)
         return True
     return False
@@ -1076,7 +1078,7 @@ Concrete vs symbolic vs OS — pick the right engine for the CTF slice.
 | `UC_ERR_FETCH_UNMAPPED` | Branch to unmapped region | Hook `MEM_INVALID` or map region |
 | Hook re-entrance | `reg_write`/`mem_write` re-triggers hook | Guard flag or `MEM_READ_AFTER` |
 | MIPS endianness | First insn invalid | Match `LITTLE`/`BIG_ENDIAN` to binary |
-| Mixed-mode EFLAGS/XMM | Stale flags, zeroed SSE | Copy `RFLAGS & 0xffffffff`, copy `XMM0-7` |
+| Mixed-mode EFLAGS/XMM | Stale flags, zeroed SSE | Copy `RFLAGS & 0xffffffff`, copy `XMM0-15` |
 | `mem_map` alignment | `UC_ERR_ARG` | Use multiples of `0x1000` |
 | `WRITE_UNMAPPED` on MMIO | Peripheral write faults | `mem_map` MMIO page, then hook |
 
@@ -1107,7 +1109,7 @@ LOOP_END = CODE_ADDR + 0x120
 try:
     mu.emu_start(CODE_ADDR, LOOP_END, timeout=2 * 1000000, count=10000)
 except UcError as e:
-    print(f"emulation stopped: {e} errno={mu.errno}")
+    print(f"emulation stopped: {e} errno={e.errno}")
 
 decoded = mu.mem_read(DATA_ADDR, 0x400)
 print(f"head: {decoded[:32].hex()}")

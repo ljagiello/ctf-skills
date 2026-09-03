@@ -286,14 +286,19 @@ nm binary | c++filt | grep "main"
 ```c
 struct RustVec {
     void *ptr;      // heap pointer
-    uint64 cap;     // capacity
     uint64 len;     // length
+    uint64 cap;     // capacity
 };
+// NOTE: field order (ptr, len, cap) vs (ptr, cap, len) is NOT
+// guaranteed by the Rust ABI and varies by compiler version —
+// confirm against the Vec constructor and its callers in
+// disassembly before trusting offsets.
 ```
 
 **String / &str:**
 ```text
-# String (owned): {ptr, capacity, length} — 24 bytes, heap-allocated
+# String (owned): {ptr, length, capacity} — 24 bytes, heap-allocated
+# (same caveat as Vec: field order is compiler-dependent, verify in disassembly)
 # &str (borrowed): {ptr, length} — 16 bytes, can point anywhere
 
 # In decompilation, look for:
@@ -592,7 +597,9 @@ fn bad<T>(v: T) -> &'static T {
 
 fn main() {
     let aliased: &'static Vec<u8> = bad(vec![1u8, 2, 3]);
-    // Reinterpret the Vec as its raw header: (ptr, len, cap)
+    // Reinterpret the Vec as its raw header (field order is
+    // compiler-dependent — NOT guaranteed by the Rust ABI;
+    // confirm against the constructor/callers for this toolchain)
     let header: &(usize, usize, usize) =
         unsafe { std::mem::transmute(aliased) };
     println!("ptr={:#x} len={} cap={}", header.0, header.1, header.2);

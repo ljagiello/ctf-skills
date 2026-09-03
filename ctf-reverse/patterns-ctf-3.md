@@ -121,7 +121,7 @@ for start_val in range(0x10000):
 # Patch ptrace call at offset with NOP (0x90)
 python3 -c "
 data = open('binary','rb').read()
-data = data[:0x72b] + b'\x90'*5 + data[:0x730]  # NOP the ptrace call
+data = data[:0x72b] + b'\x90'*5 + data[0x730:]  # NOP the ptrace call
 open('patched','wb').write(data)
 "
 

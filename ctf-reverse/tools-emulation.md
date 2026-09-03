@@ -140,7 +140,7 @@ import string
 from subprocess import Popen, PIPE
 
 pin = './pin'
-tool = './source/tools/ManualExamples/obj-ia32/inscount0.so'
+tool = './source/tools/ManualExamples/obj-intel64/inscount0.so'
 binary = './target'
 
 key = ''
