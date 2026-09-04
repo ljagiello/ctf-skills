@@ -6,7 +6,7 @@ Thanks for helping expand the CTF skills collection. This guide covers how to se
 
 ### Prerequisites
 
-- Python 3.12+
+- Python >=3.10
 - Node.js (for markdownlint)
 - [pre-commit](https://pre-commit.com/)
 

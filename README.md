@@ -2,7 +2,7 @@
 
 [![skills.sh](https://skills.sh/b/yuzu-octopus/ctf-skills)](https://skills.sh/yuzu-octopus/ctf-skills)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python: >=3.12](https://img.shields.io/badge/Python->=3.12-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
+[![Python: >=3.10](https://img.shields.io/badge/Python->=3.10-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
 
 [Agent Skills](https://agentskills.io) for solving CTF challenges — web exploitation, binary pwn, cryptography, reverse engineering, forensics, OSINT, and more. Compatible with all AI agents supporting the Agent Skills specification, including [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex, OpenCode, Cursor, and Gemini CLI.
 
