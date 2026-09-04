@@ -55,12 +55,12 @@ loss.backward()
 
 # Generate adversarial example
 epsilon = 0.03  # perturbation budget (L-inf norm)
-x_adv = x + epsilon * x.grad.sign()
-x_adv = torch.clamp(x_adv, x.min(), x.max())
+perturbed_image = x + epsilon * x.grad.sign()
+perturbed_image = torch.clamp(perturbed_image, 0, 1)
 
 # Check adversarial prediction
 with torch.no_grad():
-    adv_output = model(x_adv)
+    adv_output = model(perturbed_image)
     adv_class = adv_output.argmax(dim=1).item()
     print(f"Adversarial prediction: class {adv_class}")
     print(f"Attack successful: {adv_class != original_class}")

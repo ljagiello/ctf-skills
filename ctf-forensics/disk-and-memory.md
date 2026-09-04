@@ -24,13 +24,13 @@
 ## Memory Forensics (Volatility 3)
 
 ```bash
-vol3 -f memory.dmp windows.info
-vol3 -f memory.dmp windows.pslist
-vol3 -f memory.dmp windows.cmdline
-vol3 -f memory.dmp windows.netscan
-vol3 -f memory.dmp windows.filescan
-vol3 -f memory.dmp windows.dumpfiles --physaddr <addr>
-vol3 -f memory.dmp windows.mftscan | grep flag
+vol -f memory.dmp windows.info
+vol -f memory.dmp windows.pslist
+vol -f memory.dmp windows.cmdline
+vol -f memory.dmp windows.netscan
+vol -f memory.dmp windows.filescan
+vol -f memory.dmp windows.dumpfiles --physaddr <addr>
+vol -f memory.dmp windows.mftscan | grep flag
 ```
 
 **Common plugins:**
@@ -100,7 +100,7 @@ vmss2core -W path/to/snapshot.vmss path/to/snapshot.vmem
 - Even if original files deleted, MFT preserves modification timestamps
 - Seed-based encryption: recover mtime → derive key
 ```bash
-vol3 -f memory.dmp windows.mftscan | grep flag
+vol -f memory.dmp windows.mftscan | grep flag
 # mtime as Unix epoch → seed for PRNG → derive encryption key
 ```
 

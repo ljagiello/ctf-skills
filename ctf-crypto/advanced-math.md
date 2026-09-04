@@ -58,6 +58,7 @@ def find_path(start, end):
     # Ascend from both nodes tracking heights
     # Find least common ancestor
     # Concatenate: path_up(start) + reversed(path_up(end))
+    pass
 ```
 
 **Complex multiplication (CM) curves:**
@@ -65,9 +66,97 @@ def find_path(start, end):
 - Conductor f determines tree depth
 - Look for special discriminants: -163, -67, -43, etc. (class number 1)
 
+> ⚠️ **SIDH is broken -- do not use Φ₂ walk when p = 2^a·3^b ± 1 and auxiliary torsion images are revealed.**
+>
+> If challenge gives `p = 2^a·3^b ± 1` and public data includes `φ_A(P3), φ_A(Q3)` (or `φ_B(P2), φ_B(Q2)`), it is SIDH/SIKE, not a generic isogeny volcano. Use the **Castryck-Decru** attack: `(2,2)-isogenies` on `E × E` via **glue-and-split** (Kani's theorem), not modular-polynomial graph search. Reference Sage implementation: `castryck_decru_shortcut.sage` (Castryck-Decru 2022, eprint 2022/975 & 2022/1283; SIKEp434 broken in ~1h on single core). Pattern: guess one `3`-isogeny step, build auxiliary isogeny `γ: E0 → X0` from known endomorphism ring of `E0: y^2 = x^3 + 6x^2 + x` (`(2i)^2 = [-4]`), form `X0 × E_B → Jac(H)` (genus-2), apply Richelot `(2,2)`-chain; **splits iff guess correct** -- oracle recovers ternary secret digits iteratively.
+
+```python
+# Detection: SIDH vs generic isogeny
+def is_sidh_params(p):
+    # p = 2^a * 3^b * f ± 1  (SIKEp434: 2^216*3^137-1)
+    tmp = p + 1 if p % 2 == 1 else p - 1  # try ±1
+    # strip powers of 2 and 3
+    for pr in (2, 3):
+        while tmp % pr == 0:
+            tmp //= pr
+    return tmp < 1000  # small cofactor f
+# If is_sidh_params(p) and challenge publishes torsion images, STOP: run Castryck-Decru, not Φ2 walk.
+```
+
+<details><summary>Sage fallback (optional) -- Castryck-Decru glue-and-split sketch</summary>
+
+```python
+# Sage reference: castryck_decru_shortcut.sage (Wouter Castryck & Thomas Decru)
+# https://github.com/WouterCastryck/Castryck-Decru-SageMath
+from sage.all import GF, EllipticCurve
+
+# E0: y^2 = x^3 + 6*x^2 + x  (j=287496), known endomorphism ring with 2i s.t. (2i)^2 = -4
+# Auxiliary isogeny gamma = [u] + [v]*(2i)  of degree d = u^2 + 4*v^2
+# Glue X0 x E_B -> Jac(H) via Kani's theorem, then Richelot (2,2)-isogeny chain
+# Split test: Jac(H') splits as E x E' iff guess for next 3-isogeny step is correct
+# Full attack loops over ternary digits of Bob's secret (x_i in {0,1,2})
+print("Use castryck_decru_shortcut.sage: load('castryck_decru_shortcut.sage'); attack(E0, EB, P3_images)")
+```
+
+</details>
+
+**CSIDH vs SIDH -- class-group action, not SIDH torsion:**
+
+- **CSIDH:** Action of ideal-class group `cl(O)` on supersingular curves over `F_p` (`p = 4·l1·...·ln - 1`). Private key is exponent vector `(e_i)` for ideals `l_i`; public key is `E_A = [a]·E0`. No auxiliary torsion points -- security relies on class-group action, not SIDH torsion oracle. Hard problem: find `a` s.t. `E_A = [a]E0`.
+- **Volcano / ordinary isogeny walk reversal (RITSEC):** Ordinary curves form volcanoes keyed by `j-invariant` and `Φ_l(j1,j2)=0` neighbors. If challenge gives an `l`-isogeny oracle or `j`-walk steps without SIDH torsion, it is a volcano walk: reverse by walking from `j` via `Φ_l` roots and height estimation (random walks to crater/floor), not Castryck-Decru.
+- **How to distinguish:** `p = 4*prod(l_i)-1` + class-group / `l`-isogeny language → CSIDH; `p = 2^a3^b±1` + `φ(P),φ(Q)` images → SIDH (broken); generic `Φ₂ walk` + `j-invariant` + crater/leaf language → ordinary volcano.
+
+**References:** Castryck-Decru eprint 2022/975 & 2022/1283; De Feo-Jao SIDH; Castryck et al. CSIDH (2018); RITSEC volcano `j`-invariant walk.
+
 ## Pohlig-Hellman Attack (Weak ECC)
 
 For elliptic curves with smooth order (many small prime factors):
+
+```python
+from sympy import factorint
+from sympy.ntheory.modular import crt
+
+def bsgs(g, h, p, order=None):
+    from math import isqrt
+    if order is None:
+        order = p - 1
+    m = isqrt(order) + 1
+    table = {}
+    power = 1
+    for j in range(m):
+        table[power] = j
+        power = (power * g) % p
+    factor = pow(g, -m, p)
+    gamma = h
+    for i in range(m):
+        if gamma in table:
+            return i * m + table[gamma]
+        gamma = (gamma * factor) % p
+    return None
+
+def pohlig_hellman(g, h, p):
+    order = p - 1
+    factors = factorint(order)
+    residues, moduli = [], []
+    for prime, exp in factors.items():
+        pe = prime ** exp
+        cofactor = order // pe
+        gi = pow(g, cofactor, p)
+        hi = pow(h, cofactor, p)
+        xi = bsgs(gi, hi, p, order=pe)
+        residues.append(xi)
+        moduli.append(pe)
+    x, _ = crt(moduli, residues)
+    return x
+
+# For ECC: use ecdsa/py_ecc point multiplication instead of pow;
+# factor curve order with factorint, then Pohlig-Hellman via BSGS on points
+# Example for multiplicative group DLP: pohlig_hellman(g, h, p)
+from sympy import factorint as _factorint
+# E order: factor with sympy, then BSGS per subgroup (see ecc-attacks.md Smart/Pohlig)
+```
+
+<details><summary>Sage fallback (optional)</summary>
 
 ```python
 from sage.all import *
@@ -96,9 +185,11 @@ residues = [r for (r, _) in partial_logs]
 private_key, _ = crt(moduli, residues)
 ```
 
+</details>
+
 ## Baby-Step Giant-Step for General DLP
 
-**Pattern:** Compute discrete logarithm `x` where `g^x = h (mod p)` in O(sqrt(n)) time and space, where n is the group order. Works for any cyclic group — multiplicative groups mod p, elliptic curves, or abstract groups. Combined with Pohlig-Hellman for smooth-order groups, solves DLP when `p-1` (or group order) has only small prime factors.
+**Pattern:** Compute discrete logarithm `x` where `g^x = h (mod p)` in O(sqrt(n)) time and space, where n is the group order. Works for any cyclic group -- multiplicative groups mod p, elliptic curves, or abstract groups. Combined with Pohlig-Hellman for smooth-order groups, solves DLP when `p-1` (or group order) has only small prime factors.
 
 **Baby-step giant-step algorithm:**
 
@@ -171,9 +262,9 @@ def pohlig_hellman(g, h, p):
 **Key insight:** BSGS runs in O(sqrt(q)) for a subgroup of order q. Pohlig-Hellman decomposes the full DLP into subgroup DLPs. If `p-1 = q1^e1 * q2^e2 * ...` where all qi are small, the total cost is O(sum(sqrt(qi^ei))). A 1024-bit prime with smooth `p-1` (all factors under ~40 bits) is solvable in seconds. Sage's `discrete_log()` automatically applies Pohlig-Hellman + BSGS.
 
 **When to recognize:**
-- ElGamal, DSA, or Diffie-Hellman with a randomly generated prime — check if `p-1` is smooth: `factor(p-1)` in Sage
-- ECC with smooth curve order — same approach, replace modular exponentiation with point multiplication
-- Challenge generates new parameters on each connection — retry until you get a smooth prime
+- ElGamal, DSA, or Diffie-Hellman with a randomly generated prime -- check if `p-1` is smooth: `factor(p-1)` in Sage
+- ECC with smooth curve order -- same approach, replace modular exponentiation with point multiplication
+- Challenge generates new parameters on each connection -- retry until you get a smooth prime
 - Challenge description mentions "weak parameters" or uses suspiciously small primes
 
 **Sage one-liner:** `discrete_log(Mod(h, p), Mod(g, p))` handles everything automatically.
@@ -187,6 +278,26 @@ def pohlig_hellman(g, h, p):
 **Pattern (Grinch's Cryptological Defense):** Server gives hints `h_i = f * p_i + n_i` where f is the flag, p_i are small primes, n_i is small noise.
 
 **Lattice construction:**
+```python
+from fpylll import IntegerMatrix, LLL
+
+# Collect 3 hints from server
+# h_i = f * p_i + n_i (noise is small)
+# Construct lattice where short vector reveals primes
+
+M = IntegerMatrix.from_matrix([
+    [1, 0, 0, h1],
+    [0, 1, 0, h2],
+    [0, 0, 1, h3],
+    [0, 0, 0, -1]  # Scaling factor
+])
+LLL.reduction(M)
+# Short vector contains p1, p2, p3
+# Recover f = (h1 - n1) / p1
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
 ```python
 from sage.all import *
 
@@ -206,9 +317,32 @@ reduced = M.LLL()
 # Recover f = (h1 - n1) / p1
 ```
 
+</details>
+
 ## Merkle-Hellman Knapsack Cryptosystem via LLL (ASIS 2014)
 
 The Merkle-Hellman knapsack is a broken asymmetric scheme. Given public key P = [p0, ..., pn-1] and ciphertext C (sum of selected public key elements), recover the binary plaintext vector:
+
+```python
+from fpylll import IntegerMatrix, LLL
+
+nbit = len(pubKey)
+rows = [[0]*(nbit+1) for _ in range(nbit+1)]
+for i in range(nbit):
+    rows[i][i] = 1
+    rows[i][nbit] = int(pubKey[i])
+rows[nbit][nbit] = -int(encoded)
+A = IntegerMatrix.from_matrix(rows)
+LLL.reduction(A)
+
+# Find row with last element == 0 and all others in {0, 1}
+for row in A:
+    if row[-1] == 0 and all(b in (0, 1) for b in row[:-1]):
+        plaintext_bits = list(row[:-1])
+        break
+```
+
+<details><summary>Sage fallback (optional)</summary>
 
 ```python
 # Sage
@@ -233,16 +367,148 @@ for row in res:
         break
 ```
 
+</details>
+
 **Key insight:** The knapsack problem becomes easy when reformulated as a shortest vector problem. The LLL-reduced basis contains a row representing the binary plaintext when the last column is zero.
+
+## Coppersmith via Howgrave-Graham Lattice (fpylll primary)
+
+Pure-Python Coppersmith -- same `fplll` as Sage, `uv` only. Keep `X` explicit, `beta=0.5`, monic check `lc==1` else `inv_lc`. `flatter` optional for `dim>100` (`cargo install flatter` -- ~26x, LLL-only).
+
+```python
+from fpylll import IntegerMatrix, LLL
+from sympy import Poly, symbols
+import math
+
+x = symbols("x")
+
+def hg_matrix(f_coeffs, N, X, beta=0.5, m=4, t=None):
+    """Howgrave-Graham lattice for f(x)=0 mod N, |x|<X.
+
+    f_coeffs: [a0..ad] with ad==lc, monic required (lc==1) else scaled by inv_lc mod N.
+    beta: fraction of N for the unknown divisor (0.5 for N=p*q, p~N^0.5).
+    m, t: lattice params; dim = d*m+t, max degree = d*m+t-1.
+    Shifts: x^j * N^{m-i} * f^i for i<m, j<d  and  x^j * f^m for j<t.
+    Scales: column j multiplied by X^j (so row = coeffs of g(X*x)).
+    Returns list-of-lists (d*m+t) x (d*m+t) scaled by X^j.
+    dim>100: consider flatter -- fpylll primary still correct.
+    """
+    lc = f_coeffs[-1] % N
+    if lc != 1:
+        if math.gcd(lc, N) != 1:
+            raise ValueError(f"lc={lc} not invertible mod N -- f must be monic")
+        inv_lc = pow(lc, -1, N)
+        f_coeffs = [(c * inv_lc) % N for c in f_coeffs]
+    d = len(f_coeffs) - 1
+    if d == 0:
+        raise ValueError("f must have degree >=1")
+    if t is None:
+        t = d
+    n = d * m + t
+    # f^i as coefficient lists (least-significant first), integer coeffs
+    f_pow = [[1]]
+    for _ in range(1, m + 1):
+        prev = f_pow[-1]
+        cur = [0] * (len(prev) + d)
+        for i, a in enumerate(prev):
+            if a == 0:
+                continue
+            for j, b in enumerate(f_coeffs):
+                cur[i + j] += a * b
+        f_pow.append(cur)
+    rows = []
+    for i in range(m):
+        pow_N = pow(N, m - i)
+        coeffs_fi = f_pow[i]
+        for j in range(d):
+            poly = [0] * j + [c * pow_N for c in coeffs_fi]
+            row = [0] * n
+            for col, c in enumerate(poly):
+                if col >= n:
+                    break
+                row[col] = c * pow(X, col)
+            rows.append(row)
+    coeffs_fm = f_pow[m]
+    for j in range(t):
+        poly = [0] * j + coeffs_fm[:]
+        row = [0] * n
+        for col, c in enumerate(poly):
+            if col >= n:
+                break
+            row[col] = c * pow(X, col)
+        rows.append(row)
+    return rows
+# pipeline: hg_matrix(f_coeffs,N,X,beta,m,t) -> IntegerMatrix -> LLL.reduction -> sympy Poly (beta=0.5, monic check)
+
+def hg_small_roots(f_coeffs, N, X, beta=0.5, m=4, t=None):
+    """Build HG lattice, LLL, extract integer roots via sympy Poly.
+
+    Keeps X explicit, beta=0.5. Monic check inside hg_matrix.
+    After LLL, each row h(y) with y=X*x gives G(x)=X^{deg} h(x/X).
+    """
+    rows = hg_matrix(f_coeffs, N, X, beta, m, t)
+    B = IntegerMatrix.from_matrix(rows)
+    LLL.reduction(B)  # delta=0.99 default; use float_type="mpfr" if precision issues
+    ncols = B.ncols
+    roots = set()
+    for i in range(B.nrows):
+        row = [int(B[i, j]) for j in range(ncols)]
+        deg = ncols - 1
+        while deg > 0 and row[deg] == 0:
+            deg -= 1
+        if deg == 0 and row[0] == 0:
+            continue
+        # G(x)=X^{deg} * h(x/X) = sum row[k] * X^{deg-k} * x^k
+        coeffs = [row[k] * pow(X, deg - k) for k in range(deg + 1)]
+        g = 0
+        for c in coeffs:
+            g = math.gcd(g, abs(c))
+        if g > 1:
+            coeffs = [c // g for c in coeffs]
+        poly = Poly(sum(c * x**k for k, c in enumerate(coeffs)), x, domain="ZZ")
+        for r, _ in poly.ground_roots().items():
+            if r.is_Integer and abs(int(r)) < X:
+                rv = int(r)
+                if sum(c * pow(rv, idx, N) for idx, c in enumerate(f_coeffs)) % N == 0:
+                    roots.add(rv)
+    return sorted(roots)
+```
 
 ## Coppersmith's Method (Close Private Keys)
 
-**Pattern (Duality of Key):** Two RSA key pairs with d1 ≈ d2 (small difference).
+**Pattern (Duality of Key):** Two RSA key pairs with d1 approx d2 (small difference).
 
 **Attack:**
 ```python
-# From e1*d1 ≡ 1 mod φ and e2*d2 ≡ 1 mod φ:
-# d2 - d1 ≡ (e1*e2)^(-1) * (e1 - e2) mod p
+from fpylll import IntegerMatrix, LLL
+from sympy import Poly, symbols
+import math
+x = symbols("x")
+# hg_matrix defined above -- reuse here
+
+# From e1*d1 == 1 mod phi and e2*d2 == 1 mod phi:
+# d2 - d1 == (e1*e2)^(-1) * (e1 - e2) mod p
+r = (pow(e1 * e2, -1, N) * (e1 - e2)) % N
+# f(x) = x - r  (monic, lc==1) with root x0 = d2-d1
+f_coeffs = [(-r) % N, 1]
+X = 2**128
+beta = 0.5
+B = IntegerMatrix.from_matrix(hg_matrix(f_coeffs, N, X, beta, m=4, t=1))
+LLL.reduction(B)
+roots = hg_small_roots(f_coeffs, N, X, beta=0.5, m=4, t=1)
+if roots:
+    x_val = int(roots[0])
+    p = math.gcd(int(r - x_val) % N, N)
+    q = N // p
+else:
+    roots = []  # no root -- try larger m/t or adjust X/beta
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
+```python
+# From e1*d1 == 1 mod phi and e2*d2 == 1 mod phi:
+# d2 - d1 == (e1*e2)^(-1) * (e1 - e2) mod p
 
 # Construct polynomial f(x) = (r - x) mod p where x = d2-d1
 # Use Coppersmith small_roots() to find x
@@ -254,15 +520,42 @@ roots = f.small_roots(X=2^128, beta=0.5)  # Adjust bounds
 # x = d2 - d1, recover p from gcd(f(x), N)
 ```
 
+</details>
+
 ## Coppersmith's Method (Structured Primes, LACTF 2026)
 
-**Pattern (six-seven-again):** p = base + 10^k · x where base is fully known, x is small.
+**Pattern (six-seven-again):** p = base + 10^k * x where base is fully known, x is small.
 
-**Condition:** x < N^{1/e} for degree-e polynomial (≈ N^0.25 for linear).
+**Condition:** x < N^{1/e} for degree-e polynomial (approx N^0.25 for linear).
 
 **Attack:**
 ```python
-# p = base + 10^k * x, so x ≡ -base * (10^k)^{-1} (mod p)
+from fpylll import IntegerMatrix, LLL
+import math
+# hg_matrix / hg_small_roots defined above
+
+# p = base + 10^k * x, so x == -base * (10^k)^{-1} (mod p)
+# Since p | N, construct polynomial with root x mod N
+inv_10k = pow(10**k, -1, N)
+f_const = (base * inv_10k) % N  # f(x)= x + const, monic lc==1
+f_coeffs = [f_const, 1]
+X = 2**70
+beta = 0.5
+B = IntegerMatrix.from_matrix(hg_matrix(f_coeffs, N, X, beta, m=4, t=1))
+LLL.reduction(B)
+roots = hg_small_roots(f_coeffs, N, X, beta=0.5, m=4, t=1)
+if roots:
+    x_val = int(roots[0])
+    p = base + 10**k * x_val
+    q = N // p
+else:
+    roots = []  # no root -- try larger m/t or adjust X/beta
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
+```python
+# p = base + 10^k * x, so x == -base * (10^k)^{-1} (mod p)
 # Since p | N, construct polynomial with root x mod N
 R.<x> = PolynomialRing(Zmod(N))
 inv_10k = inverse_mod(10^k, N)
@@ -274,10 +567,13 @@ if roots:
     q = N // p
 ```
 
+</details>
+
 **Key details:**
-- Polynomial MUST be monic (leading coefficient 1)
-- `beta=0.5` means we're looking for a factor ≥ N^0.5
-- `X` parameter is upper bound on root size
+- Polynomial MUST be monic (leading coefficient 1) -- hg_matrix checks lc==1 else scales by inv_lc mod N
+- `beta=0.5` means we're looking for a factor >= N^0.5
+- `X` parameter is explicit upper bound on root size (e.g. `2**128`, `2**70`)
+- `m, t` control lattice dim `d*m+t`; tune for bound vs dim>100 (flatter optional)
 - Works for any "partially known prime" pattern
 
 ## Clock Group (x^2+y^2=1 mod p) DLP (LACTF 2026)
@@ -348,7 +644,7 @@ a3 = m + α3*p + β3*q  # e.g., m + 17p + 19q
 # Ciphertext = first row of matrix^e mod n
 ```
 
-**Critical property:** For quaternion `q = s + v` (scalar + vector), `q^k = s_k + t_k*v` — the vector part stays **proportional** under exponentiation. This means the ratios of imaginary components are preserved:
+**Critical property:** For quaternion `q = s + v` (scalar + vector), `q^k = s_k + t_k*v` -- the vector part stays **proportional** under exponentiation. This means the ratios of imaginary components are preserved:
 
 `c1 : c2 : c3 = a1 : a2 : a3 (mod n)`
 
@@ -553,7 +849,7 @@ key = lo  # ~64 queries for 64-bit key
 
 **LWE solving with fpylll (CVP/Babai):**
 ```python
-from fpylll import IntegerMatrix, LLL, CVP
+from fpylll import IntegerMatrix, LLL, CVP, GSO
 import numpy as np
 
 q = 3329  # Common LWE modulus (Kyber uses this)
@@ -586,8 +882,13 @@ def solve_lwe_cvp(A, b, q, n, m):
     # Target vector: (b | 0...0)
     target = [int(b[i]) for i in range(m)] + [0] * n
 
-    # CVP via Babai's nearest plane
-    closest = CVP.babai(B, target)
+    # CVP via Babai's nearest plane (GSO.Mat.babai).
+    # Exact alternative for small dims (<40): CVP.closest_vector(B, target).
+    from fpylll import GSO
+    M_gso = GSO.Mat(B)
+    M_gso.update_gso()
+    w = M_gso.babai(target)
+    closest = B.multiply_left(w)
 
     # Extract secret from last n components
     s_candidate = [closest[m + j] for j in range(n)]
@@ -661,7 +962,7 @@ plaintext = cipher.decrypt_and_verify(ciphertext, tag)
 ```python
 def crt2(r1, m1, r2, m2):
     """CRT: x = r1 (mod m1) and x = r2 (mod m2)"""
-    m1_inv = pow(m1, m2 - 2, m2)  # Fermat's little theorem
+    m1_inv = pow(m1, -1, m2)
     t = ((r2 - r1) * m1_inv) % m2
     return (r1 + m1 * t) % (m1 * m2)
 
@@ -702,6 +1003,36 @@ x = [crt2(x5[i], 5, x13[i], 13) for i in range(len(x5))]
 # 2. For each bit position, compute the CRC difference (remainder)
 # 3. Set up GF(2) linear system: CRC(x) XOR x = 0
 # 4. Solve with Gaussian elimination over GF(2)
+from sympy import Matrix
+from sympy.polys.domains import GF as SymGF
+
+F = SymGF(2)
+# Build matrix where each column represents flipping one bit
+# Rows represent the CRC output bits XOR input bits
+M = Matrix.zeros(n_bits, n_bits)
+# ... fill with CRC remainders (0/1 entries) ...
+# Solve: use sympy rref or gauss_jordan over GF(2)
+# solution = M.gauss_jordan_solve(target_vector)  # or custom GF(2) elimination
+# Example helper:
+def solve_gf2(M, b):
+    # M: sympy Matrix over GF(2), b: column vector
+    aug = M.row_join(b)
+    rref, pivots = aug.rref(iszerofunc=lambda x: x % 2 == 0, simplify=True)
+    # Extract solution (assumes unique)
+    sol = [int(rref[i, -1] % 2) for i in range(len(pivots))]
+    return sol
+solution = solve_gf2(M, target_vector)
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
+```python
+# CRC is linear over GF(2): CRC(a XOR b) = CRC(a) XOR CRC(b)
+# Goal: find x where CRC(x) = x (as ASCII hex)
+# 1. Compute CRC of all-zeros baseline
+# 2. For each bit position, compute the CRC difference (remainder)
+# 3. Set up GF(2) linear system: CRC(x) XOR x = 0
+# 4. Solve with Gaussian elimination over GF(2)
 from sage.all import *
 F = GF(2)
 # Build matrix where each column represents flipping one bit
@@ -711,6 +1042,8 @@ M = Matrix(F, n_bits, n_bits)
 solution = M.solve_right(target_vector)
 ```
 
+</details>
+
 **Key insight:** CRC is a linear function over GF(2). The self-referential constraint CRC(x)=x becomes a system of linear equations over GF(2), solvable by Gaussian elimination. The ASCII constraint requires choosing free variables to keep all bytes in the printable range.
 
 **References:** Google CTF 2017
@@ -719,9 +1052,9 @@ solution = M.solve_right(target_vector)
 
 ## Baby-Step Giant-Step for Sparse/Low Hamming Weight Exponents (SEC-T CTF 2017)
 
-**Pattern:** DLP where the exponent is known to have low Hamming weight — e.g., at most k=11 bits set in a 128-bit exponent. Split the exponent into two halves `e = e1 * 2^64 + e2`. Precompute baby steps for all `e1` values with ⌊k/2⌋ = 5 bits set, then do giant steps for all `e2` values with ⌈k/2⌉ = 6 bits set.
+**Pattern:** DLP where the exponent is known to have low Hamming weight -- e.g., at most k=11 bits set in a 128-bit exponent. Split the exponent into two halves `e = e1 * 2^64 + e2`. Precompute baby steps for all `e1` values with ⌊k/2⌋ = 5 bits set, then do giant steps for all `e2` values with ⌈k/2⌉ = 6 bits set.
 
-**Complexity:** `C(128, 5) ≈ 10^8` baby steps + `C(128, 6) ≈ 10^9` giant steps — vastly less than `O(2^128)` brute force or `O(2^64)` standard BSGS.
+**Complexity:** `C(128, 5) ≈ 10^8` baby steps + `C(128, 6) ≈ 10^9` giant steps -- vastly less than `O(2^128)` brute force or `O(2^64)` standard BSGS.
 
 ```python
 from itertools import combinations
@@ -770,9 +1103,9 @@ assert bin(x).count('1') <= 11
 **Pattern (Bro, do you even lift?):** Challenge gives a polynomial `P(x)` whose unique root mod `N = p^k` is the flag, where `p` is a small known prime and `k` is large (e.g. `p ~ 2^16`, `k = 100`). Brute force over `p^k` is hopeless, but Hensel's lemma lifts any simple root mod `p` to a unique root mod `p^k` via Newton iteration: given `P(r) ≡ 0 mod p^i`, the lift is `r' = r - P(r) * inverse(P'(r), p) mod p^(i+1)`. Factor out the intermediate reductions to `mod p^(i+1)` each step or the integers blow up exponentially.
 
 ```python
-# sage
-R.<x> = PolynomialRing(ZZ)
-pol   = ...           # polynomial with huge coefficients
+from sympy import Poly, symbols
+x = symbols('x')
+pol = Poly(..., x, domain='ZZ')  # polynomial with huge coefficients
 p     = 35671
 k     = 100
 
@@ -787,7 +1120,7 @@ def hensel_lift(pol, root, p, k):
     for i in range(1, k):
         mod_next = mod * p
         # r' = r - P(r) * inverse(P'(r), p) mod p^(i+1)
-        inv = inverse_mod(int(dpol(r)) % p, p)
+        inv = pow(int(dpol(r)) % p, -1, p)
         r = (r - int(pol(r)) * inv) % mod_next
         mod = mod_next
     return r
@@ -795,4 +1128,4 @@ def hensel_lift(pol, root, p, k):
 flag_int = hensel_lift(pol, roots_p[0], p, k)
 ```
 
-**Key insight:** Any polynomial equation `P(x) ≡ 0 mod p^k` with `p` small and `p` not dividing `P'(root)` collapses to enumerating roots mod `p` (cheap) plus `k - 1` Newton-style lifts. Each lift requires *reducing intermediate values mod `p^(i+1)` at every step* — Sage's naive `solve_right` or unreduced iteration grinds to a halt because `P(r)` grows as large integers. Works for any `N = p^k` or more generally `N = prod(p_i^{k_i})` by lifting each prime-power factor independently and recombining via CRT.
+**Key insight:** Any polynomial equation `P(x) ≡ 0 mod p^k` with `p` small and `p` not dividing `P'(root)` collapses to enumerating roots mod `p` (cheap) plus `k - 1` Newton-style lifts. Each lift requires *reducing intermediate values mod `p^(i+1)` at every step* -- Sage's naive `solve_right` or unreduced iteration grinds to a halt because `P(r)` grows as large integers. Works for any `N = p^k` or more generally `N = prod(p_i^{k_i})` by lifting each prime-power factor independently and recombining via CRT.

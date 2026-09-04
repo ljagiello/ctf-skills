@@ -6,7 +6,7 @@
 #   bash scripts/install_ctf_tools.sh [OPTIONS] MODE
 #
 # Modes:
-#   python, apt, brew, gems, go, manual, all, --verify
+#   python, apt, brew, gems, go, pat, manual, all, --verify
 #
 # Options:
 #   --dry-run   Show what would be installed without installing
@@ -33,6 +33,8 @@ SKIPPED=()
 LOG_DIR="${HOME}/.ctf-tools"
 LOG_FILE=""
 CTF_VENV="${HOME}/.ctf-tools/venv"
+PAT_DIR="${HOME}/.ctf-tools/PayloadsAllTheThings"
+WEB_PAT_DIR="ctf-web/payloads/PayloadsAllTheThings"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -100,6 +102,9 @@ gem_installed() {
 #
 # Format: "pip_name==version:import_name"
 # The import_name is used for skip-if-installed checks.
+# Supports Python >=3.10 (pyproject.toml `requires-python`).
+# uv alternative: uv venv && uv pip install "pwntools==4.15.0" "ROPgadget==7.7" "ropper==1.13.13"
+# Optional cross-arch (ARM/MIPS): apt install qemu-user qemu-user-static qemu-user-binfmt gdb-multiarch binutils-multiarch libc6-armhf-cross libc6-arm64-cross libc6-mips-cross
 # ---------------------------------------------------------------------------
 
 PIP_PACKAGES=(
@@ -111,10 +116,15 @@ PIP_PACKAGES=(
   "hashpumpy==1.2:hashpumpy"
   "fpylll==0.6.4:fpylll"
   "py_ecc==8.0.0:py_ecc"
+  "ecdsa==0.19.1:ecdsa"
+  # Coppersmith — no reliable PyPI package as of 2026-09 (pip install coppersmith not found);
+  # use manual clone: git clone https://github.com/jvdsn/crypto-attacks ~/.ctf-tools/crypto-attacks
+  # (fpylll + sympy already enable pure-Python Coppersmith via lattice construction)
   "angr==9.2.193:angr"
   "frida-tools==14.8.0:frida"
   "qiling==1.4.6:qiling"
   "requests==2.32.5:requests"
+  "httpx==0.27.2:httpx"
   "flask-unsign==1.2.1:flask_unsign"
   "sqlmap==1.10.3:sqlmap"
   "ropper==1.13.13:ropper"
@@ -134,7 +144,9 @@ PIP_PACKAGES=(
   "lief==0.17.6:lief"
   "dnspython==2.8.0:dns"
   "dnslib==0.9.26:dnslib"
+  "segno==1.6.2:segno"
   "dissect.cobaltstrike==1.2.1:dissect.cobaltstrike"
+  "python-evtx==0.7.4:Evtx"
 )
 
 # ---------------------------------------------------------------------------
@@ -241,11 +253,13 @@ install_python() {
 install_apt() {
   require_cmd apt-get || return 1
 
+  # Optional cross-arch (ARM/MIPS) — not auto-installed; run manually if needed:
+  #   apt install qemu-user qemu-user-static qemu-user-binfmt gdb-multiarch binutils-multiarch libc6-armhf-cross libc6-arm64-cross libc6-mips-cross
   local packages=(
     gdb radare2 binutils binwalk foremost libimage-exiftool-perl
     tshark sleuthkit ffmpeg steghide testdisk john pcapfix
     nmap whois dnsutils hashcat strace ltrace imagemagick curl jq
-    apktool upx qemu-system-x86 sagemath qrencode
+    apktool upx qemu-system-x86 sagemath qrencode libzbar0
   )
 
   # Collect packages that need installing
@@ -391,19 +405,95 @@ install_go() {
   fi
 }
 
+install_pat() {
+  local pat_url="https://github.com/swisskyrepo/PayloadsAllTheThings.git"
+
+  # --force: remove existing clone first
+  local pat_force_removed=false
+  if [ "$FORCE" = true ] && [ -d "$PAT_DIR" ]; then
+    if [ "$DRY_RUN" = true ]; then
+      log_info "Would remove $PAT_DIR (--force)"
+      pat_force_removed=true
+    else
+      log_info "Removing $PAT_DIR (--force)"
+      rm -rf "$PAT_DIR"
+    fi
+  fi
+
+  if [ "$pat_force_removed" = false ] && [ -d "$PAT_DIR/.git" ]; then
+    if [ "$DRY_RUN" = true ]; then
+      log_info "Would update PayloadsAllTheThings at $PAT_DIR (git -C \"$PAT_DIR\" pull --ff-only)"
+    else
+      log_info "Updating PayloadsAllTheThings at $PAT_DIR"
+      if git -C "$PAT_DIR" pull --ff-only >>"${LOG_FILE:-/dev/null}" 2>&1; then
+        SUCCEEDED+=("pat:PayloadsAllTheThings")
+      else
+        log_warn "git pull failed for PayloadsAllTheThings at $PAT_DIR"
+        FAILED+=("pat:PayloadsAllTheThings")
+      fi
+    fi
+  else
+    if [ "$DRY_RUN" = true ]; then
+      log_info "Would clone PayloadsAllTheThings: git clone --depth 1 $pat_url \"$PAT_DIR\""
+    else
+      log_info "Cloning PayloadsAllTheThings to $PAT_DIR"
+      require_cmd git || return 1
+      if git clone --depth 1 "$pat_url" "$PAT_DIR" >>"${LOG_FILE:-/dev/null}" 2>&1; then
+        SUCCEEDED+=("pat:PayloadsAllTheThings")
+      else
+        log_warn "git clone failed for PayloadsAllTheThings"
+        FAILED+=("pat:PayloadsAllTheThings")
+        return 1
+      fi
+    fi
+  fi
+
+  # Symlink into ctf-web/payloads for on-demand use by the agent
+  if [ "$DRY_RUN" = true ]; then
+    log_info "Would link $PAT_DIR -> $WEB_PAT_DIR (mkdir -p \"\$(dirname \"$WEB_PAT_DIR\")\" && ln -sfn \"$PAT_DIR\" \"$WEB_PAT_DIR\")"
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$WEB_PAT_DIR")"
+  if ln -sfn "$PAT_DIR" "$WEB_PAT_DIR" 2>>"${LOG_FILE:-/dev/null}"; then
+    log_info "Linked $WEB_PAT_DIR -> $PAT_DIR"
+  else
+    log_warn "Symlink failed (Windows/read-only?) — falling back to direct clone into $WEB_PAT_DIR"
+    if [ -d "$WEB_PAT_DIR/.git" ]; then
+      git -C "$WEB_PAT_DIR" pull --ff-only >>"${LOG_FILE:-/dev/null}" 2>&1 || true
+    else
+      rm -rf "$WEB_PAT_DIR"
+      if git clone --depth 1 "$pat_url" "$WEB_PAT_DIR" >>"${LOG_FILE:-/dev/null}" 2>&1; then
+        SUCCEEDED+=("pat:PayloadsAllTheThings-fallback")
+      else
+        log_warn "Fallback clone failed for $WEB_PAT_DIR"
+        FAILED+=("pat:PayloadsAllTheThings-fallback")
+      fi
+    fi
+  fi
+}
+
 print_manual() {
   cat <<'EOF'
 Manual installs (cannot be automated reliably):
   pwndbg     — Linux: https://github.com/pwndbg/pwndbg
                macOS: brew install pwndbg/tap/pwndbg-gdb
   RsaCtfTool — git clone https://github.com/RsaCtfTool/RsaCtfTool
-  SageMath   — Linux: apt install sagemath
-               macOS: brew install --cask sage
+  SageMath   — Linux: apt install sagemath (optional — only for legacy Sage fallback snippets)
+               macOS: brew install --cask sage (optional)
+  crypto-attacks (Coppersmith) — git clone https://github.com/jvdsn/crypto-attacks ~/.ctf-tools/crypto-attacks
+               && pip install -r ~/.ctf-tools/crypto-attacks/requirements.txt
+               Alternative (flaky): pip install coppersmith  # no reliable PyPI package as of 2026-09
+               Pure-Python Coppersmith lattice via fpylll + sympy works without Sage
   steghide   — Linux: apt install steghide
                Homebrew not available
   pycdc      — git clone https://github.com/zrax/pycdc && cmake . && make
                (Python 3.9+ bytecode decompiler; uncompyle6 only supports <=3.8)
   dnSpy      — https://github.com/dnSpy/dnSpy (Windows/.NET only)
+  PayloadsAllTheThings (PAT) — git clone --depth 1 https://github.com/swisskyrepo/PayloadsAllTheThings.git ~/.ctf-tools/PayloadsAllTheThings
+               && ln -sfn ~/.ctf-tools/PayloadsAllTheThings ctf-web/payloads/PayloadsAllTheThings
+               or: bash scripts/install_ctf_tools.sh pat  # installs + links (MIT licensed upstream)
+               Offline fallback: manual clone to ctf-web/payloads/PayloadsAllTheThings if symlink fails (Windows/read-only)
 EOF
 }
 
@@ -447,6 +537,39 @@ verify() {
       missing+=("py:$name")
     fi
   done
+
+  # Coppersmith lattice helper — manual clone (no reliable PyPI package)
+  local crypto_attacks_dir="${HOME}/.ctf-tools/crypto-attacks"
+  if [ -d "$crypto_attacks_dir/.git" ] || [ -d "$crypto_attacks_dir" ] && [ -f "$crypto_attacks_dir/requirements.txt" ]; then
+    found+=("crypto-attacks")
+  else
+    missing+=("crypto-attacks (git clone https://github.com/jvdsn/crypto-attacks ~/.ctf-tools/crypto-attacks)")
+  fi
+  # Also hint pure-Python alternative via pip coppersmith (flaky)
+  if python3 -c "import coppersmith" 2>/dev/null; then
+    found+=("py:coppersmith")
+  else
+    missing+=("py:coppersmith (optional — no reliable PyPI package, use crypto-attacks clone)")
+  fi
+
+  # PayloadsAllTheThings (PAT) — on-demand clone
+  if [ -d "$PAT_DIR/.git" ]; then
+    local pat_sha
+    pat_sha=$(git -C "$PAT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    echo "PAT $pat_sha at $PAT_DIR"
+    log_info "PAT $pat_sha at $PAT_DIR"
+    found+=("PAT $pat_sha at $PAT_DIR")
+    # Also check symlink / fallback
+    if [ -L "$WEB_PAT_DIR" ] || [ -d "$WEB_PAT_DIR/.git" ] || [ -d "$WEB_PAT_DIR" ]; then
+      found+=("PAT link $WEB_PAT_DIR")
+    else
+      missing+=("PAT link $WEB_PAT_DIR (run: bash scripts/install_ctf_tools.sh pat)")
+    fi
+  else
+    echo "PAT missing (not cloned to $PAT_DIR)"
+    log_info "PAT missing (not cloned to $PAT_DIR)"
+    missing+=("PAT missing (clone with: bash scripts/install_ctf_tools.sh pat or git clone --depth 1 https://github.com/swisskyrepo/PayloadsAllTheThings.git $PAT_DIR)")
+  fi
 
   echo ""
   echo "Found: ${#found[@]} tools/modules"
@@ -501,6 +624,7 @@ case "$MODE" in
   brew) install_brew; print_summary ;;
   gems) install_gems; print_summary ;;
   go) install_go; print_summary ;;
+  pat) install_pat; print_summary ;;
   manual) print_manual ;;
   --verify) verify ;;
   all)
@@ -514,12 +638,13 @@ case "$MODE" in
     fi
     install_gems
     install_go
+    install_pat
     print_manual
     print_summary
     ;;
   *)
     log_error "Unknown mode: $MODE"
-    echo "Usage: $0 [--dry-run] [--force] {python|apt|brew|gems|go|manual|all|--verify}" >&2
+    echo "Usage: $0 [--dry-run] [--force] {python|apt|brew|gems|go|pat|manual|all|--verify}" >&2
     exit 2
     ;;
 esac

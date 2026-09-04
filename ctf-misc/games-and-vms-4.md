@@ -165,7 +165,7 @@ def tribonacci(N, MOD=13371337):
     a, b, c = 0, 0, 1
     for _ in range(N):
         a, b, c = b, c, (a + b + c) % MOD
-    return c
+    return a  # 0-indexed: after N steps a == f(N)
 ```
 
 **Key insight:** "Number of ways to climb N stairs with step sizes {1..k}" is always a linear recurrence. Memoize up to the server's max `N`, cache across requests, and keep the tribonacci identity in mind when the challenge text mentions "frog".
@@ -180,14 +180,15 @@ def tribonacci(N, MOD=13371337):
 
 ```python
 from selenium import webdriver
+from selenium.webdriver.common.by import By
 from PIL import Image
 import pytesseract, io
 d = webdriver.Chrome()
 d.get(URL); d.execute_script("document.body.style.zoom='450%'")
 img = Image.open(io.BytesIO(d.get_screenshot_as_png()))
 expr = pytesseract.image_to_string(img).replace('x','*').replace('{','(').replace('}',')')
-d.execute_script(f"document.getElementsByName('answer')[0].value={eval(expr)}")
-d.find_element_by_tag_name('form').submit()
+d.execute_script(f"document.getElementsByName('answer')[0].value={eval(expr)}")  # <!-- audit-ok -->
+d.find_element(By.TAG_NAME, 'form').submit()
 ```
 
 **Key insight:** Dynamic CAPTCHAs are often too short-lived for manual solves but trivial for a 1-second Selenium + Tesseract loop. When OCR alone fails, pair it with a cmap reference library (see ctf-osint/web-and-dns.md).

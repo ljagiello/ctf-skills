@@ -101,25 +101,106 @@ ascii_text = ''.join(chr(int(decoded[i:i+2])) for i in range(0, len(decoded), 2)
 
 **Pattern (139 steps):** Recursive decoding with troll flags as decoys.
 
-**Critical rule:** When data is all hex chars (0-9, a-f), decode as **hex FIRST**, not base64 (which also accepts those chars).
+**Critical rule:** When data is all hex chars (0-9, a-f), decode as **hex FIRST**, not base64 (which also accepts those chars). Distinguish compression by magic: **zlib** `78 01`/`78 9c`, **gzip** `1f 8b`, **bz2** `42 5a 68` (`BZh`), **lzma/xz** `fd 37 7a 58 5a 00`.
 
 ```python
+import base64, zlib, gzip, bz2, lzma
+
+def try_xor(data, key_hint='flag'):
+    """Single-byte brute 256 + repeating-key hint; xor_flag heuristic."""
+    raw = data.encode() if isinstance(data, str) else data
+    best = None
+    # First pass: exact hint match (case-sensitive) — avoids FLAG false positive
+    # (e.g. key 0x20 maps FLAG->flag; exact pass prefers the true key).
+    for key in range(256):
+        decoded = bytes(b ^ key for b in raw)
+        if key_hint and decoded.count(key_hint.encode()) > 0:
+            return decoded
+    # Second pass: case-insensitive flag + printable fallback
+    for key in range(256):
+        decoded = bytes(b ^ key for b in raw)
+        printable = all(32 <= b < 127 or b in b'\n\r\t' for b in decoded[:64]) if decoded else False
+        if printable and b'flag' in decoded.lower():
+            return decoded
+        if printable and best is None:
+            best = decoded
+    # repeating-key hint (key_hint as repeating key)
+    if key_hint:
+        kh = key_hint.encode()
+        decoded = bytes(b ^ kh[i % len(kh)] for i, b in enumerate(raw))
+        if b'flag{' in decoded or b'CTF{' in decoded:
+            return decoded
+    return best
+
+def _as_text(raw: bytes):
+    """Decode only for str-only passes; return None if not text-safe."""
+    try:
+        return raw.decode('ascii')
+    except UnicodeDecodeError:
+        return None
+
 def auto_decode(data):
+    # Keep raw bytes across passes — never lossy-decode mid-chain with
+    # errors='replace' (that corrupts the next pass's input). Text-only
+    # decoders (hex/base64) run on the ASCII view; compression/xor run on bytes.
+    raw = data.encode() if isinstance(data, str) else bytes(data)
     while True:
-        data = data.strip()
-        if data.startswith('REAL_DATA_FOLLOWS:'):
-            data = data.split(':', 1)[1]
-        # Prioritize hex when ambiguous
-        if all(c in '0123456789abcdefABCDEF' for c in data) and len(data) % 2 == 0:
-            data = bytes.fromhex(data).decode('ascii', errors='replace')
-        elif set(data) <= set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='):
-            data = base64.b64decode(data).decode('ascii', errors='replace')
-        else:
-            break
-    return data
+        text = _as_text(raw)
+        s = text.strip() if text is not None else None
+        if s is not None and s.startswith('REAL_DATA_FOLLOWS:'):
+            raw = s.split(':', 1)[1].encode()
+            continue
+        # Distinguish zlib (78 01/78 9c) vs gzip (1f 8b) vs bz2 vs lzma magic before text decoders
+        if raw.startswith(b'\x78\x01') or raw.startswith(b'\x78\x9c'):  # zlib
+            try:
+                raw = zlib.decompress(raw)
+                continue
+            except Exception:
+                pass
+        if raw.startswith(b'\x1f\x8b'):  # gzip 1f 8b
+            try:
+                raw = gzip.decompress(raw)
+                continue
+            except Exception:
+                pass
+        if raw.startswith(b'BZh'):  # bz2
+            try:
+                raw = bz2.decompress(raw)
+                continue
+            except Exception:
+                pass
+        if raw.startswith(b'\xfd7zXZ\x00'):  # lzma/xz
+            try:
+                raw = lzma.decompress(raw)
+                continue
+            except Exception:
+                pass
+        # xor branch — try_xor(data, key_hint='flag') single-byte brute 256 + repeating-key hint
+        # (two-pass: exact hint first, then case-insensitive printable fallback)
+        xor_res = try_xor(raw, key_hint='flag')
+        if xor_res is not None and xor_res != raw and b'flag' in xor_res.lower():
+            raw = xor_res
+            continue
+        # Prioritize hex when ambiguous — hex-first rule (str-only passes)
+        if s is not None and len(s) % 2 == 0 and len(s) > 0 and all(c in '0123456789abcdefABCDEF' for c in s):
+            try:
+                raw = bytes.fromhex(s)
+                continue
+            except Exception:
+                pass
+        if s is not None and len(s) % 4 == 0 and set(s) <= set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='):
+            try:
+                raw = base64.b64decode(s)
+                continue
+            except Exception:
+                pass
+        break
+    return raw
 ```
 
 **Ignore troll flags** — check for "keep decoding" or "REAL_DATA_FOLLOWS:" markers.
+
+> **CyberChef Magic verify:** paste remaining bytes into CyberChef *Magic* operation — it brute-forces the same xor/base/compression stack and confirms the manual `auto_decode` chain. Use Magic's intensity slider to replicate the hex-first rule.
 
 ### URL Encoding
 ```python

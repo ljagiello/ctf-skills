@@ -408,6 +408,23 @@ for guess in range(257):  # v[i] in [-256, 256], |v[i]| in [0, 256]
 **Distortion map technique:** On supersingular pairing-friendly curves, a distortion map `psi((x,y)) = (zeta*x, y)` (where `zeta^3 = 1`) enables additive exponent comparisons:
 
 ```python
+# Pure-Python KZG pairing oracle via py_ecc (BN128) — no Sage
+from py_ecc.bn128 import G1, add, multiply, pairing, curve_order, FQ, FQ2, FQ12
+# Distortion map psi((x,y)) = (zeta*x, y) where zeta^3==1 in FQ2
+# e(P_i, psi(P_j)) = e(G1, psi(G1))^(alpha^(a_i+a_j))
+# If e(P_i, psi(P_j)) == e(P_k, psi(G1)), then a_i + a_j == a_k
+
+# Step 1: Identify G1 (alpha^0) — the only point where e(P, psi(P)) == e(G1, psi(G1))
+# Use py_ecc pairing(P, Q) after mapping Q via distortion
+# Step 2: Walk the chain — find alpha*G1 via pairing comparisons
+# Step 3: With ordered points, solve A(x)=0 over GF(q) to get alpha (sympy nroots)
+# Step 4: Forge KZG opening proofs using recovered alpha
+# Note: full pairing arithmetic requires BN128 field; see py_ecc.bn128.pairing
+```
+
+<details><summary>Sage fallback (optional)</summary>
+
+```python
 from sage.all import *
 
 # For points P_i = alpha^a_i * G1 and P_j = alpha^a_j * G1:
@@ -433,6 +450,8 @@ for P in shuffled_points:
 # Step 3: With ordered points, solve A(x) = 0 over GF(q) to get alpha
 # Step 4: Forge KZG opening proofs using recovered alpha
 ```
+
+</details>
 
 **Key insight:** Bilinear pairings reveal additive relationships between exponents without solving discrete log. The pairing `e(P_i, psi(P_j))` depends on `alpha^(a_i + a_j)`, so comparing against known pairing values identifies which shuffled point has which exponent. This turns a cryptographic shuffle into a solvable ordering problem.
 

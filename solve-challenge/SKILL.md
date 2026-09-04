@@ -80,6 +80,7 @@ Determine the primary category, then invoke the matching skill.
 - `.elf`, `.exe`, `.so`, `.dll`, binary with no extension -> reverse or pwn (check if remote service provided -- if yes, likely pwn)
 - `.py`, `.sage`, `.txt` with numbers -> crypto
 - `.apk`, `.wasm`, `.pyc` -> reverse
+- `.safetensors`, `.pt`, `.pth`, `.bin`, `.onnx` -> ai-ml
 - Web URL or source code with HTML/JS/PHP/templates -> web
 - Images, audio, PDFs with no obvious content -> forensics (steganography)
 
@@ -90,6 +91,7 @@ Determine the primary category, then invoke the matching skill.
 - "disk image", "memory dump", "packet capture", "registry", "power trace", "side-channel", "spectrogram", "audio tracks", "MKV" -> forensics
 - "find", "locate", "identify", "who", "where" -> osint
 - "obfuscated", "packed", "C2", "malware", "beacon" -> malware
+- "prompt injection", "LoRA", "adversarial", "model weights", "embedding" -> ai-ml
 - "jail", "sandbox", "escape", "encoding", "signal", "game", "Nim", "commitment", "Gray code" -> misc
 
 **By service behavior:**
@@ -111,6 +113,7 @@ Once you identify the category, **invoke the matching skill** to get specialized
 | Forensics | `/ctf-forensics` | Disk images, memory dumps, event logs, stego, network captures |
 | OSINT | `/ctf-osint` | Social media, geolocation, DNS, public records |
 | Malware | `/ctf-malware` | Obfuscated scripts, C2 traffic, PE/.NET analysis |
+| AI/ML | `/ctf-ai-ml` | Model weights (`.safetensors`, `.pt`, `.pth`, `.bin`, `.onnx`), prompt injection, LoRA adapters, adversarial examples |
 | Misc | `/ctf-misc` | Jails, encodings, RF/SDR, esoteric languages, constraint solving |
 
 You can also invoke `/ctf-<category>` to load the full skill instructions with detailed techniques.

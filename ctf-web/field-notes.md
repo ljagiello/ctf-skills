@@ -480,3 +480,4 @@ Server builds XML from headers without escaping. Inject `</ip><admin>true</admin
 ## Common Flag Locations
 
 Files: `/flag.txt`, `/flag`, `/app/flag.txt`, `/home/*/flag*`. Env: `/proc/self/environ`. DB: `flag`, `flags`, `secret` tables. Headers: `x-flag`, `x-archive-tag`, `x-proof`. DOM: `display:none` elements, `data-*` attributes.
+See pat-reference.md for bulk payload wordlists per category.
