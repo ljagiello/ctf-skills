@@ -19,7 +19,7 @@ ChaCha20-Poly1305 nonce reuse (RFC 8439 $2^{130}-5$), partitioning-oracle / key-
 
 **Clamping:** RFC 8439 clamps $r$ bytes: `r &= 0x0ffffffc0fffffff...` — top 4 bits of bytes 3,7,11,15 cleared; low 2 bits of bytes 3,7,11,15 cleared. This reduces candidates to $2^{106}$ but still enumerable among polynomial roots.
 
-**Reference:** picoCTF 2025 `ChaCha20-Poly1305 nonce reuse` — writeup [hackmd vq8pc6](https://hackmd.io/vq8pc6) demonstrates exactly this 2-msg forgery pipeline; CTR xor cancels, Poly1305 polynomial solves for $r$, then forges $tag'$ for new $ct'$.
+**Reference:** picoCTF 2025 `ChaCha20-Poly1305 nonce reuse` — the challenge writeup demonstrates exactly this 2-msg forgery pipeline; CTR xor cancels, Poly1305 polynomial solves for $r$, then forges $tag'$ for new $ct'$.
 
 ```python
 # ChaCha20-Poly1305 nonce reuse — recover Poly1305 r via galois + forge tag' for ct'
@@ -200,7 +200,7 @@ tag2 = "c3d2e1f0..."
 
 **Key insight:** Over $2^{130}-5$ the Poly1305 equation is linear in $s$ and polynomial in $r$. Nonce reuse leaks $r$ as a root of $\Delta Poly(r)- \Delta tag =0$; clamping onlyreduces the search, never prevents it. Identical to AES-GCM forbidden attack but in a prime field — use `galois.GF(2**130-5)` (primary) or `sympy.Poly(..., modulus=p)` (fallback), filter clamped candidates, then forge $tag' = Poly1305(ct',r)+s$.
 
-**References:** RFC 8439 §2.5/§2.8, [picoCTF 2025 hackmd vq8pc6](https://hackmd.io/vq8pc6) — ChaCha20-Poly1305 nonce reuse walkthrough; [RFC 8439 errata](https://www.rfc-editor.org/rfc/rfc8439).
+**References:** [RFC 8439 §2.5/§2.8](https://www.rfc-editor.org/rfc/rfc8439) — ChaCha20-Poly1305 AEAD construction and Poly1305 key generation; picoCTF 2025 `ChaCha20-Poly1305 nonce reuse` challenge walkthrough.
 
 ---
 
