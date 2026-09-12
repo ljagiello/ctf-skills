@@ -17,6 +17,7 @@ Prints: Checked N fences: X syntax OK, Y skipped (reason)
 
 Stdlib only: re, subprocess, pathlib, ast, py_compile, tempfile, argparse, json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -87,7 +88,9 @@ def should_skip_execution(info: str, body: str) -> tuple[bool, str]:
 def _wrap_as_function(body: str) -> str:
     """Wrap body in a function to allow top-level return/break."""
     # indent body by 4 spaces and wrap
-    indented = "\n".join("    " + line if line.strip() else line for line in body.splitlines())
+    indented = "\n".join(
+        "    " + line if line.strip() else line for line in body.splitlines()
+    )
     return f"def _verify_wrapper():\n{indented}\n"
 
 
@@ -105,7 +108,13 @@ def syntax_check(body: str, filename: str) -> tuple[bool, str | None]:
     except SyntaxError as e:
         msg = (e.msg or "").lower()
         # fragments with return/break/continue/yield outside function/loop
-        if "return" in msg or "yield" in msg or "break" in msg or "continue" in msg or "await" in msg:
+        if (
+            "return" in msg
+            or "yield" in msg
+            or "break" in msg
+            or "continue" in msg
+            or "await" in msg
+        ):
             wrapped = _wrap_as_function(body)
             try:
                 ast.parse(wrapped, filename=filename)
@@ -117,7 +126,9 @@ def syntax_check(body: str, filename: str) -> tuple[bool, str | None]:
 
     # 2) py_compile via tempfile + subprocess (spec compliance)
     #    Also catches encoding issues. Uses `python -m py_compile`.
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tf:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".py", delete=False, encoding="utf-8"
+    ) as tf:
         tf.write(body)
         tf.flush()
         tmp_path = tf.name
@@ -132,10 +143,16 @@ def syntax_check(body: str, filename: str) -> tuple[bool, str | None]:
         if result.returncode != 0:
             err = result.stderr.strip() or result.stdout.strip() or "py_compile failed"
             lower_err = err.lower()
-            if "'return' outside function" in lower_err or "'break' outside loop" in lower_err or "'continue' outside loop" in lower_err:
+            if (
+                "'return' outside function" in lower_err
+                or "'break' outside loop" in lower_err
+                or "'continue' outside loop" in lower_err
+            ):
                 # try wrapped version
                 wrapped = _wrap_as_function(body)
-                with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tf2:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".py", delete=False, encoding="utf-8"
+                ) as tf2:
                     tf2.write(wrapped)
                     tf2.flush()
                     tmp2 = tf2.name
@@ -168,7 +185,9 @@ def syntax_check(body: str, filename: str) -> tuple[bool, str | None]:
 
 def try_execute(body: str, timeout: int = 5) -> tuple[bool, str | None]:
     """Execute body in a subprocess with timeout. Returns (ok, error)."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tf:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".py", delete=False, encoding="utf-8"
+    ) as tf:
         tf.write(body)
         tf.flush()
         tmp_path = tf.name
@@ -195,12 +214,31 @@ def try_execute(body: str, timeout: int = 5) -> tuple[bool, str | None]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Verify Python fences in ctf-crypto markdown files")
-    parser.add_argument("--root", default="ctf-crypto", help="Root dir to scan (default: ctf-crypto)")
-    parser.add_argument("--strict", action="store_true", help="Fail on execution errors (default: only syntax errors fail)")
-    parser.add_argument("--json", action="store_true", help="Emit JSON summary to stdout")
-    parser.add_argument("--verbose", action="store_true", help="Verbose per-fence output")
-    parser.add_argument("--execute", action="store_true", help="Attempt execution of non-skipped fences (default: syntax-only, execution is opt-in unless --strict)")
+    parser = argparse.ArgumentParser(
+        description="Verify Python fences in ctf-crypto markdown files"
+    )
+    parser.add_argument(
+        "--root", default="ctf-crypto", help="Root dir to scan (default: ctf-crypto)"
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail on execution errors (default: only syntax errors fail)",
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Emit JSON summary to stdout"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Verbose per-fence output"
+    )
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help=(
+            "Attempt execution of non-skipped fences "
+            "(default: syntax-only, execution is opt-in unless --strict)"
+        ),
+    )
     args = parser.parse_args()
 
     root = Path(args.root)
@@ -226,7 +264,9 @@ def main() -> None:
             text = md.read_text(encoding="utf-8")
         except Exception as e:
             # unreadable file — count as failure in strict, else warn
-            failed.append({"file": str(md), "info": "", "error": f"cannot read: {e}", "line": 0})
+            failed.append(
+                {"file": str(md), "info": "", "error": f"cannot read: {e}", "line": 0}
+            )
             continue
 
         for m in FENCE_RE.finditer(text):
@@ -259,7 +299,15 @@ def main() -> None:
             # Normal syntax check
             ok, err = syntax_check(body, filename)
             if not ok:
-                failed.append({"file": str(md), "info": info, "error": err, "line": lineno, "body_preview": body[:200]})
+                failed.append(
+                    {
+                        "file": str(md),
+                        "info": info,
+                        "error": err,
+                        "line": lineno,
+                        "body_preview": body[:200],
+                    }
+                )
                 if args.verbose:
                     print(f"[syntax FAIL] {filename}: {err}")
                 continue
@@ -296,12 +344,21 @@ def main() -> None:
                         exec_body = _wrap_as_function(body) + "\n_verify_wrapper()\n"
             ok_exec, exec_err = try_execute(exec_body, timeout=5)
             if not ok_exec:
-                exec_failed.append({"file": str(md), "info": info, "error": exec_err, "line": lineno})
+                exec_failed.append(
+                    {"file": str(md), "info": info, "error": exec_err, "line": lineno}
+                )
                 if args.verbose:
                     print(f"  -> exec FAIL: {exec_err}")
                 if args.strict:
                     # in strict+execute mode, execution failure is also a failure
-                    failed.append({"file": str(md), "info": info, "error": f"execution: {exec_err}", "line": lineno})
+                    failed.append(
+                        {
+                            "file": str(md),
+                            "info": info,
+                            "error": f"execution: {exec_err}",
+                            "line": lineno,
+                        }
+                    )
             else:
                 if args.verbose:
                     print("  -> exec OK")
@@ -310,7 +367,8 @@ def main() -> None:
     # Summary
     # ------------------------------------------------------------------
     skipped_total = skipped_sage + skipped_network + skipped_verify
-    # Build human summary matching spec: "Checked 40 fences: 38 syntax OK, 2 skipped (oracle/network)"
+    # Build human summary matching spec:
+    #   "Checked 40 fences: 38 syntax OK, 2 skipped (oracle/network)"
     # Include breakdown when relevant
     reasons: list[str] = []
     if skipped_sage:
@@ -325,7 +383,10 @@ def main() -> None:
 
     # Always print summary line in expected format
     # Use wording that contains "Checked N fences:" and "syntax OK" for test harness
-    summary_line = f"Checked {total} fences: {syntax_ok} syntax OK, {skipped_total} skipped ({reason_str})"
+    summary_line = (
+        f"Checked {total} fences: {syntax_ok} syntax OK, "
+        f"{skipped_total} skipped ({reason_str})"
+    )
     if failed:
         summary_line += f", {len(failed)} failed"
     if args.execute:
@@ -352,7 +413,7 @@ def main() -> None:
             print("\nFailures:", file=sys.stderr)
             for f in failed:
                 loc = f"{f['file']}:{f['line']}"
-                print(f"  {loc} [{f.get('info','')}] {f['error']}", file=sys.stderr)
+                print(f"  {loc} [{f.get('info', '')}] {f['error']}", file=sys.stderr)
                 if args.verbose and "body_preview" in f:
                     preview = f["body_preview"].replace("\n", "\\n")[:300]
                     print(f"    preview: {preview}", file=sys.stderr)
