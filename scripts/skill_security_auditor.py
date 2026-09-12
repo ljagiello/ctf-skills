@@ -18,7 +18,7 @@ CRITICAL_PATTERNS = [
     (r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:", "Fork bomb"),
 ]
 
-SECRET_PATTERNS = [
+HARDCODED_CREDENTIAL_PATTERNS = [
     (r"\b(AKIA[0-9A-Z]{16})\b", "Hardcoded AWS access key"),
     (r"-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----", "Embedded private key"),
     (r"\b(ghp_[A-Za-z0-9_]{36,})\b", "Hardcoded GitHub personal access token"),
@@ -178,6 +178,18 @@ def is_placeholder_xss_example(line: str) -> bool:
     return touches_sensitive_dom and uses_placeholder_host
 
 
+def redact_credentials(text: str) -> str:
+    """Mask credential material so findings never echo it in clear text.
+
+    Finding contexts end up in CI logs, JSON output and PR comments, so any
+    key or token matched by HARDCODED_CREDENTIAL_PATTERNS is replaced with a
+    placeholder before it is stored on a finding.
+    """
+    for pattern, _ in HARDCODED_CREDENTIAL_PATTERNS:
+        text = re.sub(pattern, "[REDACTED]", text)
+    return text
+
+
 def scan_file(filepath: Path) -> list:
     """Scan a single file and return findings."""
     findings = []
@@ -193,6 +205,8 @@ def scan_file(filepath: Path) -> list:
     in_code_block = not is_markdown
     for i, line in enumerate(lines, 1):
         stripped = line.strip()
+        # Shared by every finding on this line; credentials are masked once here.
+        context = redact_credentials(line).strip()[:120]
         is_indented_code = is_markdown and (
             line.startswith("    ") or line.startswith("\t")
         )
@@ -223,12 +237,12 @@ def scan_file(filepath: Path) -> list:
                             "line": i,
                             "rule": pattern[:40],
                             "message": message,
-                            "context": line.strip()[:120],
+                            "context": context,
                         }
                     )
 
         # Real secret material should be flagged wherever it appears.
-        for pattern, message in SECRET_PATTERNS:
+        for pattern, message in HARDCODED_CREDENTIAL_PATTERNS:
             if re.search(pattern, line):
                 findings.append(
                     {
@@ -237,7 +251,7 @@ def scan_file(filepath: Path) -> list:
                         "line": i,
                         "rule": pattern[:40],
                         "message": message,
-                        "context": line.strip()[:120],
+                        "context": context,
                     }
                 )
 
@@ -256,7 +270,7 @@ def scan_file(filepath: Path) -> list:
                         "line": i,
                         "rule": "subprocess.call+shell=True",
                         "message": "subprocess with shell=True and string",
-                        "context": line.strip()[:120],
+                        "context": context,
                     }
                 )
 
@@ -284,7 +298,7 @@ def scan_file(filepath: Path) -> list:
                                 "line": i,
                                 "rule": pattern[:40],
                                 "message": message,
-                                "context": line.strip()[:120],
+                                "context": context,
                             }
                         )
 
@@ -297,7 +311,7 @@ def scan_file(filepath: Path) -> list:
                         "line": i,
                         "rule": pattern[:40],
                         "message": message,
-                        "context": line.strip()[:120],
+                        "context": context,
                     }
                 )
 
