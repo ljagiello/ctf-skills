@@ -34,6 +34,7 @@ brew install gdb radare2 binutils apktool upx ghidra
 **radare2 plugins:**
 ```bash
 r2pm -ci r2ghidra   # Native Ghidra decompiler for radare2
+# The prebuilt r2ghidra zip is ABI-locked to one radare2 version (WARN: ABI mismatch: Expect 142 vs 152); r2pm -ci r2ghidra builds the plugin from source instead.
 ```
 
 **Manual install:**
@@ -45,6 +46,7 @@ r2pm -ci r2ghidra   # Native Ghidra decompiler for radare2
 
 - [unicorn-emulation.md](unicorn-emulation.md) - Unicorn CPU emulation: raw binary assembly emulation, hooks, ARM/MIPS/Thumb, mixed-mode, firmware MMIO, Keystone+Capstone trace inversion, shellcode unpack, custom VM, vs Qiling decision (sometimes easier to rev with just unicorn + binary + assembly than full GDB/angr)
 - [tools.md](tools.md) - Static analysis tools (GDB, Ghidra, radare2, IDA, Binary Ninja, dogbolt.org, RISC-V with Capstone, Unicorn emulation, Python bytecode, WASM, Android APK, .NET, packed binaries)
+- [radare2-r2pipe.md](radare2-r2pipe.md) - radare2 scripting deep dive (batch mode without an interactive shell, `wx` byte patching in batch mode, r2ghidra decompilation with `pdg`/`pdgj` plus plugin ABI matching, ESIL single-function emulation with `aei`/`aeim`/`aesu`, r2pipe session lifecycle and `cmdj` JSON traps, mapping checkers with xrefs and `aflj`)
 - [tools-mcp.md](tools-mcp.md) - MCP server integration (agent-driven RE): IDA Pro MCP (GUI plugin + idalib headless), Ghidra MCP (headless server, no GUI), JADX MCP (Android APK/DEX), plus crossing the JNI boundary by `dlopen`-ing an Android `.so` on the host instead of decompiling it
 - [tools-dynamic.md](tools-dynamic.md) - Dynamic analysis tools: Frida (hooking, anti-debug bypass, memory scanning, Android/iOS), angr symbolic execution (path exploration, constraints, CFG), lldb (macOS/LLVM debugger), x64dbg (Windows)
 - [tools-emulation.md](tools-emulation.md) - Emulation frameworks and side-channel tooling: Qiling (cross-platform OS-level emulation), Triton (DSE), Intel Pin instruction-counting + genetic algorithm side channel, opcode-only trace reconstruction, LD_PRELOAD time freeze and memcmp side-channel for byte-by-byte bruteforce
