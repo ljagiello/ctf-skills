@@ -47,7 +47,9 @@ brew install whois bind nmap exiftool imagemagick curl
 
 ```bash
 # DNS recon
-dig -t any target.com
+dig +short -t txt target.com
+dig +short -t cname target.com
+dig +short -t mx target.com
 dig -t txt target.com
 dig axfr @ns.target.com target.com
 whois target.com
