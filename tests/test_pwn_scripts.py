@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import struct
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 try:
@@ -81,11 +82,14 @@ def _fake_asm(code: str | bytes, avoid: bytes | None = None, **kwargs) -> bytes:
     base = b"\x31\xc0\x48\xbb\x2f\x62\x69\x6e\x2f\x73\x68\x00\x53\x54\x5f\x6a\x3b\x58\x99\x0f\x05"
     # ensure avoid chars not in output: replace them
     if avoid:
-        filtered = bytes(b for b in base if b not in avoid)
-        # if filtering removed bytes, pad with alternate encodings
+        avoid_set = set(avoid)
+        filtered = bytes(b for b in base if b not in avoid_set)
+        # pad back to length with a byte not in avoid; bail if none safe
+        pad = next((bytes([c]) for c in (0x90, 0x41, 0x42, 0x43) if c not in avoid_set), None)
+        if pad is None:
+            return filtered
         while len(filtered) < len(base):
-            filtered += b"\x90"
-            filtered = bytes(b for b in filtered if b not in avoid)
+            filtered += pad
         return filtered[: len(base)]
     return base
 
@@ -334,3 +338,48 @@ class TestPwnScripts(unittest.TestCase):
         self.assertIn(sc, p1)
         mock_flat.assert_called()
         self.assertEqual(mock_flat.call_args[0][0][OFFSET], sc)
+
+# ---------------------------------------------------------------------------
+# Real-import test — loads the actual ctf-pwn/scripts/*.py files
+# ---------------------------------------------------------------------------
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "ctf-pwn" / "scripts"
+_SCRIPT_GENERATORS = {
+    "ret2libc_two_stage.py": ["ret2system_payloads", "leak_payload"],
+    "srop_execve.py": ["srop_execve_frames", "arb_read_gen", "build_srop_chain"],
+    "shellcraft_asm.py": ["shellcode_variants", "orw_shellcode", "build_payload"],
+    "fmtstr_payload_suite.py": ["fmt_leak_payloads", "fmt_write_generators", "got_overwrite_payloads", "arb_write_payloads"],
+    "seccomp_orw_generator.py": ["orw_strategies", "cat_flag_variants", "build_orw_payload"],
+}
+
+
+class TestPwnScriptImports(unittest.TestCase):
+    """Import each real script and check advertised generators exist.
+
+    Skips cleanly when pwntools is absent (scripts need it at import time).
+    """
+
+    def test_script_generators_importable_and_callable(self) -> None:
+        if pytest is not None:
+            pytest.importorskip("pwn")
+        else:
+            try:
+                import pwn  # noqa: F401
+            except ImportError:
+                self.skipTest("pwntools not installed")
+        import importlib.util
+
+        for filename, names in _SCRIPT_GENERATORS.items():
+            path = _SCRIPTS_DIR / filename
+            self.assertTrue(path.is_file(), f"missing script: {filename}")
+            mod_name = f"_real_{path.stem}"
+            spec = importlib.util.spec_from_file_location(mod_name, path)
+            self.assertIsNotNone(spec, f"no spec for {filename}")
+            self.assertIsNotNone(spec.loader, f"no loader for {filename}")
+            module = importlib.util.module_from_spec(spec)
+            try:
+                spec.loader.exec_module(module)
+            except FileNotFoundError as exc:
+                self.skipTest(f"{filename} needs challenge binary ({exc.filename})")
+            for name in names:
+                self.assertTrue(hasattr(module, name), f"{filename} missing {name}")
+                self.assertTrue(callable(getattr(module, name)), f"{filename}.{name} not callable")

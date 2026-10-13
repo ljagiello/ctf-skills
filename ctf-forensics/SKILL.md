@@ -238,14 +238,15 @@ See [windows.md](windows.md) for SAM details and [network-advanced.md](network-a
 **Pattern (Backchimney):** Malware uses WMI event subscriptions for persistence (MITRE T1546.003).
 
 ```bash
-python PyWMIPersistenceFinder.py OBJECTS.DATA
+# Tool: https://github.com/davidpany/WMI_Forensics (run against a copy of OBJECTS.DATA)
+python WMI_Forensics/PyWMIPersistenceFinder.py OBJECTS.DATA
 ```
 
 - Look for FilterToConsumerBindings with CommandLineEventConsumer
 - Base64-encoded PowerShell in consumer commands
 - Event filters triggered on system events (logon, timer)
 
-See [windows.md](windows.md) for WMI repository analysis details.
+See [windows.md](windows.md#anti-forensics-detection-checklist) for the WMI repository (OBJECTS.DATA) location and related anti-forensics artifacts.
 
 ## Network Forensics Quick Reference
 

