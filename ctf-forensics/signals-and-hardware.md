@@ -611,33 +611,39 @@ Audio files can contain serial (UART) data encoded as square wave signals. Decod
 
 ```python
 import struct
-
-with open('signal.wav', 'rb') as f:
-    f.read(44)  # skip WAV header
-    samples = []
-    while True:
-        data = f.read(2)
-        if not data: break
-        samples.append(struct.unpack('<h', data)[0])
+import wave
 
 # Parameters: 9600 baud, 1 start bit, 8 data bits, no parity, 2 stop bits
-SAMPLES_PER_BIT = len(samples) // expected_bits  # ~40 for 9600 baud @ 384kHz
-THRESHOLD = 0  # above = 1, below = 0
+BAUD = 9600
 
-# Convert samples to bits
-bits = [1 if s > THRESHOLD else 0 for s in samples]
+with wave.open('signal.wav', 'rb') as w:
+    sample_rate = w.getframerate()  # actual rate from the WAV header
+    sampwidth = w.getsampwidth()
+    n_channels = w.getnchannels()
+    raw = w.readframes(w.getnframes())
 
-# Find frames: start bit (0) + 8 data bits + stop bits (1,1)
+fmt = {1: '<b', 2: '<h', 4: '<i'}[sampwidth]  # 8/16/32-bit PCM
+samples = [struct.unpack(fmt, raw[i:i + sampwidth])[0]
+           for i in range(0, len(raw), sampwidth * n_channels)]
+
+samples_per_bit = sample_rate // BAUD  # exact: header rate, not a guess
+THRESHOLD = 0  # above = mark (1), below = space (0)
+
+# Find frames: start bit (0) + 8 data bits + stop bits (1,1).
+# Resync on every frame: sample the center of each bit period.
 output = []
 i = 0
-while i < len(bits) - 11:
-    if bits[i] == 0:  # start bit
-        byte_bits = bits[i+1:i+9]  # LSB first
-        byte_val = sum(b << j for j, b in enumerate(byte_bits))
+while i + 11 * samples_per_bit <= len(samples):
+    if samples[i + samples_per_bit // 2] <= THRESHOLD:  # start bit
+        byte_val = 0
+        for j in range(8):  # data bits, LSB first
+            center = i + (j + 1) * samples_per_bit + samples_per_bit // 2
+            if samples[center] > THRESHOLD:
+                byte_val |= 1 << j
         output.append(byte_val)
-        i += 11  # skip start + 8 data + 2 stop
+        i += 11 * samples_per_bit  # skip start + 8 data + 2 stop
     else:
-        i += 1
+        i += samples_per_bit  # no start bit here; advance one bit-period
 
 print(bytes(output))
 ```

