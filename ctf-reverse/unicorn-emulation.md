@@ -759,7 +759,6 @@ def hook_bp(mu, address, size, user_data):
 mu.hook_add(UC_HOOK_CODE, hook_bp)
 
 # Minimal RSP loop: expose regs/mem via socket, translate GDB packets to mu.reg_read/mem_read
-# Full stub: https://github.com/unicorn-engine/unicorn/blob/master/samples/gdb_stub.py
 # Use: gdb target.bin → target remote :1234 → c / si / info regs (backed by mu)
 
 def gdb_reg_sync(mu):

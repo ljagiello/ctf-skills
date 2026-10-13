@@ -307,7 +307,7 @@ Hook runtime functions without modifying binary. `frida -f ./binary -l hook.js` 
 Automatic path exploration to find inputs satisfying constraints. Load binary with `angr.Project`, set find/avoid addresses, call `simgr.explore()`. Constrain input to printable ASCII and known prefix for faster solving. Hook expensive functions (crypto, I/O) to prevent path explosion. See [tools-dynamic.md](tools-dynamic.md#angr-symbolic-execution).
 
 ### Qiling Emulation
-Cross-platform binary emulation with OS-level support (syscalls, filesystem). Emulate Linux/Windows/ARM/MIPS binaries on any host. No debugger artifacts — bypasses all anti-debug by default. Hook syscalls and addresses with Python API. See [tools-dynamic.md](tools-emulation.md#qiling-framework-cross-platform-emulation).
+Cross-platform binary emulation with OS-level support (syscalls, filesystem). Emulate Linux/Windows/ARM/MIPS binaries on any host. No debugger artifacts — bypasses all anti-debug by default. Hook syscalls and addresses with Python API. See [tools-emulation.md](tools-emulation.md#qiling-framework-cross-platform-emulation).
 
 ### VMProtect / Themida Analysis
 VMProtect virtualizes code into custom bytecode. Identify VM entry (pushad-like), find handler table (large indirect jump), trace handlers dynamically. For CTF, focus on tracing operations on input rather than full devirtualization. Themida: dump at OEP with ScyllaHide + Scylla. See [tools-advanced.md](tools-advanced.md#vmprotect-analysis).
@@ -334,10 +334,10 @@ Unreal: extract .pak with UnrealPakTool, reverse Blueprint bytecode with FModel.
 Swift: `swift demangle` symbols, protocol witness tables for dispatch, `__swift5_*` sections. Kotlin/JVM: coroutines compile to state machines in `invokeSuspend`, `jadx` with Kotlin mode for best decompilation. Kotlin/Native: LLVM backend, looks like C++ in disassembly. See [languages-compiled.md](languages-compiled.md#swift-binary-reversing).
 
 ### INT3 Patch + Coredump Brute-Force Oracle
-Patch `0xCC` (INT3) after transform output, enable core dumps, brute-force each input character by extracting computed state from coredump via `strings`. Avoids full reverse of transformation. See [patterns.md](patterns-runtime.md#int3-patch--coredump-brute-force-oracle-pwn2win-2016).
+Patch `0xCC` (INT3) after transform output, enable core dumps, brute-force each input character by extracting computed state from coredump via `strings`. Avoids full reverse of transformation. See [patterns-runtime.md](patterns-runtime.md#int3-patch--coredump-brute-force-oracle-pwn2win-2016).
 
 ### Signal Handler Chain + LD_PRELOAD Oracle
-Binary uses signal handler chains for per-character password validation. Hook `signal()` via LD_PRELOAD -- the call to install the next handler confirms the current character is correct. See [patterns.md](patterns-runtime.md#signal-handler-chain--ld_preload-oracle-nuit-du-hack-2016).
+Binary uses signal handler chains for per-character password validation. Hook `signal()` via LD_PRELOAD -- the call to install the next handler confirms the current character is correct. See [patterns-runtime.md](patterns-runtime.md#signal-handler-chain--ld_preload-oracle-nuit-du-hack-2016).
 
 ### Font Ligature Exploitation
 Custom OpenType font maps multi-character ligature sequences to single glyphs; reverse the GSUB table to decode hidden messages. See [patterns-ctf-3.md](patterns-ctf-3.md#opentype-font-ligature-exploitation-for-hidden-messages-hack-the-vote-2016).
@@ -352,7 +352,7 @@ Invert BWT without terminator character by trying all possible row indices. Stan
 Esoteric language using iterated fraction multiplication. Invert by swapping numerator/denominator in fraction table, run output backward. I/O encoded as prime factorization exponents. See [languages.md](languages.md#fractran-program-inversion-boston-key-party-2016).
 
 ### Opcode-Only Trace Reconstruction
-Execution traces with only opcodes (no data) still leak info through branch decisions. Sorting algorithm comparisons reveal element ordering. Reconstruct by deduplicating trace, splitting into basic blocks. See [tools-dynamic.md](tools-emulation.md#opcode-only-trace-reconstruction-0ctf-2016).
+Execution traces with only opcodes (no data) still leak info through branch decisions. Sorting algorithm comparisons reveal element ordering. Reconstruct by deduplicating trace, splitting into basic blocks. See [tools-emulation.md](tools-emulation.md#opcode-only-trace-reconstruction-0ctf-2016).
 
 ### Thread Race Signed Integer Overflow
 Game binary with thread-unsafe skill lock. Race between skill selection and damage calculation; `cdqe` sign-extends 0xFFFFFFFF to -1 (signed), causing HP overflow on subtraction. See [patterns-ctf-3.md](patterns-ctf-3.md#thread-race-condition-with-signed-integer-overflow-codegate-2017).
@@ -364,7 +364,7 @@ No IDA support — use radare2 + ESP-IDF ROM linker script (`esp32.rom.ld`) for 
 Transpile custom VM bytecode to LLVM IR, then use `opt -O3` to simplify (inlining, constant folding, dead code elimination). Reduces 1300 lines to ~150 lines, revealing the underlying algorithm. See [tools-advanced.md](tools-advanced.md#custom-vm-bytecode-lifting-to-llvm-ir-google-ctf-2017).
 
 ### SIGFPE Signal Handler Side-Channel
-SIGFPE signal handlers create implicit control flow invisible to static analysis. Count SIGFPE signals via `strace -e signal=SIGFPE` per candidate character -- correct characters produce more signals. See [anti-analysis.md](anti-analysis-ctf.md#sigfpe-signal-handler-side-channel-via-strace-counting-plaidctf-2017).
+SIGFPE signal handlers create implicit control flow invisible to static analysis. Count SIGFPE signals via `strace -e signal=SIGFPE` per candidate character -- correct characters produce more signals. See [anti-analysis-ctf.md](anti-analysis-ctf.md#sigfpe-signal-handler-side-channel-via-strace-counting-plaidctf-2017).
 
 ### Batch Crackme Automation via objdump
 Mass crackme challenges (100s of binaries) with identical structure: script `objdump` to extract CMP immediates and add/sub arithmetic sequences, then reverse-compute keys algebraically without execution. See [patterns-ctf-3.md](patterns-ctf-3.md#batch-crackme-automation-via-objdump-pattern-extraction-def-con-2017).

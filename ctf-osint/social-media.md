@@ -32,7 +32,6 @@
 - Same tweet ID accessible under different usernames = confirmed rename
 
 **Alternative Twitter data sources:**
-- Nitter instances (e.g., `nitter.poast.org/USERNAME`) show tweets without login
 - Syndication API: `https://syndication.twitter.com/srv/timeline-profile/screen-name/USERNAME`
 - Twitter Snowflake IDs encode timestamps: `(id >> 22) + 1288834974657` = Unix ms
 - memory.lol and twitter.lolarchiver.com track username history
@@ -84,7 +83,7 @@ has:images           # Posts with images
 ## Username OSINT
 
 - [namechk.com](https://namechk.com) - Check username across platforms
-- [whatsmyname.app](https://whatsmyname.app) - Username enumeration (741+ sites)
+- [whatsmyname.app](https://whatsmyname.app) - Username enumeration in a browser (~717 sites as of 2026-10); for scripting, clone the [WebBreacher/WhatsMyName](https://github.com/WebBreacher/WhatsMyName) dataset (`wmn-data.json`) instead — the site has no JSON API (curl returns 403)
 - [Osint Industries](https://osint.industries) - Cross-platform people search (paid, covers fitness/niche platforms)
 - Search `"username"` in quotes on major platforms
 

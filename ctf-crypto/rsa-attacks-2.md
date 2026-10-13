@@ -70,7 +70,7 @@ flag = pow(c, real_d, n)
 
 **Solution:** Compute cube roots per-prime via CRT:
 ```python
-from sympy.ntheory.residues import nthroot_mod
+from sympy.ntheory import nthroot_mod
 from sympy.ntheory.modular import crt
 from Crypto.Util.number import long_to_bytes
 
@@ -413,7 +413,7 @@ RSA modulus composed of many small prime factors (primes < 251, each appearing ~
 
 ```python
 from sympy import factorint
-from sympy.ntheory.residues import primitive_root
+from sympy.ntheory import primitive_root
 from functools import reduce
 
 n = ...  # modulus with small factors
