@@ -228,7 +228,7 @@ for i in range(1, N * N):
     # Check if we've returned to original (or visually inspect)
 ```
 
-**Key insight:** Arnold's Cat Map is periodic with period dividing `3*N` for most image sizes. Iterating the forward transform eventually restores the original. For large images, compute the period analytically via `lcm` of matrix eigenvalue orders in `Z/NZ` rather than brute-forcing all iterations.
+**Key insight:** Arnold's Cat Map is periodic: the period is the multiplicative order of `[[2,1],[1,1]]` in `GL(2, Z_N)` — for the doc's map, N=3 gives 4, N=5 gives 10, N=6 gives 12, N=7 gives 8 (none divide `3*N`), while power-of-two N >= 8 collapse to `3*N/4` (16 -> 12, 32 -> 24, 64 -> 48, 128 -> 96, 256 -> 192). In practice just iterate the forward transform until the image repeats (bounded by the matrix order, found via repeated squaring vs the identity); for large images, compute the order analytically rather than brute-forcing every frame.
 
 **Detection:** Square image that looks like uniformly scrambled noise but has a plausible color distribution. Challenge mentions "cat", "Arnold", "chaotic", or "permutation".
 

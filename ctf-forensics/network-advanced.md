@@ -303,8 +303,12 @@ tshark -r capture.pcapng -Y "dcerpc.cn_bind_to_str contains lsarpc"
 
 **Wireshark extraction:**
 ```bash
-# Filter NTP traffic from attacker
-tshark -r capture.pcapng -Y "ntp && ip.src == 10.16.13.13" -T fields -e udp.payload
+# Count attacker NTP requests (requests carry the RID but no HMAC — nothing to crack here)
+tshark -r capture.pcapng -Y "ntp && ip.src == 198.51.100.16" | wc -l
+
+# Extract DC responses for the parser below (48B salt + 4B KeyID + 16B HMAC = 68B payload)
+# <DC_IP> = domain controller address (responses come FROM the DC)
+tshark -r capture.pcapng -Y "ntp && ip.src == <DC_IP>" -T fields -e udp.payload
 ```
 
 **Convert Key Identifier to RID:**

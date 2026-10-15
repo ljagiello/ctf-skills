@@ -368,7 +368,7 @@ def decode_topkek(encoded):
     bits = ""
 
     for token in tokens:
-        # Count exclamation marks (repeat count = len - 3)
+        # Count exclamation marks: repeats = number of '!' (bare word = 1 copy)
         base = token.replace('!', '')
         repeats = len(token) - len(base)
         if repeats == 0:
@@ -392,7 +392,7 @@ def decode_topkek(encoded):
 # = "0" + "11" + "0" + "1" = "0110 1..."
 ```
 
-**Key insight:** TOPKEK is a CTF-specific encoding. Recognize it by the pattern of `TOP`/`KEK` words with varying numbers of `!` suffixes. Each `!` adds one repetition of the corresponding bit value. Decode to binary, then group into 8-bit bytes for ASCII.
+**Key insight:** TOPKEK is a CTF-specific encoding. Recognize it by the pattern of `TOP`/`KEK` words with varying numbers of `!` suffixes. The `!` count is the repetition count (a bare word with no `!` means one copy); e.g. `TOP!!` decodes to `11`. Decode to binary, then group into 8-bit bytes for ASCII.
 
 ---
 

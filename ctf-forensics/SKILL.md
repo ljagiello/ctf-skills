@@ -16,7 +16,7 @@ Quick reference for forensics CTF challenges. Each technique has a one-liner her
 
 **Python packages (all platforms):**
 ```bash
-pip install volatility3 Pillow numpy matplotlib
+pip install volatility3 Pillow numpy matplotlib scipy librosa scikit-learn opencv-python-headless pymongo impacket brotli exrex stegano heatshrink2
 ```
 
 **Linux (apt):**
@@ -238,14 +238,15 @@ See [windows.md](windows.md) for SAM details and [network-advanced.md](network-a
 **Pattern (Backchimney):** Malware uses WMI event subscriptions for persistence (MITRE T1546.003).
 
 ```bash
-python PyWMIPersistenceFinder.py OBJECTS.DATA
+# Tool: https://github.com/davidpany/WMI_Forensics (run against a copy of OBJECTS.DATA)
+python WMI_Forensics/PyWMIPersistenceFinder.py OBJECTS.DATA
 ```
 
 - Look for FilterToConsumerBindings with CommandLineEventConsumer
 - Base64-encoded PowerShell in consumer commands
 - Event filters triggered on system events (logon, timer)
 
-See [windows.md](windows.md) for WMI repository analysis details.
+See [windows.md](windows.md#anti-forensics-detection-checklist) for the WMI repository (OBJECTS.DATA) location and related anti-forensics artifacts.
 
 ## Network Forensics Quick Reference
 
@@ -335,8 +336,8 @@ See [linux-forensics.md](linux-forensics.md) for full browser credential decrypt
 - **VBA macro cell data to binary:** Excel cells with numeric values; VBA `CByte((val-78)/3)` transforms to ELF bytes. Reimplement in Python, never run the macro. See [linux-forensics.md](linux-forensics.md#vba-macro-forensics---excel-cell-data-to-elf-binary-sharif-ctf-2016).
 - **RGB parity steganography:** Sum R+G+B per pixel; even=white, odd=black renders hidden binary bitmap. See [stego-image.md](stego-image.md#rgb-parity-steganography-break-in-2016).
 - **Hidden PDF objects:** Unreferenced content stream objects not in `/Kids` array. Add to `/Kids`, increment `/Count`, re-render. See [network-advanced.md](network-advanced.md#unreferenced-pdf-objects-with-hidden-pages-sharifctf-7-2016).
-- **Arnold's Cat Map descrambling:** Periodic chaotic transform on square images; iterate forward map until original reappears. Period divides `3*N`. See [stego-advanced-2.md](stego-advanced-2.md#arnolds-cat-map-image-descrambling-nuit-du-hack-2017).
-- **Python in-memory source recovery:** Attach `pyrasite-shell` to running Python process, decompile `func_code` objects with `uncompyle6` (Python <=3.8) or `pycdc` (Python 3.9+), dump `globals()` for secrets. See [linux-forensics.md](linux-forensics.md#python-in-memory-source-recovery-via-pyrasite-insomnihack-2017).
+- **Arnold's Cat Map descrambling:** Periodic chaotic transform on square images; iterate forward map until original reappears. Period is the matrix order in `GL(2, Z_N)`. See [stego-advanced-2.md](stego-advanced-2.md#arnolds-cat-map-image-descrambling-nuit-du-hack-2017).
+- **Python in-memory source recovery:** Attach `pyrasite-shell` to running Python process, decompile `__code__` objects with `uncompyle6.main.decompile` (Python <=3.8) or `pycdc` (Python 3.9+), dump `globals()` for secrets. See [linux-forensics.md](linux-forensics.md#python-in-memory-source-recovery-via-pyrasite-insomnihack-2017).
 - **HFS+ resource fork recovery:** Hidden data in HFS+ Resource Forks invisible to `binwalk`/`foremost`; use HFSExplorer + 010 Editor HFS template to extract extent records. See [disk-advanced.md](disk-advanced.md#hfs-resource-fork-hidden-binary-recovery-confidence-ctf-2017).
 - **Serial UART from WAV audio:** Square wave in audio encodes UART serial data; determine baud rate, parse start/stop bits, decode LSB-first byte frames. See [signals-and-hardware.md](signals-and-hardware.md#serial-uart-data-decoding-from-wav-audio-easyctf-2017).
 - **High-resolution SSTV demodulation:** Standard SSTV decoders fail on high-sample-rate recordings; use manual FM demodulation via `arccos` + differentiation. See [stego-advanced-2.md](stego-advanced-2.md#high-resolution-sstv-custom-fm-demodulation-plaidctf-2017).

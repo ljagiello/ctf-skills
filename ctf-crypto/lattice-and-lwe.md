@@ -226,9 +226,10 @@ where `delta_i` is small. For ECDSA:
 
 `s_i * k_i - h_i ≡ r_i * d (mod q)`
 
-Substitute the leaked form of `k_i`:
+Substitute the leaked form of `k_i`, then multiply through by `s_i^-1 (mod q)`.
+With `t_i = r_i * s_i^-1` and `u_i = h_i * s_i^-1 (mod q)`:
 
-`r_i * d - s_i * delta_i ≡ s_i * leaked_i * 2^t - h_i (mod q)`
+`t_i * d - c_i ≡ delta_i (mod q)`, where `c_i = leaked_i * 2^t - u_i (mod q)`
 
 Now the unknowns are:
 
@@ -243,17 +244,28 @@ Minimal starter code:
 from fpylll import IntegerMatrix
 
 def build_ecdsa_partial_nonce_lattice(q, rs, ss, hs, leaked, t):
+    # HNP form: t_i * d - c_i = delta_i (mod q), with t_i = r_i/s_i,
+    # c_i = leaked_i * 2^t - h_i/s_i, and small unknown delta_i in [0, 2^t).
     n = len(rs)
+    W = 1 << t
+    ts = [int(rs[i] * pow(int(ss[i]), -1, q) % q) for i in range(n)]
+    us = [int(hs[i] * pow(int(ss[i]), -1, q) % q) for i in range(n)]
+    cs = [int((leaked[i] * W - u) % q) for i, u in enumerate(us)]
+    # Kannan embedding of the q-ary lattice, scaled by q so every entry is
+    # an integer: diagonal q*q, t/c rows multiplied by q, corners (W, q*W).
     rows = [[0] * (n + 2) for _ in range(n + 2)]
     for i in range(n):
-        rows[i][i] = q
-    for i in range(n):
-        rows[n][i] = int(ss[i] % q)
-        rows[n + 1][i] = int((hs[i] - ss[i] * leaked[i] * (1 << t)) % q)
-    rows[n][n] = 1
-    rows[n + 1][n + 1] = q // (1 << t)
+        rows[i][i] = q * q
+    for j in range(n):
+        rows[n][j] = (q * ts[j]) % (q * q)
+        rows[n + 1][j] = (q * cs[j]) % (q * q)
+    rows[n][n] = W
+    rows[n + 1][n + 1] = q * W
     return IntegerMatrix.from_matrix(rows)
 ```
+After `LLL`, scan reduced rows for one with last entry `±q*W` and second-last
+entry divisible by `W`: the candidate `d = |row[n]| // W` verifies as
+`(t_i * d - c_i) mod q < 2^t` for every `i`.
 
 <details><summary>Sage fallback (optional)</summary>
 
@@ -261,18 +273,20 @@ def build_ecdsa_partial_nonce_lattice(q, rs, ss, hs, leaked, t):
 from sage.all import Matrix, ZZ
 
 def build_ecdsa_partial_nonce_lattice(q, rs, ss, hs, leaked, t):
+    # Same HNP/Kannan embedding as above (Sage holds big ints natively).
     n = len(rs)
+    W = 1 << t
     M = Matrix(ZZ, n + 2, n + 2)
 
     for i in range(n):
-        M[i, i] = q
+        M[i, i] = q * q
 
     for i in range(n):
-        M[n, i] = ss[i]
-        M[n + 1, i] = (hs[i] - ss[i] * leaked[i] * (1 << t)) % q
+        M[n, i] = (q * rs[i] * pow(int(ss[i]), -1, int(q))) % (q * q)
+        M[n + 1, i] = (q * (leaked[i] * W - hs[i] * pow(int(ss[i]), -1, int(q)))) % (q * q)
 
-    M[n, n] = 1
-    M[n + 1, n + 1] = q // (1 << t)
+    M[n, n] = W
+    M[n + 1, n + 1] = q * W
     return M
 ```
 

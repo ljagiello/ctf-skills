@@ -173,17 +173,34 @@ Stalker.follow(Process.getCurrentThreadId(), {
 
 ### r2frida (Radare2 + Frida Integration)
 
-```bash
-# Attach radare2 to process via Frida
-r2 frida://spawn/./binary
+r2frida drives a live process through Frida but exposes it as an r2 IO plugin, so disassembly, seeks, and native hooks all work inside r2. Dynamic live-process instrumentation — compare r2ghidra (static decompiler) and ESIL (static single-function emulation).
 
-# r2frida commands
-\ii                    # List imports
-\il                    # List loaded modules
-\dt strcmp             # Trace strcmp calls
-\dc                    # Continue execution
-\dm                    # List memory maps
+Core r2 does not register `frida://` on its own: `r2 -L` lists 40+ IO plugins with no frida entry, and `r2 -q frida://0` fails with `ERROR: Cannot open`. Install the version-matched plugin build (observed on r2 6.2.2 with the nowsecure/r2frida 6.2.2 `.deb`, `io_frida.so` 184 MB):
+
+```bash
+# r2pm has no binstall dispatch on this build — extract the .deb manually
+# (same ar x + tar xzf route as the r2ghidra .deb)
+ar x r2frida_6.2.2_amd64.deb && tar xzf data.tar.gz
+mkdir -p ~/.local/share/radare2/plugins
+cp usr/local/share/radare2/plugins/io_frida.so ~/.local/share/radare2/plugins/
+r2 -L | grep frida   # rw_  frida    io plugin for Frida ... frida://
 ```
+
+For a CTF target, spawn the binary through the plugin (host arch) and disassemble live memory. Attaching to unrelated pids fails when `ptrace_scope=1`; `frida://0` attaches to r2 itself, so do not use it as the example:
+
+```bash
+r2 -q -c 's sym.compute; pd 5' 'frida:///abs/path/to/binary'
+```
+
+Native return-value hooks use the `:di*` family (`dif-1` and `dif0` verified below; `difi` needs an explicit argument, `dbc` sets a breakpoint/continue hook, `:dm` lists maps). Hook `compute` so its caller prints `-1` instead of the real result:
+
+```bash
+r2 -q -c 's sym.compute; :dif-1 $$; :dc; :dc' 'frida:///abs/path/to/binary'
+# Target: $$ was called, intercepting return value.
+# -1
+```
+
+Use `:dm` for memory maps — plain `dm` errors with `dm requires the debugger or use om instead`. The `:.` command loads a `.ts`/`.js`/`.c` file into the agent; it is not a full Frida REPL (verified: `Ptr` is undefined so use `NativePointer`, and `Module.findBaseAddress` throws `TypeError: not a function`) — keep JS work in real Frida scripts and use r2frida for disassembly plus `:di*` hooks.
 
 ### Frida for Android/iOS
 
@@ -646,7 +663,7 @@ for fn in r.cmdj('aflj'):
 
 **Pattern (Obfuscaxor):** Binary uses the [obfy](https://github.com/fritzone/obfy) C++ template obfuscator to bury a simple `enc(input)` XOR loop under thousands of opaque predicates. The terminal check is still `strcmp(expected_ciphertext, enc(input))` — so instead of unwinding obfy, break at the `strcmp` call and dump both operands:
 
-```
+```gdb
 disassemble verify_key
 # ... 0x5555555560b9 <+96>: call   strcmp@plt
 break *verify_key+96
@@ -676,4 +693,3 @@ Chain the per-byte recovery over the full 16-byte target and reconstruct the cor
 **Key insight:** When `strcmp` is the last gate, the obfuscator is irrelevant — its output still has to equal a fixed string at a known call site. GDB's `commands` block turns the breakpoint into an automatic oracle: one run with `AAAA...` leaks the keystream, and a second pass with any target string gives the valid input. Works for any keyed transform that is effectively a permutation of the input under a fixed key.
 
 **References:** TAMUctf 2019 — Obfuscaxor, writeup 13574
-

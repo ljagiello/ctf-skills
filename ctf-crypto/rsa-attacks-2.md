@@ -70,7 +70,7 @@ flag = pow(c, real_d, n)
 
 **Solution:** Compute cube roots per-prime via CRT:
 ```python
-from sympy.ntheory.residues import nthroot_mod
+from sympy.ntheory import nthroot_mod
 from sympy.ntheory.modular import crt
 from Crypto.Util.number import long_to_bytes
 
@@ -413,7 +413,7 @@ RSA modulus composed of many small prime factors (primes < 251, each appearing ~
 
 ```python
 from sympy import factorint
-from sympy.ntheory.residues import primitive_root
+from sympy.ntheory import primitive_root
 from functools import reduce
 
 n = ...  # modulus with small factors
@@ -614,14 +614,15 @@ n = signature ** e - PKCS1_pad(h.hexdigest())
 
 ## Dependent-Prime RSA: q = e^-1 mod p (TokyoWesterns CTF 4th 2018)
 
-**Pattern:** Key generation picks prime `p`, then sets `q = e^(-1) mod p` and rerolls until `q` is prime. The dependency `e*q ≡ 1 (mod p)` means `e*q = k*p + 1` for some small positive integer `k`, so `n = p*q = p*(k*p + 1)/e` — a quadratic in `p` that factors after enumerating a few candidate `k` values.
+**Pattern:** Key generation picks prime `p`, then sets `q = e^(-1) mod p` and rerolls until `q` is prime. The dependency `e*q ≡ 1 (mod p)` means `e*q = k*p + 1` for some integer `k` with `0 < k < e` (since `q < p` gives `k = (e*q - 1)/p < e`), so `n = p*q = p*(k*p + 1)/e` — a quadratic in `p` that factors after enumerating candidate `k` values below `e`.
 
 **Exploit:**
 ```python
 from math import isqrt
 
 def factor_dependent_n(n, e, max_k=100000):
-    for k in range(2, max_k, 2):
+    # 0 < k < e always holds (see Pattern); max_k only caps the search.
+    for k in range(1, min(max_k, e)):
         # e*q = k*p + 1 and n = p*q  =>  e*n = p*(k*p + 1)
         # Solve k*p^2 + p - e*n = 0  => p = (-1 + sqrt(1+4*k*e*n)) / (2*k)
         disc = 1 + 4 * k * e * n
@@ -643,7 +644,8 @@ from sage.all import PolynomialRing, ZZ
 
 def factor_dependent_n(n, e, max_k=100000):
     P = PolynomialRing(ZZ, 'p'); p = P.gen()
-    for k in range(2, max_k, 2):
+    # 0 < k < e always holds (see Pattern); max_k only caps the search.
+    for k in range(1, min(max_k, e)):
         # e*q = k*p + 1 and n = p*q  =>  e*n = p*(k*p + 1)
         poly = k * p * p + p - e * n
         roots = poly.roots()
@@ -655,7 +657,7 @@ def factor_dependent_n(n, e, max_k=100000):
 
 </details>
 
-**Key insight:** Any key generator that derives `q` from `p` via a public arithmetic relation collapses RSA security to a small search. Write the relation as a polynomial `f_k(p) = 0` parameterized by a small integer, and use `.roots()` in Sage to recover `p`. The search space for `k` is typically under 2^16 because `q < p` forces `k ≈ e`.
+**Key insight:** Any key generator that derives `q` from `p` via a public arithmetic relation collapses RSA security to a small search. Write the relation as a polynomial `f_k(p) = 0` parameterized by a small integer, and use `.roots()` in Sage to recover `p`. The search space for `k` is below `e` because `q < p` forces `0 < k < e`; `max_k` above is only a safety cap, and the loop starts at `k = 1` with step 1 so odd `e` and odd-`k` instances are covered.
 
 **References:** TokyoWesterns CTF 4th 2018 — writeup 10862
 

@@ -575,12 +575,14 @@ grep -i 'EFSTMPWP' mft.csv
 
 ## Volatility clipboard Plugin for Copy-Paste Secret Recovery (OtterCTF 2018)
 
-**Pattern:** Users copy passwords / keys / flags into the clipboard. Windows keeps clipboard data live in memory even after the source application closes. Volatility's `clipboard` plugin enumerates `CF_UNICODETEXT` / `CF_TEXT` buffers and prints the most recent copy-paste content verbatim.
+**Pattern:** Users copy passwords / keys / flags into the clipboard. Windows keeps clipboard data live in memory even after the source application closes. Volatility 2's `clipboard` plugin enumerates `CF_UNICODETEXT` / `CF_TEXT` buffers and prints the most recent copy-paste content verbatim. Volatility 3 has no `windows.clipboard` plugin (the `windows/` directory jumps from `callbacks.py` to `cmdline.py` at volatility3 2.27.0) — scan process memory for clipboard text with `windows.vadyarascan`, or dump a process with `windows.memmap --dump` and run `strings` over the result.
 
 ```bash
 vol.py -f memory.vmem --profile=Win7SP1x64 clipboard
-# Volatility 3:
-vol -f memory.vmem windows.clipboard
+# Volatility 3 equivalents (no windows.clipboard plugin exists):
+vol -f memory.vmem windows.vadyarascan --yara-string "rule clip { strings: $u = /flag\\{[^{}]+\\}/ nocase wide ascii condition: $u }"
+vol -f memory.vmem windows.memmap --pid <PID> --dump
+strings pid.<PID>.dmp | grep -iE 'pass|flag'
 ```
 
 **Key insight:** Before spending hours carving LSASS or walking process heaps, run `clipboard` — CTF challenges about "Silly Rick copied his password" always surface here. Combine with `cmdline`, `consoles`, and `filescan` for full user-activity reconstruction.
@@ -620,6 +622,6 @@ vol.py -f dump.vmem --profile=Win7SP1x64 pstree
 vol.py -f dump.vmem --profile=Win7SP1x64 dlllist -p PID
 ```
 
-**Key insight:** Don't hunt with `strings` alone. The Volatility plugin suite has a plugin for every artifact: clipboard, mimikatz (plaintext), hashdump (hashes), printkey (registry), memdump (per-process memory), netscan (sockets), pstree (process hierarchy), dlllist (loaded modules). Run them in order from cheapest to most expensive.
+**Key insight:** Don't hunt with `strings` alone. The Volatility plugin suite has a plugin for every artifact: mimikatz (plaintext), hashdump (hashes), printkey (registry), memdump (per-process memory), netscan (sockets), pstree (process hierarchy), dlllist (loaded modules). Run them in order from cheapest to most expensive.
 
 **References:** OtterCTF 2018 — multiple challenges, writeups 12569–12572, 12596

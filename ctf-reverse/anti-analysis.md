@@ -38,11 +38,11 @@ Comprehensive reference for anti-debugging, anti-VM, anti-DBI, and integrity-che
   - [Control Flow Flattening (Advanced)](#control-flow-flattening-advanced)
   - [Mixed Boolean-Arithmetic (MBA) Identification & Simplification](#mixed-boolean-arithmetic-mba-identification--simplification)
 - [Comprehensive Bypass Strategies](#comprehensive-bypass-strategies)
-
-For CTF writeup techniques (SIGILL handler, SIGFPE strace side-channel, instruction trace inversion, call-less function chaining, parent-patched child binary dump), see [anti-analysis-ctf.md](anti-analysis-ctf.md).
   - [Universal Bypass Checklist](#universal-bypass-checklist)
   - [Layered Anti-Debug (Real-World Pattern)](#layered-anti-debug-real-world-pattern)
   - [Quick Reference: Check to Bypass](#quick-reference-check-to-bypass)
+
+For CTF writeup techniques (SIGILL handler, SIGFPE strace side-channel, instruction trace inversion, call-less function chaining, parent-patched child binary dump), see [anti-analysis-ctf.md](anti-analysis-ctf.md).
 
 ---
 

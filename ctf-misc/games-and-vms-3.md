@@ -203,7 +203,7 @@ serialized = base64.b64encode(marshal.dumps(payload.__code__)).decode()
 import random
 
 # Benford's Law: P(d) = log10(1 + 1/d) for leading digit d (1-9)
-benford = {d: round(100 * (1 + 1/d) / sum(1/i for i in range(1,10))) for d in range(1,10)}
+import math; benford = {d: 100 * math.log10(1 + 1/d) for d in range(1, 10)}
 # Approx: 1→30%, 2→18%, 3→12%, 4→10%, 5→8%, 6→7%, 7→6%, 8→5%, 9→5%
 
 def generate_benford_compliant(length=1000):

