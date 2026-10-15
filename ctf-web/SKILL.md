@@ -45,6 +45,8 @@ go install github.com/ffuf/ffuf/v2@latest
   ```
   > PAT is optional and on-demand — not required at load time. The skill works without it (graceful degrade): `pat-reference.md` provides an offline index with exemplar payloads; bulk wordlists require the clone above.
 
+**MCP servers (optional):** Playwright MCP ([microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)) for browser-dependent challenges (DOM XSS, admin bot, SPA client secrets) and Burp Suite MCP ([PortSwigger/mcp-server](https://github.com/PortSwigger/mcp-server)) for wire-level work (header-level HTTP/1.1+HTTP/2 control, smuggling, blind SSRF/XXE via Collaborator, proxy-history regex mining) — see [tools-mcp.md](tools-mcp.md). Two things to do before relying on Burp MCP: start Burp *before* the agent, and turn off the two approval gates in Burp's MCP tab or the first tool call blocks on a modal dialog.
+
 ## Additional Resources
 
 - [sql-injection.md](sql-injection.md) - SQL injection techniques: auth bypass, UNION extraction, filter bypasses, second-order SQLi, truncation, race-assisted leaks, INSERT ON DUPLICATE KEY UPDATE password overwrite, innodb_table_stats WAF bypass
@@ -67,6 +69,7 @@ go install github.com/ffuf/ffuf/v2@latest
 - [web3.md](web3.md) - Solidity and Web3 challenge notes
 - [cves.md](cves.md) - CVE-driven techniques you can match against challenge banners, headers, dependency leaks, or version strings
 - [field-notes.md](field-notes.md) - Long-form exploit notes: quick references for SQLi, XSS, LFI, JWT, SSTI, SSRF, command injection, XXE, deserialization, race conditions, auth bypass, and multi-stage chains
+- [tools-mcp.md](tools-mcp.md) - MCP server integration for web: Playwright MCP (admin-bot DOM XSS reproduction, live DOM/console/network inspection, `browser_network_requests` lists endpoints but only `browser_network_request part="response-body"` returns payloads) and Burp Suite official MCP (27 tools, approval gates that block the agent on a modal dialog, target triple decoupling socket from `Host:` header, `normalizeHttpContent` rewriting CR/LF in the request prelude, map-based HTTP/2 that cannot express duplicate headers, `send_to_intruder` stages only, proxy history truncating items at 5000 chars, Collaborator `payloadId`/`customData` Pro-only); when to use each vs curl and ffuf
 - [python-requests.md](python-requests.md) - Python requests toolkit: session scaffold, Burp-Intruder-like fuzzer (sync + ThreadPoolExecutor + httpx async), payload deploy from pat-reference.md wordlists, header/param spray, cookie/JWT, proxy
 - [pat-reference.md](pat-reference.md) — PayloadsAllTheThings index: bulk payloads for XSS/SQLi/SSRF/SSTI/LFI/Command Injection/Upload (requires PAT clone, see Prerequisites)
 

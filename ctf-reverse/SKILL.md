@@ -39,10 +39,13 @@ r2pm -ci r2ghidra   # Native Ghidra decompiler for radare2
 **Manual install:**
 - pwndbg — Linux: [GitHub](https://github.com/pwndbg/pwndbg), macOS: `brew install pwndbg/tap/pwndbg-gdb`
 
+**MCP servers (optional, agent-driven RE):** IDA Pro MCP ([mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp)), Ghidra MCP ([bethington/ghidra-mcp](https://github.com/bethington/ghidra-mcp) — has a headless server, no GUI needed), JADX MCP ([zinja-coder/jadx-ai-mcp](https://github.com/zinja-coder/jadx-ai-mcp)) — see [tools-mcp.md](tools-mcp.md) for setup and usage.
+
 ## Additional Resources
 
 - [unicorn-emulation.md](unicorn-emulation.md) - Unicorn CPU emulation: raw binary assembly emulation, hooks, ARM/MIPS/Thumb, mixed-mode, firmware MMIO, Keystone+Capstone trace inversion, shellcode unpack, custom VM, vs Qiling decision (sometimes easier to rev with just unicorn + binary + assembly than full GDB/angr)
 - [tools.md](tools.md) - Static analysis tools (GDB, Ghidra, radare2, IDA, Binary Ninja, dogbolt.org, RISC-V with Capstone, Unicorn emulation, Python bytecode, WASM, Android APK, .NET, packed binaries)
+- [tools-mcp.md](tools-mcp.md) - MCP server integration (agent-driven RE): IDA Pro MCP (GUI plugin + idalib headless), Ghidra MCP (headless server, no GUI), JADX MCP (Android APK/DEX), plus crossing the JNI boundary by `dlopen`-ing an Android `.so` on the host instead of decompiling it
 - [tools-dynamic.md](tools-dynamic.md) - Dynamic analysis tools: Frida (hooking, anti-debug bypass, memory scanning, Android/iOS), angr symbolic execution (path exploration, constraints, CFG), lldb (macOS/LLVM debugger), x64dbg (Windows)
 - [tools-emulation.md](tools-emulation.md) - Emulation frameworks and side-channel tooling: Qiling (cross-platform OS-level emulation), Triton (DSE), Intel Pin instruction-counting + genetic algorithm side channel, opcode-only trace reconstruction, LD_PRELOAD time freeze and memcmp side-channel for byte-by-byte bruteforce
 - [tools-advanced.md](tools-advanced.md) - Advanced tools (Part 1): VMProtect/Themida analysis, binary diffing (BinDiff, Diaphora), deobfuscation frameworks (D-810, GOOMBA, Miasm), Qiling framework, Triton DSE, Manticore, Rizin/Cutter, RetDec, custom VM bytecode lifting to LLVM IR
@@ -104,6 +107,22 @@ xxd binary | grep -i flag
 ./binary AAAA
 echo "test" | ./binary
 ```
+
+**Never pipe triage output through `head` on the first pass.** Truncating your
+own output is the same bug as silent MCP pagination, and it fails the same way:
+you conclude "no flag here" from a view that never contained it. A real case —
+`strings hello | grep -viE '...' | head -30` cut off `flag{real}` at line 22 of
+the *filtered* list, and `objdump -d --disassemble=main | sed -n '7,40p'` cut off
+the `cmp $0x2` / `jne` branch that gated it, on a 13-line C program. Grep for the
+signal instead of capping the volume:
+
+```bash
+strings binary | grep -inE "flag|ctf\{|congrat|correct|wrong"   # filter, don't truncate
+objdump -d --disassemble=main binary                            # whole function, always
+```
+
+If output really is too large, page it deliberately (`sed -n '200,400p'`) and say
+which slice you read — never let an unread tail become a negative conclusion.
 
 ## Initial Analysis
 
