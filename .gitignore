@@ -23,6 +23,9 @@ ctf-web/payloads/
 # Generated
 _site/
 
+# Playwright MCP artifacts (snapshots, console logs, saved response bodies)
+.playwright-mcp/
+
 # OS
 .DS_Store
 Thumbs.db
