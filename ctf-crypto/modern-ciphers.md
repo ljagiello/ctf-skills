@@ -301,6 +301,9 @@ F = GF(2**128, 'x', modulus=...)  # GCM polynomial
 def build_inverse(shifts=(19, 28)):
     """Construct GF(2) inverse matrix for Ascon-like linear layer: x ^= rot(x,19) ^ rot(x,28)."""
     # Build 64x64 matrix over GF(2)
+    # Convention: (M*v)[i] = v[i] ^ v[(i+19)%64] ^ v[(i+28)%64], i.e. bit index
+    # shifted UP by the shift. If your implementation rotates the other way
+    # (Ascon's reference uses ROTR), mirror the index: M[out_bit][(out_bit-s)%64].
     M = [[0]*64 for _ in range(64)]
     for out_bit in range(64):
         M[out_bit][out_bit] = 1
@@ -356,6 +359,7 @@ for i in range(64):
 
 ```python
 from pwn import *
+import requests
 
 def padding_oracle(iv, ct):
     """Returns True if server accepts padding."""
@@ -503,18 +507,54 @@ def meet_in_the_middle(encrypt_fn, decrypt_fn, plaintext, ciphertext, keyspace):
 ```python
 import struct, binascii
 
-def crc32_forge(data, target_crc):
-    """Append 4 bytes to data so CRC32(data + suffix) == target_crc"""
-    current = binascii.crc32(data) & 0xFFFFFFFF
-    # CRC32 polynomial table lookup to find suffix bytes
-    # that transform current CRC into target_crc
-    suffix = b''
-    crc = target_crc ^ 0xFFFFFFFF
-    for _ in range(4):
-        byte = (crc & 0xFF)
-        crc = (crc >> 8)
-        suffix = bytes([byte]) + suffix
-    return data + suffix  # Simplified — full implementation requires polynomial division
+# CRC-32 (reflected, poly 0xEDB88320) is GF(2)-affine in the register and in the
+# bytes fed in, so the 4-byte suffix is a linear system -- solve it, do not guess.
+_TABLE = []
+for _i in range(256):
+    _c = _i
+    for _ in range(8):
+        _c = (_c >> 1) ^ 0xEDB88320 if _c & 1 else _c >> 1
+    _TABLE.append(_c)
+
+def _register(data):
+    r = 0xFFFFFFFF
+    for b in data:
+        r = (r >> 8) ^ _TABLE[(r ^ b) & 0xFF]
+    return r
+
+def crc32_forge(data, target_crc, n=4):
+    """Append n bytes so binascii.crc32(data + suffix) == target_crc."""
+    def final(reg0, svec):
+        r = reg0
+        for b in svec:
+            r = (r >> 8) ^ _TABLE[(r ^ b) & 0xFF]
+        return r
+    A = final(_register(data), [0] * n)      # register after data + 4 zero bytes
+    B0 = final(0, [0] * n)
+    cols = []
+    for j in range(8 * n):                    # image of each suffix bit
+        s = [0] * n; s[j // 8] = 1 << (j % 8)
+        cols.append(final(0, s) ^ B0)
+    rows = [sum(1 << j for j, c in enumerate(cols) if (c >> b) & 1) for b in range(32)]
+    rhs = (target_crc ^ 0xFFFFFFFF) ^ A
+    aug = [(rows[b], (rhs >> b) & 1) for b in range(32)]
+    pivrow = {}
+    for col in range(31, -1, -1):
+        sel = next((r for r in range(32)
+                    if (aug[r][0] >> col) & 1 and r not in pivrow.values()), None)
+        if sel is None:
+            continue
+        pivrow[col] = sel
+        for r in range(32):
+            if r != sel and (aug[r][0] >> col) & 1:
+                aug[r] = (aug[r][0] ^ aug[sel][0], aug[r][1] ^ aug[sel][1])
+    sol = [0] * n
+    for col, r in pivrow.items():
+        if aug[r][1]:
+            sol[col // 8] |= 1 << (col % 8)
+    return bytes(sol)
+
+# usage: forged = crc32_forge(msg, target_sig)  ->  crc32(forged) == target_sig
 ```
 
 **When to use:** Any protocol using CRC32 as a message authentication code (MAC). CRC32 is a checksum, not a cryptographic hash — it provides no integrity guarantees against adversarial modification.

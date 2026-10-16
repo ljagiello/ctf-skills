@@ -87,20 +87,28 @@ try:
     # Construct difference polynomial matching poly_evaluate:
     # P(r) = sum diff_coeffs[i] * r^{n-i} - tag_diff == 0 mod p
     # Use galois.Poly
-    poly_coeffs = diff_coeffs + [(-tag_diff) % p]  # diff[0]*r^n + ... + diff[n-1]*r - tag_diff
-    poly = galois.Poly(poly_coeffs, field=GFp)
-    roots = poly.roots()
-    # Filter clamped r candidates and verify against tag1
-    candidates = [int(r) for r in roots]
-    print(f"[galois] r candidates: {candidates[:4]}")
-    # Forge tag' for new ct': tag' = Poly(ct', r) + s, where s = tag1 - Poly(ct1,r)
+    # Poly1305 arithmetic is mod p = 2^130-5 but tags are TRUNCATED to 128 bits,
+    # so int(tag) is only tag mod 2^128 and T1 - T2 is missing 2 high bits.
+    # Verified: the raw 128-bit difference polynomial has no linear root; only
+    # the correct d in [-3, 3] exposes the true r. s is truncated the same way.
+    candidates = []
+    for d in range(-3, 4):
+        tag_diff = (int.from_bytes(tag1, 'little') - int.from_bytes(tag2, 'little')
+                    + d * (1 << 128)) % p
+        poly = galois.Poly(diff_coeffs + [(-tag_diff) % p], field=GFp)
+        for root in poly.roots():
+            r_cand = int(root)
+            for hi in range(4):
+                s_cand = (int.from_bytes(tag1, 'little') + (hi << 128)
+                          - poly_evaluate(blocks1, r_cand)) % p
+                candidates.append((r_cand, s_cand))
+    print(f"[galois] (r, s) candidate pairs: {len(candidates)}")
+    # Forge tag' for new ct': tag' = Poly(ct', r) + s mod p, truncated to 16 bytes
     ct_prime = b"Forged message!! Same length!!"
     blocks_p = poly1305_blocks(ct_prime, ad)
-    for r in candidates:
-        s = (int.from_bytes(tag1, 'little') - poly_evaluate(blocks1, r)) % p
+    for r, s in candidates:
         tag_prime = (poly_evaluate(blocks_p, r) + s) % p
-        tag_prime_bytes = int.to_bytes(tag_prime, 16, 'little')
-        # Verify with key (would succeed against the same r/s)
+        tag_prime_bytes = int.to_bytes(tag_prime & ((1 << 128) - 1), 16, 'little')
         print(f"forged tag for r={r:x}: {tag_prime_bytes.hex()}")
         break
 except ImportError:
@@ -198,7 +206,7 @@ tag2 = "c3d2e1f0..."
 # Poly1305 r recovered from (ct1,tag1),(ct2,tag2) forges valid (ct',tag') for any ct' with same nonce
 ```
 
-**Key insight:** Over $2^{130}-5$ the Poly1305 equation is linear in $s$ and polynomial in $r$. Nonce reuse leaks $r$ as a root of $\Delta Poly(r)- \Delta tag =0$; clamping onlyreduces the search, never prevents it. Identical to AES-GCM forbidden attack but in a prime field — use `galois.GF(2**130-5)` (primary) or `sympy.Poly(..., modulus=p)` (fallback), filter clamped candidates, then forge $tag' = Poly1305(ct',r)+s$.
+**Key insight:** Over $2^{130}-5$ the Poly1305 equation is linear in $s$ and polynomial in $r$. Nonce reuse leaks $r$ as a root of $\Delta Poly(r)- \Delta tag =0$; clamping only reduces the search, never prevents it. Identical to AES-GCM forbidden attack but in a prime field — use `galois.GF(2**130-5)` (primary) or `sympy.Poly(..., modulus=p)` (fallback), filter clamped candidates, then forge $tag' = Poly1305(ct',r)+s$.
 
 **References:** [RFC 8439 §2.5/§2.8](https://www.rfc-editor.org/rfc/rfc8439) — ChaCha20-Poly1305 AEAD construction and Poly1305 key generation; picoCTF 2025 `ChaCha20-Poly1305 nonce reuse` challenge walkthrough.
 
@@ -379,7 +387,7 @@ print(M.rref(iszerofunc=lambda x: x%2==0))
 
 **Trivium (eSTREAM finalist):** 288-bit state = 93 + 84 + 111 bit registers $(s_1,s_2,s_3)$. Key 80-bit + IV 80-bit loaded into state, then **1152 warmup rounds** ($4 \times 288$) with no output. Each round updates:
 
-```
+```text
 t1 = s66  ^ s91 & s92 ^ s93 ^ s171
 t2 = s162 ^ s175& s176^ s177^ s264
 t3 = s243 ^ s286& s287^ s288^ s69
@@ -482,4 +490,3 @@ print(rref_mod2)
 **Practical notes:** Full 1152-round Trivium resists cubes up to ~30. CTFs use **reduced warmup** (e.g., 288 or 576 rounds) or leak many keystream bits — then cubes of size 10–20 yield linear superpolys. Grain with small $h$ degree behaves similarly: choose cube bits from IV/LFSR positions feeding low-degree monomials. Always check warmup parameter first — `4*state_size` signals the standard; anything smaller is the attack surface.
 
 **References:** De Cannière–Preneel *Trivium* (eSTREAM 2006), Dinur–Shamir *Cube Attacks on Tweakable Black Box Polynomials* (2009), Liu et al. *Cube Attack on Reduced Trivium* (2018).
-

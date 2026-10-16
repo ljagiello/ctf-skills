@@ -125,7 +125,7 @@ for _ in range(2**24):
 
 # Backward: compute AES_dec(target XOR random_c), check last 6 bytes
 target_state = b'\x77\x40\x56\x0a\x1d\x64'  # target hash
-for _ in range(2**40):
+for _ in range(2**24):   # same order as the forward table; 2^40 is 65536x the claim
     c_block = os.urandom(10) + target_state
     dec = aes.decrypt(c_block)
     if dec[-6:] in forward:
@@ -219,7 +219,7 @@ img = 'encrypted_file.enc'
 
 # File mtime IS the random seed used at encryption time
 random.seed(int(os.stat(img).st_mtime))
-iv = ''.join(random.choice(string.letters + string.digits) for _ in range(16))
+iv = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(16))
 
 aes = AES.new(password, AES.MODE_CFB, iv.encode())
 with open(img, 'rb') as f:
@@ -362,11 +362,17 @@ for i in range(key_bits):
 **Pattern:** AES-CBC given: full ciphertext, known plaintext from block 2 onward, partial key. Recover the missing IV by first brute-forcing missing key bytes via block 2 (which does not depend on the IV), then XOR plaintext[0] with `AES_decrypt(ct[0], K)` to get the IV.
 
 ```python
+import itertools, string
+from Crypto.Cipher import AES
+
 for tail in itertools.product(string.printable, repeat=2):
     K = base_key + ''.join(tail).encode()
-    if AES.new(K, AES.MODE_ECB).decrypt(ct)[16:32] == plaintext[16:32]:
-        raw = AES.new(K, AES.MODE_ECB).decrypt(ct[:16])
-        IV = bytes(a ^ b for a, b in zip(raw, plaintext[:16]))
+    # Block 2 = AES_dec(ct[16:32]) XOR ct[0:16] -- IV-independent, so compare the
+    # CBC plaintext, not the raw ECB decryption.
+    raw = AES.new(K, AES.MODE_ECB).decrypt(ct[16:32])
+    if bytes(a ^ b for a, b in zip(raw, ct[:16])) == plaintext[16:32]:
+        IV = bytes(a ^ b for a, b in zip(AES.new(K, AES.MODE_ECB).decrypt(ct[:16]),
+                                         plaintext[:16]))
         break
 ```
 
@@ -404,17 +410,9 @@ from sympy import Matrix
 
 A = Matrix(A_rows)
 b_vec = Matrix(b)
-# Solve A * key = b over GF(p)
-# Use sympy rref with modulus p (prime)
-# Convert to field via mod p
-p_inv = p  # modulus
-# Gauss-Jordan mod p helper
+# Solve A * key = b over GF(p) (manual elimination, records pivot rows only)
 def solve_mod(A, b, mod):
-    aug = A.row_join(b)
-    # rref over integers then reduce mod; sympy handles rational but mod p needs custom
-    # Use sympy's rref then mod, or manual elimination
     n = A.cols
-    # Use manual GF(p) elimination
     M = [[int(A[i,j] % mod) for j in range(n)] + [int(b[i] % mod)] for i in range(A.rows)]
     # forward elimination
     row = 0
@@ -510,9 +508,8 @@ buf    = bytearray(cookie)
 #   block 3: "ssword': ''}"
 
 # To flip byte 10 of plaintext block 2, XOR byte 10 of ciphertext block 1.
-# With IV-prefixed layout: index = 16 (IV) + 0*16 (C1) + 10 = 26
-#   (or 0*16 + 10 = 10 if there is no separate IV prepended)
-offset = 10
+# cookie is IV || C1 || C2 || ..., so C1 starts at index 16: 16 + 10 = 26
+offset = 26
 buf[offset] ^= ord('0') ^ ord('1')             # 0x30 ^ 0x31 = 0x01
 
 forged_cookie = b64encode(bytes(buf)).decode()
