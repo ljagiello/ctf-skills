@@ -833,13 +833,13 @@ def audit_phi_sage(n, p, q, e, c):
 
 ## Bleichenbacher Decryption Oracle (0x00 0x02) — PKCS#1 v1.5 Interval Attack
 
-**Pattern:** Server decrypts RSA PKCS#1 v1.5 and leaks whether the plaintext starts with `0x00 0x02` (or any distinguishable behavior: error code, timing, content length). Adaptive chosen-ciphertext attack recovers any plaintext. This is the *decryption* oracle (vs `e=3` *signature forgery* in `rsa-attacks-2.md` which needs no oracle). Cross-link: `modern-ciphers.md:405` ROBOT is the TLS variant of this same oracle.
+**Pattern:** Server decrypts RSA PKCS#1 v1.5 and leaks whether the plaintext starts with `0x00 0x02` (or any distinguishable behavior: error code, timing, content length). Adaptive chosen-ciphertext attack recovers any plaintext. This is the *decryption* oracle (vs `e=3` *signature forgery* in `rsa-attacks-2.md` which needs no oracle). Cross-link: `modern-ciphers.md:409` ROBOT is the TLS variant of this same oracle.
 
 Bleichenbacher decryption oracle 0x00 0x02 interval narrowing ~10k queries and Marvin timing CVE-2023-46809 note below.
 
 ```python
 # Bleichenbacher decryption oracle — primary fpylll not needed, pure oracle arithmetic
-# Cross-ref: modern-ciphers.md:373 ROBOT (Return Of Bleichenbacher's Oracle Threat)
+# Cross-ref: modern-ciphers.md:409 ROBOT (Return Of Bleichenbacher's Oracle Threat)
 
 def bleichenbacher_decrypt(c, n, e, oracle, k):
     """Recover plaintext m from c = m^e mod n via Bleichenbacher oracle.
@@ -898,7 +898,7 @@ def bleichenbacher_sage(c, n, e, oracle, k):
 
 </details>
 
-**Key insight:** Bleichenbacher needs `~10k` oracle queries for RSA-2048 (`k=256`) — each query narrows interval `[a,b]` via `s` search. Distinguish oracles: *Bleichenbacher* checks `0x00 0x02` PKCS#1 v1.5 prefix (`modern-ciphers.md:405` ROBOT); *Manger* checks `m<B` threshold; *LSB* checks even/odd (`2m < n`). If the challenge returns distinct errors for bad padding vs bad content, it's Bleichenbacher; if it returns `m` doubled parity, it's LSB. Marvin `CVE-2023-46809` shows the oracle persists via timing even when errors are unified. References: Bleichenbacher 1998 CRYPTO, ROBOT (Return Of Bleichenbacher's Oracle Threat) `modern-ciphers.md:405`, Marvin Attack `CVE-2023-46809`.
+**Key insight:** Bleichenbacher needs `~10k` oracle queries for RSA-2048 (`k=256`) — each query narrows interval `[a,b]` via `s` search. Distinguish oracles: *Bleichenbacher* checks `0x00 0x02` PKCS#1 v1.5 prefix (`modern-ciphers.md:409` ROBOT); *Manger* checks `m<B` threshold; *LSB* checks even/odd (`2m < n`). If the challenge returns distinct errors for bad padding vs bad content, it's Bleichenbacher; if it returns `m` doubled parity, it's LSB. Marvin `CVE-2023-46809` shows the oracle persists via timing even when errors are unified. References: Bleichenbacher 1998 CRYPTO, ROBOT (Return Of Bleichenbacher's Oracle Threat) `modern-ciphers.md:409`, Marvin Attack `CVE-2023-46809`.
 
 ---
 
