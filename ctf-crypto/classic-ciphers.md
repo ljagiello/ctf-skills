@@ -250,13 +250,13 @@ print(bytes(c ^ key[i % len(key)] for i, c in enumerate(ct)))
 
 ```python
 # c[i] = p[i] ^ c[i-1] (or similar cascade)
-# Brute force first byte, rest follows deterministically
+# Brute force first plaintext byte, then recover each plaintext byte from the previous one
 for first_byte in range(256):
-    flag = [first_byte]
+    pt = [first_byte]
     for i in range(1, len(ct)):
-        flag.append(ct[i] ^ flag[i-1])
-    if all(32 <= b < 127 for b in flag):
-        print(bytes(flag))
+        pt.append(ct[i] ^ pt[i-1])
+    if all(32 <= b < 127 for b in pt):
+        print(bytes(pt))
 ```
 
 ### XOR with Rotation: Power-of-2 Bit Isolation (Pragyan 2026)

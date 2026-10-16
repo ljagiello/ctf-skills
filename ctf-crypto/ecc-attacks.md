@@ -19,6 +19,7 @@
 - [DSA Key Recovery via MD5 Collision on k-Generation (CONFidence CTF 2017)](#dsa-key-recovery-via-md5-collision-on-k-generation-confidence-ctf-2017)
 - [Ed25519 Same-Nonce Key Recovery (hxp 2018)](#ed25519-same-nonce-key-recovery-hxp-2018)
 - [Singular Curve ECDLP to Additive/Multiplicative Group (hxp 2018)](#singular-curve-ecdlp-to-additivemultiplicative-group-hxp-2018)
+- [X25519 Low-Order Points + All-Zero Check (RFC 7748)](#x25519-low-order-points--all-zero-check-rfc-7748)
 
 ---
 
@@ -78,7 +79,7 @@ If point validation is missing, send points on weaker curves. Craft points with 
 ```python
 from sympy import factorint
 from sympy.ntheory.modular import crt
-from ecdsa.ellipticcurve import CurveFp, Point
+from ecdsa.ellipticcurve import CurveFp, Point, INFINITY
 import random
 
 def is_smooth(n, bound=1_000_000):
@@ -148,12 +149,16 @@ def point_of_order(E, N, r):
                 P = Point(E, x, yy, order=None)
             except Exception:
                 continue
+            # The identity is ecdsa.ellipticcurve.INFINITY, NOT Point(E, None, None)
+            # -- Point(curve, None, None) trips `assert curve.contains_point(None, None)`.
+            # Keep the point on the left: INFINITY.__eq__ compares curves, Q.__eq__
+            # short-circuits on `other is INFINITY`.
             Q = P * (N // r)  # cofactor projection N/r * random point
-            if Q != Point(E, None, None, order=None) and (Q * r) == Point(E, None, None, order=None):
+            if Q != INFINITY and (Q * r) == INFINITY:
                 # verify exact order r (check no smaller divisor)
                 is_exact = True
                 for pr in factorint(r):
-                    if (Q * (r // pr)) == Point(E, None, None, order=None):
+                    if (Q * (r // pr)) == INFINITY:
                         is_exact = False
                         break
                 if is_exact:
@@ -266,115 +271,126 @@ curve = CurveFp(p, a, b)
 Hensel lift is O(1) via Newton; brute `for dy in range(p)` is O(p) and fails for large p.
 
 ```python
-from Crypto.Util.number import inverse
-# pow(..., -1, mod) exists Python 3.8+; Crypto.Util.number.inverse is fallback when not coprime or older runtime
+# pow(x, -1, m) is stdlib Python 3.8+ (use Crypto.Util.number.inverse only for older runtimes).
 
-def lift_point(x, y, p, a, b):
-    # lift (x,y) on y^2 = x^3 + a*x + b from mod p to mod p^2 via Hensel: y' = y - (y^2 - rhs)/(2y) mod p
-    mod = p*p
-    rhs = (pow(x,3,mod) + a*x + b) % mod
+def lift_point(x, y, p, a, b, mod=None):
+    """Hensel lift (x,y) on y^2 = x^3 + a*x + b from mod p to mod p^2. O(1)."""
+    if mod is None:
+        mod = p * p
+    rhs = (pow(x, 3, mod) + a * x + b) % mod
+    c = (y * y - rhs) // p                 # exactly divisible by p
+    t = (-c * pow(2 * y % p, -1, p)) % p   # solve c + 2*y*t == 0 (mod p)
+    return (x % mod, (y + t * p) % mod)
+
+# --- Jacobian coordinates over Z/p^2: (X,Y,Z) <-> (X/Z^2, Y/Z^3) ----------
+# Affine arithmetic over Z/p^2 does NOT work here: while computing p*G_hat two
+# addends become congruent mod p but not mod p^2, so (x2-x1) is a zero divisor
+# and pow(..., -1, mod) raises ValueError -- the `inverse()` fallback raises the
+# very same error. Jacobian formulas only add and multiply, nothing to invert.
+def j_add(P, Q_, mod, a):
+    if P[2] == 0:
+        return Q_
+    if Q_[2] == 0:
+        return P
+    X1, Y1, Z1 = P; X2, Y2, Z2 = Q_
+    Z1Z1 = Z1 * Z1 % mod; Z2Z2 = Z2 * Z2 % mod
+    U1 = X1 * Z2Z2 % mod                    # x1 * Z1^2 * Z2^2
+    U2 = X2 * Z1Z1 % mod                    # x2 * Z1^2 * Z2^2
+    S1 = Y1 * Z2 % mod * Z2Z2 % mod         # y1 * Z1^3 * Z2^3
+    S2 = Y2 * Z1 % mod * Z1Z1 % mod         # y2 * Z1^3 * Z2^3
+    u = (S2 - S1) % mod                     # (y2-y1)*Z1^3*Z2^3
+    v = (U2 - U1) % mod                     # (x2-x1)*Z1^2*Z2^2
+    if v == 0:                              # lambda = u/(v*Z1*Z2) blows up
+        return j_double(P, mod, a) if u == 0 else (0, 1, 0)
+    uu = u * u % mod; vv = v * v % mod
+    X3 = (uu - vv * ((U1 + U2) % mod)) % mod
+    Y3 = (u * ((vv * U1 - X3) % mod) - v * vv % mod * (Z2 * Z2Z2 % mod) * Y1) % mod
+    Z3 = v * Z1 % mod * Z2 % mod
+    return (X3, Y3, Z3)
+
+def j_double(P, mod, a):
+    if P[2] == 0 or P[1] == 0:
+        return (0, 1, 0)
+    X1, Y1, Z1 = P
+    XX = X1 * X1 % mod; YY = Y1 * Y1 % mod; YYYY = YY * YY % mod; ZZ = Z1 * Z1 % mod
+    S = 2 * ((X1 + YY) * (X1 + YY) % mod - XX - YYYY) % mod
+    M = (3 * XX + a * ZZ % mod * ZZ) % mod
+    T = (M * M - 2 * S) % mod
+    X3 = T
+    Y3 = (M * ((S - T) % mod) - 8 * YYYY) % mod
+    Z3 = ((Y1 + Z1) * (Y1 + Z1) - YY - ZZ) % mod
+    return (X3, Y3, Z3)
+
+def j_mul(P, k, mod, a):
+    R = (0, 1, 0); Q_ = P
+    while k:
+        if k & 1:
+            R = j_add(R, Q_, mod, a)
+        Q_ = j_double(Q_, mod, a)
+        k >>= 1
+    return R
+
+def psi_jac(P, mod):
+    """x/y for a Jacobian point: (X/Z^2)/(Y/Z^3) == X*Z/Y. None if Y is a zero divisor."""
+    X, Y, Z = P
     try:
-        inv2y = pow(2*y % p, -1, p)  # inverse mod p, then lift: could also use pow(2*y % mod, -1, mod) if gcd=1
+        return X * Z % mod * pow(Y, -1, mod) % mod
     except ValueError:
-        inv2y = inverse(2*y % p, p)  # fallback via Crypto.Util.number.inverse
-    # Newton step: dy = (y*y - rhs)/p * inv(2y) mod p, then yc = y - dy*p
-    # (y*y - rhs) is divisible by p because y^2 == rhs (mod p); integer divide before mod
-    dy = ((y*y - rhs) // p) * inv2y % p
-    yc = (y - dy * p) % mod  # single lift, two roots are yc and mod-yc (i.e. yc and (-yc % mod))
-    # return both candidates or choose one; Satoh-Skjernaa-Taguchi uses lifted points pG,pQ
-    return (x % mod, yc)
+        return None
 
-def smart_attack(p, a, b, G, Q):
-    # G, Q as (x,y) tuples over GF(p); p odd prime, anomalous => order == p
-    # Note: for toy p<1e4 both brute `for dy in range(p): yc=y+dy*p` and Newton work, but Newton is O(1)
-    mod = p * p
-
-    def ec_add(P, Q_, mod_):
-        if P is None:
+def mul_affine(P, k, p, a):
+    """Reference scalar multiplication over GF(p) - used only to verify a candidate."""
+    def add(P_, Q_):
+        if P_ is None:
             return Q_
         if Q_ is None:
-            return P
-        x1, y1 = P; x2, y2 = Q_
-        if x1 == x2 and (y1 + y2) % mod_ == 0:
+            return P_
+        x1, y1 = P_; x2, y2 = Q_
+        if x1 == x2 and (y1 + y2) % p == 0:
             return None
-        if P == Q_:
-            try:
-                inv = pow(2*y1 % mod_, -1, mod_)
-            except ValueError:
-                inv = inverse(2*y1 % mod_, mod_)
-            lam = (3*x1*x1 + a) * inv % mod_
+        if P_ == Q_:
+            lam = (3 * x1 * x1 + a) * pow(2 * y1 % p, -1, p) % p
         else:
+            lam = (y2 - y1) * pow((x2 - x1) % p, -1, p) % p
+        x3 = (lam * lam - x1 - x2) % p
+        return (x3, (lam * (x1 - x3) - y1) % p)
+    R = None; Q__ = P
+    while k:
+        if k & 1:
+            R = add(R, Q__)
+        Q__ = add(Q__, Q__)
+        k >>= 1
+    return R
+
+def smart_attack(p, a, b, G, Q):
+    """Recover d with Q = d*G on an anomalous curve (#E == p). None if this curve's
+    canonical lift has order p in E(Z/p^2) (then p*G_hat == O and psi is undefined);
+    for those curves use Sage, whose discrete_log handles anomalous curves itself."""
+    mod = p * p
+    gx, gy = G; qx, qy = Q
+    # two y-roots per x (negation); try both signs
+    for sg in (1, -1):
+        for sq in (1, -1):
             try:
-                inv = pow((x2 - x1) % mod_, -1, mod_)
+                Gl = lift_point(gx, sg * gy % p, p, a, b)
+                Ql = lift_point(qx, sq * qy % p, p, a, b)
+                sG = psi_jac(j_mul((Gl[0], Gl[1], 1), p, mod, a), mod)
+                sQ = psi_jac(j_mul((Ql[0], Ql[1], 1), p, mod, a), mod)
             except ValueError:
-                inv = inverse((x2 - x1) % mod_, mod_)
-            lam = (y2 - y1) * inv % mod_
-        x3 = (lam*lam - x1 - x2) % mod_
-        y3 = (lam*(x1 - x3) - y1) % mod_
-        return (x3, y3)
-
-    def ec_mul(P_, k, mod_):
-        R = None; Q__ = P_
-        while k:
-            if k & 1:
-                R = ec_add(R, Q__, mod_)
-            Q__ = ec_add(Q__, Q__, mod_)
-            k >>= 1
-        return R
-
-    def psi(Pt, mod_):
-        try:
-            inv = pow(Pt[1] % mod_, -1, mod_)
-        except ValueError:
-            inv = inverse(Pt[1] % mod_, mod_)
-        return (-Pt[0] * inv) % mod_
-
-    # Hensel lift G, Q to mod p^2 -- O(1) Newton step (not brute O(p))
-    gx, gy = G
-    qx, qy = Q
-    gx_lift, gy_lift = lift_point(gx, gy, p, a, b)
-    qx_lift, qy_lift = lift_point(qx, qy, p, a, b)
-    # two y-roots per x: yc and mod-yc (negation); try both signs
-    candidates_G = [(gx_lift, gy_lift), (gx_lift, (-gy_lift) % mod)]
-    candidates_Q = [(qx_lift, qy_lift), (qx_lift, (-qy_lift) % mod)]
-
-    for g_lift in candidates_G:
-        for q_lift in candidates_Q:
-            try:
-                pG = ec_mul(g_lift, p, mod)
-                pQ = ec_mul(q_lift, p, mod)
-                # Standard p-torsion test: p*P in kernel iff pP is None (identity) or y % p == 0
-                # Bug was `if y%p==0: continue` (skipped torsion); correct is to require torsion
-                if pG is None or pQ is None:
-                    continue
-                if pG[1] % p != 0 or pQ[1] % p != 0:
-                    # not in kernel of reduction -> wrong lift sign, try other
-                    continue
-                psi_G = psi(pG, mod)
-                psi_Q = psi(pQ, mod)
-                # Satoh-Skjernaa-Taguchi: psi(pP) divisible by p; integer-divide after confirming
-                if psi_G % p != 0 or psi_Q % p != 0:
-                    continue
-                val_G = (psi_G // p) % p
-                val_Q = (psi_Q // p) % p
-                if val_G == 0:
-                    continue
-                try:
-                    inv_val = pow(val_G, -1, p)
-                except ValueError:
-                    inv_val = inverse(val_G, p)
-                secret = (val_Q * inv_val) % p
-
-                def verify(k):
-                    return ec_mul(G, k, p) == Q
-
-                if verify(secret):
-                    return secret
-                # sign flip can give p-secret if we chose opposite y-root
-                if verify((-secret) % p):
-                    return (-secret) % p
-            except Exception:
                 continue
+            if sG is None or sQ is None:
+                continue
+            # Satoh-Skjernaa-Taguchi: psi(p*P_hat) must be divisible by p
+            if sG % p or sQ % p:
+                continue
+            vg = (sG // p) % p; vq = (sQ // p) % p
+            if vg == 0:
+                continue
+            secret = (vq * pow(vg, -1, p)) % p
+            if mul_affine(G, secret, p, a) == Q:
+                return secret
+            if mul_affine(G, (-secret) % p, p, a) == Q:
+                return (-secret) % p
     return None
 ```
 
@@ -670,7 +686,7 @@ def has_glv_endomorphism(p, a, b):
 
 **Key facts:**
 - Group law: (x1,y1) * (x2,y2) = (x1*y2 + y1*x2, y1*y2 - x1*x2)
-- **Group order = p + 1** (not p - 1!)
+- **Group order = p + 1 if p ≡ 3 (mod 4)**, and **p - 1 if p ≡ 1 (mod 4)** — i.e. `#E = p + 1` exactly when `-1` is a quadratic non-residue mod p. Do not assume `p+1`; try both (a point (x,y) ↔ z = y + i·x, so this is the norm-1 subgroup of `GF(p^2)^*`)
 - Isomorphic to GF(p^2)* elements of norm 1
 
 **Group operations:**
@@ -709,7 +725,7 @@ p = reduce(gcd, vals)
 # 4. Compute shared secret, derive AES key (e.g., via MD5)
 ```
 
-**Identification:** Challenge mentions "clock", "circle", or gives points satisfying x^2+y^2=1. Always check if p+1 (not p-1) is smooth.
+**Identification:** Challenge mentions "clock", "circle", or gives points satisfying x^2+y^2=1. Check **both** `p+1` and `p-1` for smoothness (`p ≡ 3 mod 4` gives `p+1`, `p ≡ 1 mod 4` gives `p-1`) — asserting "p+1 not p-1" silently breaks the `p ≡ 1 (mod 4)` case.
 
 ---
 
@@ -799,22 +815,22 @@ def recover_dsa_key(signatures, q, g, p):
     """Recover DSA private key when k has limited possible values"""
     (r1, s1, h1), (r2, s2, h2) = signatures[0], signatures[1]
 
+    # From DSA: s = k^-1 * (h + x*r) mod q, so x*r = k*s - h and
+    # x = (k*s - h) * r^-1 mod q -- per signature, no linear system needed.
     for k1 in range(1, 1024):
-        for k2 in range(1, 1024):
-            # From DSA: s = k^-1 * (h + x*r) mod q
-            # With two signatures: x = (s2*k2*h1 - s1*k1*h2) / (s1*k1*r2 - s2*k2*r1) mod q
-            num = (s2 * k2 * h1 - s1 * k1 * h2) % q
-            den = (s1 * k1 * r2 - s2 * k2 * r1) % q
-            if den == 0:
-                continue
-            x = (num * pow(den, -1, q)) % q  # stdlib pow; Crypto.Util.number.inverse fallback
-            # Verify: check if r1 == (g^k1 mod p) mod q
-            if pow(g, k1, p) % q == r1:
-                return x
+        # Verify: r1 == (g^k1 mod p) mod q -- only depends on k1, so hoist it
+        # out of the inner loop instead of re-running a modexp per (k1, k2).
+        if pow(g, k1, p) % q != r1:
+            continue
+        x = ((k1 * s1 - h1) * pow(r1, -1, q)) % q  # stdlib pow; inverse() fallback
+        # Confirm against the second signature before returning
+        k2 = (h2 + x * r2) * pow(s2, -1, q) % q
+        if pow(g, k2, p) % q == r2:
+            return x
     return None
 ```
 
-**Key insight:** Standard DSA nonce reuse attacks require k1 == k2. When k values are drawn from a small space (e.g., 1024 values), brute-force all (k1, k2) pairs across two signatures to solve the linear system for private key x.
+**Key insight:** Standard DSA nonce reuse attacks require `k1 == k2`. When k values are drawn from a small space, you do not need a 2×2 linear system: cross-multiplying the two instances of `x = (k*s - h)*r^-1` only gives the *consistency* condition `(k1*s1 - h1)*r2 == (k2*s2 - h2)*r1`. Each `k1` that satisfies `r1 == (g^k1 mod p) mod q` already pins `x` directly, so brute-force `k1` alone (1024 modexps), not all `(k1,k2)` pairs (2^20 modexps).
 
 ---
 

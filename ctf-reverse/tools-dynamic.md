@@ -297,7 +297,7 @@ pip install angr
 
 ```python
 import angr
-import claripy
+from angr import claripy
 
 # Load binary
 proj = angr.Project('./binary', auto_load_libs=False)
@@ -321,7 +321,7 @@ if simgr.found:
 
 ```python
 import angr
-import claripy
+from angr import claripy
 
 proj = angr.Project('./binary', auto_load_libs=False)
 

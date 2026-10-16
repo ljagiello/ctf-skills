@@ -241,8 +241,8 @@ binary = lief.parse("binary")
 # Add a new section
 section = lief.ELF.Section(".patch")
 section.content = list(b"\xcc" * 0x100)
-section.type = lief.ELF.SECTION_TYPES.PROGBITS
-section.flags = lief.ELF.SECTION_FLAGS.EXECINSTR | lief.ELF.SECTION_FLAGS.ALLOC
+section.type = lief.ELF.Section.TYPE.PROGBITS
+section.flags = lief.ELF.Section.FLAGS.EXECINSTR | lief.ELF.Section.FLAGS.ALLOC
 binary.add(section)
 
 # Modify entry point
