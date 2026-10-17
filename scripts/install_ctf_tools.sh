@@ -169,6 +169,7 @@ PIP_PACKAGES=(
   "yara-python==4.5.4:yara"
   "pefile==2024.8.26:pefile"
   "capstone==5.0.9:capstone"
+  "r2pipe==1.9.8:r2pipe"
   "keystone-engine==0.9.2:keystone"
   "oletools==0.60.2:oletools"
   "unicorn==2.1.4:unicorn"
@@ -214,7 +215,7 @@ GROUP_PIPS_web="sqlmap flask-unsign requests httpx hashpumpy py_ecc pwntools"
 # shellcheck disable=SC2034 # read via group_var indirection
 GROUP_PIPS_forensics="volatility3 Pillow numpy matplotlib scipy librosa scikit-learn opencv-python-headless pymongo impacket brotli exrex stegano heatshrink2 scapy pycryptodome dnspython uncompyle6 python-evtx"
 # shellcheck disable=SC2034 # read via group_var indirection
-GROUP_PIPS_reverse="frida-tools angr qiling uncompyle6 capstone keystone-engine lief z3-solver pwntools pycryptodome Pillow unicorn pyelftools numpy"
+GROUP_PIPS_reverse="frida-tools angr qiling uncompyle6 capstone keystone-engine lief z3-solver pwntools pycryptodome Pillow unicorn pyelftools r2pipe numpy"
 # shellcheck disable=SC2034 # read via group_var indirection
 GROUP_PIPS_pwn="pwntools ROPgadget ropper sympy numpy"
 # shellcheck disable=SC2034 # read via group_var indirection
@@ -287,7 +288,7 @@ Tool groups (skill categories) — pip / apt+brew / backend selections:
   crypto    pip: pwntools pycryptodome z3-solver sympy gmpy2 hashpumpy fpylll py_ecc ecdsa Pillow numpy requests | os: hashcat sagemath | manual: RsaCtfTool SageMath crypto-attacks
   web       pip: sqlmap flask-unsign requests httpx hashpumpy py_ecc pwntools | os: hashcat jq curl | go: ffuf | pat: PayloadsAllTheThings
   pwn       pip: pwntools ROPgadget ropper sympy numpy | os: gdb binutils strace ltrace qemu-system-x86 | gems: one_gadget seccomp-tools | manual: pwndbg
-  reverse   pip: frida-tools angr qiling uncompyle6 capstone lief z3-solver pwntools pycryptodome Pillow unicorn numpy | os: gdb radare2 binutils strace ltrace apktool upx (+brew ghidra) | manual: pwndbg pycdc
+  reverse   pip: frida-tools angr qiling uncompyle6 capstone keystone-engine lief z3-solver pwntools pycryptodome Pillow unicorn pyelftools r2pipe numpy | os: gdb radare2 binutils strace ltrace apktool upx (+brew ghidra) | manual: pwndbg pycdc
   forensics pip: volatility3 Pillow numpy matplotlib scipy librosa scikit-learn opencv-python-headless pymongo impacket brotli exrex stegano heatshrink2 scapy pycryptodome dnspython uncompyle6 | os: binwalk foremost libimage-exiftool-perl tshark sleuthkit ffmpeg steghide testdisk john pcapfix + shared | gems: zsteg
   misc      pip: pwntools segno z3-solver Pillow numpy requests dnslib dnspython pycryptodome | os: ffmpeg qrencode libzbar0 sagemath
   malware   pip: yara-python pefile capstone oletools unicorn pycryptodome volatility3 dissect.cobaltstrike scapy requests | os: strace ltrace tshark binwalk binutils (+brew ghidra) | manual: dnSpy

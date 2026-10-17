@@ -111,17 +111,18 @@ dr eax=0                 # Modify register
 ### r2pipe Automation
 ```python
 import r2pipe
-r2 = r2pipe.open('./binary', flags=['-d'])
-r2.cmd('aaa')
-r2.cmd('db 0x401234')
 
-for char in range(256):
-    r2.cmd('ood')        # Restart
-    r2.cmd(f'dr eax={char}')
-    output = r2.cmd('dc')
-    if 'correct' in output:
-        print(f"Found: {chr(char)}")
+r2 = r2pipe.open('./binary')        # add flags=['-d'] to open in debug mode
+r2.cmd('aaa')
+funcs = r2.cmdj('aflj') or []       # cmdj returns {} or None on failure, check it
+for f in funcs:
+    print(f"{f['addr']:#x}  {f['name']}")
+r2.quit()
 ```
+
+**Key insight:** open the handle without `flags=['-d']` for pure static work — one `cmdj('aflj')` returns every analyzed function, and `cmdj` yields `{}` or `None` instead of raising on failure, so check the result before indexing it.
+
+Deeper coverage in [radare2-r2pipe.md](radare2-r2pipe.md): [decompiling in place with r2ghidra](radare2-r2pipe.md#decompiling-in-place-with-r2ghidra), [emulating a single function with ESIL](radare2-r2pipe.md#emulating-a-single-function-with-esil), and [batch-mode byte patching with wx](radare2-r2pipe.md#patching-bytes-with-wx-in-batch-mode).
 
 ---
 
