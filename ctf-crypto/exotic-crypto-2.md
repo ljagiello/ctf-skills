@@ -299,6 +299,7 @@ for w in lg.wordlist:
 
 ```python
 from sympy.ntheory.modular import crt
+from Crypto.Util.number import long_to_bytes
 # shares = [(s1,p1), (s2,p2), ..., (sk,pk)]
 residues = [s for s, _ in shares]
 moduli   = [p for _, p in shares]
@@ -318,8 +319,11 @@ flag = long_to_bytes(int(S))
 
 ```python
 from gmpy2 import iroot
+from math import isqrt
 # N = (r^2+3)(r^2+7) = r^4 + 10 r^2 + 21
-r, _ = iroot(N - 21, 4)
+# Solve u^2 + 10*u + 21 - N = 0 with u = r^2, then r = isqrt(u)
+disc = 100 + 4 * (N - 21)
+r, _ = iroot((isqrt(disc) - 10) // 2, 2)
 p, q = r*r + 3, r*r + 7
 x_p = pow(ct, (p+1)//4, p)
 x_q = pow(ct, (q+1)//4, q)
@@ -418,5 +422,4 @@ for cand in (r1, r2, s1, s2):
     except Exception: pass
 ```
 
-**Key insight:** Rabin decryption inherently produces four candidates because `x^2 ≡ c mod n` has four roots mod `n = p*q`. When `p, q ≡ 3 mod 4`, per-prime roots are the closed-form exponentiation `c^((p+1)/4) mod p` — no Tonelli-Shelanks needed. Combine with Bezout coefficients `yp*p + yq*q = 1` to get the four CRT candidates `±(yp*p*mq ± yq*q*mp) mod n`, and select by plaintext sanity (ASCII, magic bytes, known prefix). The four-root ambiguity is why Rabin typically needs redundancy in the plaintext to be useful as a cryptosystem.
-
+**Key insight:** Rabin decryption inherently produces four candidates because `x^2 ≡ c mod n` has four roots mod `n = p*q`. When `p, q ≡ 3 mod 4`, per-prime roots are the closed-form exponentiation `c^((p+1)/4) mod p` — no Tonelli-Shanks needed. Combine with Bezout coefficients `yp*p + yq*q = 1` to get the four CRT candidates `±(yp*p*mq ± yq*q*mp) mod n`, and select by plaintext sanity (ASCII, magic bytes, known prefix). The four-root ambiguity is why Rabin typically needs redundancy in the plaintext to be useful as a cryptosystem.

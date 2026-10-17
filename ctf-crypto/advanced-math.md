@@ -607,6 +607,7 @@ def clock_pow(P, n, p):
 ```python
 # Given points on the curve, p divides (x^2 + y^2 - 1)
 from math import gcd
+from functools import reduce
 vals = [x**2 + y**2 - 1 for x, y in known_points]
 p = reduce(gcd, vals)
 # May need to remove small factors
@@ -927,7 +928,7 @@ s_bytes_be = s_bytes_le[::-1]               # big-endian
 **Key derivation after LWE recovery (common pattern):**
 ```python
 import hashlib
-from Cryptodome.Cipher import AES
+from Crypto.Cipher import AES
 
 s_bytes = bytes([(v % 256) for v in s])
 

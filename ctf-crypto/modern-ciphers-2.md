@@ -81,6 +81,7 @@ new_hash, new_data = hashpumpy.hashpump(
 
 ```python
 import base64
+import string
 
 def oracle(plaintext):
     """Send chosen plaintext, get ciphertext length."""
@@ -168,16 +169,22 @@ def rng_inverse(state):
     """Inverted RNG — recover previous state."""
     return ((state - B) * pow(A, -1, M)) % M
 
-# Last block is zero-padded → ciphertext XOR 0 = keystream = RNG state
-leaked_state = int.from_bytes(ciphertext_blocks[-2], 'big')
+def xor_bytes(a, b):
+    return bytes(x ^ y for x, y in zip(a, b))
 
-# Decrypt backwards
+# block_size: the challenge's block size (16 for AES, whatever the cipher uses)
+
+# Last block is zero-padded → ciphertext XOR 0 = keystream = RNG state.
+# Keystream is KS_0 = seed, KS_{i+1} = rng_forward(KS_i), and C_i = P_i ^ KS_i,
+# so the LAST ciphertext block carries the LAST keystream block:
+leaked_state = int.from_bytes(ciphertext_blocks[-1], 'big')
+
+# Decrypt backwards: undo the RNG once to get KS_{n-2}, then KS_{n-3}, ... KS_0
 state = leaked_state
-plaintext_blocks = []
-for i in range(len(ciphertext_blocks) - 3, -1, -1):
+plaintext_blocks = [xor_bytes(ciphertext_blocks[-1], state.to_bytes(block_size, 'big'))]
+for i in range(len(ciphertext_blocks) - 2, -1, -1):
     state = rng_inverse(state)
-    pt = xor_bytes(ciphertext_blocks[i], state.to_bytes(block_size, 'big'))
-    plaintext_blocks.insert(0, pt)
+    plaintext_blocks.insert(0, xor_bytes(ciphertext_blocks[i], state.to_bytes(block_size, 'big')))
 ```
 
 **Key insight:** OFB mode decouples encryption from the plaintext — the keystream is deterministic from the initial state. If ANY block's plaintext is known (padding, headers, magic bytes), the corresponding RNG state is leaked. An invertible RNG then reveals ALL states. Always check if the RNG transition function has a mathematical inverse.

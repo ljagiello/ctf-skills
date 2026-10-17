@@ -14,6 +14,7 @@
 - [Phantom Market Unresolve + Force-Funding (DiceCTF 2026)](#phantom-market-unresolve--force-funding-dicectf-2026)
 - [Solidity Transient Storage Clearing Helper Collision (Solidity 0.8.28-0.8.33)](#solidity-transient-storage-clearing-helper-collision-solidity-0828-0833)
 - [Reentrancy Attack - DAO Pattern (DefCamp 2017)](#reentrancy-attack---dao-pattern-defcamp-2017)
+- [Signature and Randomness Weaknesses](#signature-and-randomness-weaknesses)
 - [Web3 CTF Tips](#web3-ctf-tips)
 
 ---
@@ -118,7 +119,7 @@ Offset `0x20` serves dual purpose: offset pointer AND bytes length.
 ## Complete Exploit Flow (House of Illusions)
 
 ```bash
-export PATH="$PATH:/Users/lcf/.foundry/bin"
+export PATH="$PATH:$HOME/.foundry/bin"
 RPC="https://ethereum-sepolia-rpc.publicnode.com"
 
 forge create src/IllusionHouse.sol:IllusionHouse --private-key $KEY --rpc-url $RPC --broadcast
@@ -360,6 +361,27 @@ payable(msg.sender).transfer(amount);
 
 ---
 
+## Signature and Randomness Weaknesses
+
+Solidity contracts often verify signatures with `ecrecover` and derive randomness from on-chain state. Common CTF pitfalls:
+
+**Signature malleability/replay:** `ecrecover` accepts the low-`s` and high-`s` forms of the same signature, and a signature is valid for any message it was not bound to. Bind signatures to the contract, signer, nonce, chain ID, and expiry (EIP-712), and track used nonces.
+
+```solidity
+bytes32 digest = keccak256(abi.encodePacked(nonce, msg.sender, amount));
+address signer = ecrecover(digest, v, r, s);
+require(signer == owner, "bad sig");
+require(!used[nonce], "replay");
+used[nonce] = true;
+```
+
+**Predictable randomness:** `block.timestamp`, `blockhash`, and `block.prevrandao` are not secret and can be influenced by miners/validators or known in advance. Never use them for lotteries or key generation; prefer VRF (e.g., Chainlink) or a commit-reveal with front-running checks.
+
+**ECDSA nonce reuse / partial nonces:** Reused or biased `k` values leak the private key (see [ctf-crypto/ecc-attacks.md](../ctf-crypto/ecc-attacks.md)). On-chain signatures with repeated `r` values are instantly crackable.
+
+**Key insight:** Web3 "crypto" bugs are usually signature binding and randomness quality problems, not broken ciphers — check `ecrecover` usage, nonce tracking, and any on-chain RNG before reaching for the signature-math in `ctf-crypto/`.
+
+---
 ## Web3 CTF Tips
 
 - **Factory pattern:** Instance = per-player contract. Check `playerToInstance(address)` mapping.

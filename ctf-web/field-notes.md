@@ -109,7 +109,7 @@ See [server-side-exec.md](server-side-exec.md) for PHP preg_replace /e RCE and P
 ```
 
 Filter bypass: hex `\x3cscript\x3e`, entities `&#60;script&#62;`, case mixing `<ScRiPt>`, event handlers.
-- **XSS dot-filter bypass:** Decimal IP (`1558071511` = `92.123.45.67`) eliminates dots from URLs. JavaScript bracket notation (`document["cookie"]`) replaces dot property access. See [client-side-advanced.md](client-side-advanced.md#xss-dot-filter-bypass-via-decimal-ip-and-bracket-notation-33c3-ctf-2016).
+- **XSS dot-filter bypass:** Decimal IP (`1551576387` = `92.123.45.67`) eliminates dots from URLs. JavaScript bracket notation (`document["cookie"]`) replaces dot property access. See [client-side-advanced.md](client-side-advanced.md#xss-dot-filter-bypass-via-decimal-ip-and-bracket-notation-33c3-ctf-2016).
 - **Cross-origin cookie XSS:** Set cookie with `domain=.parent.tld` from one subdomain to inject XSS payload rendered on a sibling subdomain. See [client-side-advanced.md](client-side-advanced.md#cross-origin-xss-via-shared-parent-domain-cookie-injection-0ctf-2017).
 - **AngularJS 1.x sandbox escape:** Override `String.prototype.charAt` with `trim` to bypass AngularJS expression sandbox, then `$eval` arbitrary JS. See [client-side.md](client-side.md#angularjs-1x-sandbox-escape-via-charattrim-override-google-ctf-2017).
 

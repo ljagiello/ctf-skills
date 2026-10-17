@@ -532,7 +532,7 @@ plaintext = AES.new(aes_key, AES.MODE_CBC, captured_iv).decrypt(captured_ct)
 
 **Pattern (forkaes):** ForkAES splits a 10-round AES-like permutation into a sequential `fork` structure: 5 rounds before the fork, then two parallel 2-round branches. The branching is reflective — both output blocks share the same middle state so a differential trail through the 5-round stem can be matched across both forks simultaneously.
 
-```
+```text
           5 rounds
     P ─────────────► W  (fork point)
                      ├─► 2 rounds ─► C0  (branch 0)
@@ -543,8 +543,7 @@ State is AES-like: 4×4 byte matrix, `SubBytes` (same S-box), `ShiftRows`, `MixC
 
 ```python
 from Crypto.Cipher import AES  # for S-box reference only; ForkAES is custom
-SBOX = AES.new(b'\x00'*16, AES.MODE_ECB)._sbox if hasattr(AES.new(b'\x00'*16, AES.MODE_ECB), '_sbox') else None
-# Use standard AES SBOX table
+# Standard AES S-box (256 bytes); verify against `AES.new(b'\0'*16, AES.MODE_ECB).`
 SBOX = [
     0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
     0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
@@ -676,7 +675,7 @@ ddt = SageAES.difference_distribution_table()
 
 **ChaCha quarter-round (correct):**
 
-```
+```text
 a += b; d ^= a; d <<<= 16;
 c += d; b ^= c; b <<<= 12;
 a += b; d ^= a; d <<<= 8;
@@ -705,7 +704,7 @@ def chacha_block(key, nonce, counter, faulty=None):
     import struct
     consts = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574]
     k = struct.unpack('<8I', key)  # 32-byte key -> 8 words
-    n = struct.unpack('<3I', nonce + b'\x00')  # 12-byte nonce; simplified
+    n = struct.unpack('<3I', nonce[:12])  # 12-byte nonce -> 3 words (pad if shorter)
     state = consts + list(k) + [counter] + list(n[:3])
     working = state[:]
     for _ in range(10):
@@ -742,11 +741,11 @@ def find_fault(cipher, known_pt_prefix, key_guess):
 
 # Full key recovery when key unknown: faulty rotate linearizes part of ARX
 # Differential: flip bit in `b`, the faulty rotate propagates differently.
-# Collect ~2^16 pairs with single-bit input差分, brute-force that rotation's key byte.
+# Collect ~2^16 pairs with single-bit input difference, brute-force that rotation's key byte.
 def ghostblood_key_recovery(oracle):
     """oracle(plaintext) -> ciphertext under faulty ChaCha with unknown key."""
     # Chosen-plaintext differential: P and P^delta (one bit) -> C, C'
-    # The faulty rotate causes Δ to stay in one nibble longer
+    # The faulty rotate causes the difference to stay in one nibble longer
     c0 = oracle(b'\x00'*64)
     c1 = oracle(b'\x00'*63 + b'\x01')
     delta = bytes(a ^ b for a, b in zip(c0, c1))
@@ -776,7 +775,7 @@ def sage_arx_delta(weight):
 
 </details>
 
-**Key insight:** ARX security depends on rotations being exactly `(16,12,8,7)`. Off-by-one breaks diffusion: the ARX carry chain no longer fully mixes between rounds, so a single-bit input差分 leaves a detectable pattern in the keystream difference. In CTF, the reduced diffusion also lets Z3 solve the ChaCha state with only ~4 blocks of known plaintext (instead of needing the full 20-round inversion).
+**Key insight:** ARX security depends on rotations being exactly `(16,12,8,7)`. Off-by-one breaks diffusion: the ARX carry chain no longer fully mixes between rounds, so a single-bit input difference leaves a detectable pattern in the keystream difference. In CTF, the reduced diffusion also lets Z3 solve the ChaCha state with only ~4 blocks of known plaintext (instead of needing the full 20-round inversion).
 
 **When to recognize:** Challenge mentions `ChaCha`, `ARX`, or shows quarter-round code with magic numbers `16,12,8,7`. Compare against the reference — any mismatch is the vulnerability. If the binary is provided, `objdump` the ChaCha core and diff rotates.
 

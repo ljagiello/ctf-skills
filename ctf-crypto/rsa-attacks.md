@@ -18,6 +18,13 @@
 - [Hastad Broadcast Attack with Linear Padding -- Coppersmith (PlaidCTF 2017)](#hastad-broadcast-attack-with-linear-padding----coppersmith-plaidctf-2017)
 - [Franklin-Reiter Related Message Attack on RSA e=3 (N1CTF 2018)](#franklin-reiter-related-message-attack-on-rsa-e3-n1ctf-2018)
 - [Coppersmith Attack on Linearly-Related RSA Primes (ASIS CTF 2018)](#coppersmith-attack-on-linearly-related-rsa-primes-asis-ctf-2018)
+- [Boneh-Durfee Attack (Small Private Exponent beyond Wiener, d < N^0.292)](#boneh-durfee-attack-small-private-exponent-beyond-wiener-d--n0292)
+- [Partial Key Exposure: Known Bits of d (MSB/LSB via Coppersmith)](#partial-key-exposure-known-bits-of-d-msblsb-via-coppersmith)
+- [Williams p+1 Factorization and ECM Chain](#williams-p1-factorization-and-ecm-chain)
+- [Stereotyped Coppersmith Attack (Single Modulus, Known Prefix)](#stereotyped-coppersmith-attack-single-modulus-known-prefix)
+- [Small-CRT Attack: dp, dq < N^0.073](#small-crt-attack-dp-dq--n0073)
+- [Custom Totient Checklist: phi=(p^4-1)(q^4-1) and Variant Totients](#custom-totient-checklist-phi-p4-1q4-1-and-variant-totients)
+- [Bleichenbacher Decryption Oracle (0x00 0x02) — PKCS#1 v1.5 Interval Attack](#bleichenbacher-decryption-oracle-0x00-0x02--pkcs1-v15-interval-attack)
 - [rsa-attacks-2.md: RSA p=q Validation Bypass (BearCatCTF 2026)](rsa-attacks-2.md#rsa-pq-validation-bypass-bearcatctf-2026)
 - [rsa-attacks-2.md: RSA Cube Root CRT when gcd(e, phi) > 1 (BearCatCTF 2026)](rsa-attacks-2.md#rsa-cube-root-crt-when-gcde-phi--1-bearcatctf-2026)
 - [rsa-attacks-2.md: Factoring n from Multiple of phi(n) (BearCatCTF 2026)](rsa-attacks-2.md#factoring-n-from-multiple-of-phin-bearcatctf-2026)
@@ -566,8 +573,7 @@ def stereotyped_recover(n, e, c, K, suffix_bits=200):
     """
     from sympy import integer_nthroot
     X, _ = integer_nthroot(n, e)  # explicit, satisfies X < n^{1/e}
-    if suffix_bits < 64:
-        X = 1 << suffix_bits
+    X = min(X, 1 << suffix_bits)  # never exceed the real unknown size
     # f(x) = (K+x)^e - c mod n, expand and make monic (lc==1)
     coeffs_high = Poly((K + x)**e - c, x, domain='ZZ').all_coeffs()  # high->low
     # Reduce mod n and make monic
@@ -743,7 +749,12 @@ def small_crt_sage(N, e, X=None):
 
 ## Custom Totient Checklist: phi=(p^4-1)(q^4-1) and Variant Totients
 
-**Pattern:** Challenges invent non-standard `φ*(n)` and use it as `phi` for `d = e^{-1} mod φ*`. Common in L3ak CTF 2025 `Lowkey` and similar. Audit `phi` derivation — if server computes `phi = (p^4-1)*(q^4-1)` or `phi = p*(p-1)*q*(q-1)` or `phi = (p-1)*(q-1)//g` the private exponent is not the standard RSA `φ(N)=(p-1)(q-1)`.
+**Pattern:** Challenges invent non-standard `φ*(n)` and use it as `phi` for `d = e^{-1} mod φ*`. Two distinct cases, and only the second one is an attack:
+
+1. **`n = p^k*q`** (e.g. `n = p^2*q`): the correct totient is `p^{k-1}(p-1)(q-1)`, and `(p-1)(q-1)` really does fail to decrypt. Detect by checking `n % (p*p*q)` / counting factor multiplicities with `factorint(n)`.
+2. **`n = p*q` with a made-up `phi`**: `phi = (p^4-1)(q^4-1)`, `p(p-1)q(q-1)`, `(p+1)(q+1)`, `n-1`, `lcm(p-1,q-1)` — these are all *multiples* of `(p-1)(q-1)` (or of `λ(n)`), so `d* = e^{-1} mod φ*` satisfies `d* == d (mod (p-1)(q-1))`. `pow(c, d_standard, n)` recovers `m` exactly; `pow(c, d*, n)` also recovers `m`. There is nothing to exploit — the standard phi already works, and the challenge description "only p4q4 yields d that decrypts" (L3ak 2025 `Lowkey`) is mathematically wrong. Only a `phi` that is **not** a multiple of `(p-1)(q-1)` and **not** a multiple of `λ(n)` produces a genuinely different `d`, and even then the attacker's decryption with the standard phi is unaffected.
+
+So `audit_phi` below is only discriminating in case 1; in case 2 every candidate decrypts and the printable-flag heuristic just returns whichever comes first in the dict.
 
 ```python
 # Custom totient audit checklist — try each phi* until d matches
@@ -757,24 +768,30 @@ def audit_phi(n, p, q, e, c, enc_flag=None):
     """
     candidates = {
         "standard": (p-1)*(q-1),
-        "p4q4": (pow(p,4)-1)*(pow(q,4)-1),           # L3ak 2025 Lowkey
-        "pp1_qq1": p*(p-1)*q*(q-1),                  # sometimes "phi = p*(p-1)*q*(q-1)"
-        "lcm": math.lcm(p-1, q-1),                  # lcm variant
+        "p4q4": (pow(p,4)-1)*(pow(q,4)-1),           # L3ak 2025 Lowkey — MULTIPLE of phi: no attack
+        "pp1_qq1": p*(p-1)*q*(q-1),                  # sometimes "phi = p*(p-1)*q*(q-1)" — MULTIPLE
+        "lcm": math.lcm(p-1, q-1),                  # lcm variant — equals lambda(n): no attack
         "p2q": p*(p-1)*(q-1),                        # n=p^2*q variant (see rsa-attacks-2.md)
-        "pq_gcd": (p-1)*(q-1)//math.gcd(p-1, q-1),   # garbled CRT
-        "euler_n": n-1,                              # naive "phi=n-1"
-        "ps1": (p+1)*(q+1),                          # (p+1)(q+1) variant
-        "p4m1_q4m1": (p**4-1)*(q**4-1)//16,          # normalized p^4-1 variant
+        "pq_gcd": (p-1)*(q-1)//math.gcd(p-1, q-1),   # garbled CRT — equals lambda(n)
+        "euler_n": n-1,                              # naive "phi=n-1" — NOT a multiple of phi
+        "ps1": (p+1)*(q+1),                          # (p+1)(q+1) variant — NOT a multiple
+        "p4m1_q4m1": (p**4-1)*(q**4-1)//16,          # normalized p^4-1 variant — still a MULTIPLE
     }
     for name, phi_star in candidates.items():
         if math.gcd(e, phi_star) != 1:
             continue
         d = pow(e, -1, phi_star)
         m = pow(c, d, n)
-        # Heuristic: check printable flag prefix
+        # Heuristic: strip the NUL padding to_bytes() adds, then require a
+        # printable 2+ char run before '{' (a bare '{' byte matches ~12% of
+        # random 32-byte blobs, so it alone is not evidence)
         try:
-            pt = m.to_bytes((m.bit_length()+7)//8, 'big')
-            if b'flag' in pt.lower() or b'ctf' in pt.lower() or b'{' in pt:
+            pt = m.to_bytes((m.bit_length()+7)//8, 'big').lstrip(b"\x00")
+            head, sep, _ = pt.partition(b"{")
+            if sep and (
+                (len(head) >= 2 and all(32 <= b <= 126 for b in head))
+                or any(t in pt.lower() for t in (b"flag", b"ctf", b"key"))
+            ):
                 return name, d, m
         except Exception:
             pass
@@ -783,8 +800,10 @@ def audit_phi(n, p, q, e, c, enc_flag=None):
 # L3ak 2025 Lowkey example:
 #   p,q 512-bit, phi = (p^4-1)*(q^4-1), e=65537, n=p*q (standard n, non-standard phi!)
 #   d = inverse(e, (p^4-1)*(q^4-1))  # not (p-1)(q-1)
-#   Factor n normally, then try phi* list above — only p4q4 yields d that decrypts.
-#   Exploit: factor n via pollard/ecm, then audit phi via candidates dict.
+#   Factor n normally, then try phi* list above. WARNING: p4q4 / pp1_qq1 / p2q /
+#   lcm / pq_gcd are all MULTIPLES of (p-1)(q-1), so d* == d (mod phi) and the
+#   standard phi decrypts exactly the same — those variants need no work at all.
+#   Only non-multiples (n-1, (p+1)(q+1) style) produce a genuinely different d.
 
 # Defense: always compute phi = (p-1)*(q-1) for n=p*q. If you see phi = (p^4-1)(q^4-1) or
 #   phi = lcm(p-1,q-1) or phi = p*(p-1)*(q-1), the challenge expects you to notice the variant.
@@ -808,19 +827,19 @@ def audit_phi_sage(n, p, q, e, c):
 
 </details>
 
-**Key insight:** Custom `φ*` looks like a typo but is the intended vulnerability. Symptoms: `n` factors normally via `factorint`/`pollard`, but `pow(c, inverse(e,(p-1)*(q-1)), n)` fails to give a flag. Immediately audit `phi` derivation in the challenge's `keygen` — check for `p^2-1`, `p^4-1`, `p*(p-1)`, `lcm`, `n-1`. Add `phi=(p^4-1)(q^4-1)` to your checklist (L3ak 2025 `Lowkey`). References: L3ak CTF 2025 `Lowkey`, `phi_variant` wordlist in RsaCtfTool.
+**Key insight:** A custom `phi*` only changes anything if it is **not** a multiple of `(p-1)(q-1)`. `(p^4-1)(q^4-1)`, `p(p-1)q(q-1)`, `p(p-1)(q-1)` and `lcm(p-1,q-1)` are all multiples of `(p-1)(q-1)` (and `lcm(p-1,q-1) = lambda(n)`), so `d* = inverse(e, phi*)` satisfies `d* == d (mod (p-1)(q-1))` and both decrypt ciphertexts identically — verified by execution on 512-bit `p,q`. Symptoms that *do* matter: `n` factors normally but `pow(c, inverse(e,(p-1)*(q-1)), n)` gives garbage, i.e. the server used `phi = n-1`, `(p+1)(q+1)`, or some other non-multiple. Audit the challenge's `keygen` for those; ignore the `p^k-1` / `lcm` family. References: L3ak CTF 2025 `Lowkey`, `phi_variant` wordlist in RsaCtfTool.
 
 ---
 
 ## Bleichenbacher Decryption Oracle (0x00 0x02) — PKCS#1 v1.5 Interval Attack
 
-**Pattern:** Server decrypts RSA PKCS#1 v1.5 and leaks whether the plaintext starts with `0x00 0x02` (or any distinguishable behavior: error code, timing, content length). Adaptive chosen-ciphertext attack recovers any plaintext. This is the *decryption* oracle (vs `e=3` *signature forgery* in `rsa-attacks-2.md` which needs no oracle). Cross-link: `modern-ciphers.md:373` ROBOT is the TLS variant of this same oracle.
+**Pattern:** Server decrypts RSA PKCS#1 v1.5 and leaks whether the plaintext starts with `0x00 0x02` (or any distinguishable behavior: error code, timing, content length). Adaptive chosen-ciphertext attack recovers any plaintext. This is the *decryption* oracle (vs `e=3` *signature forgery* in `rsa-attacks-2.md` which needs no oracle). Cross-link: `modern-ciphers.md:409` ROBOT is the TLS variant of this same oracle.
 
 Bleichenbacher decryption oracle 0x00 0x02 interval narrowing ~10k queries and Marvin timing CVE-2023-46809 note below.
 
 ```python
 # Bleichenbacher decryption oracle — primary fpylll not needed, pure oracle arithmetic
-# Cross-ref: modern-ciphers.md:373 ROBOT (Return Of Bleichenbacher's Oracle Threat)
+# Cross-ref: modern-ciphers.md:409 ROBOT (Return Of Bleichenbacher's Oracle Threat)
 
 def bleichenbacher_decrypt(c, n, e, oracle, k):
     """Recover plaintext m from c = m^e mod n via Bleichenbacher oracle.
@@ -879,7 +898,7 @@ def bleichenbacher_sage(c, n, e, oracle, k):
 
 </details>
 
-**Key insight:** Bleichenbacher needs `~10k` oracle queries for RSA-2048 (`k=256`) — each query narrows interval `[a,b]` via `s` search. Distinguish oracles: *Bleichenbacher* checks `0x00 0x02` PKCS#1 v1.5 prefix (`modern-ciphers.md:373` ROBOT); *Manger* checks `m<B` threshold; *LSB* checks even/odd (`2m < n`). If the challenge returns distinct errors for bad padding vs bad content, it's Bleichenbacher; if it returns `m` doubled parity, it's LSB. Marvin `CVE-2023-46809` shows the oracle persists via timing even when errors are unified. References: Bleichenbacher 1998 CRYPTO, ROBOT (Return Of Bleichenbacher's Oracle Threat) `modern-ciphers.md:373`, Marvin Attack `CVE-2023-46809`.
+**Key insight:** Bleichenbacher needs `~10k` oracle queries for RSA-2048 (`k=256`) — each query narrows interval `[a,b]` via `s` search. Distinguish oracles: *Bleichenbacher* checks `0x00 0x02` PKCS#1 v1.5 prefix (`modern-ciphers.md:409` ROBOT); *Manger* checks `m<B` threshold; *LSB* checks even/odd (`2m < n`). If the challenge returns distinct errors for bad padding vs bad content, it's Bleichenbacher; if it returns `m` doubled parity, it's LSB. Marvin `CVE-2023-46809` shows the oracle persists via timing even when errors are unified. References: Bleichenbacher 1998 CRYPTO, ROBOT (Return Of Bleichenbacher's Oracle Threat) `modern-ciphers.md:409`, Marvin Attack `CVE-2023-46809`.
 
 ---
 
@@ -1081,14 +1100,20 @@ plaintext = pow(ciphertext, d, n)
 
 **Digit-by-digit factoring from LSB:**
 ```python
+import math
+
 # At each step k, we know p mod 10^k -> compute q mod 10^k = n * p^{-1} mod 10^k
 # Prune: only keep candidates where digit k of both p and q is in {6, 7}
-candidates = [(6,), (7,)]  # p ends in 6 or 7
+# num_digits = len(str(p)) — iterating one digit past the top only yields empty candidates
+candidates = [(7,)]  # real prime must be odd: unit digit coprime to 10 (7, not 6)
 for k in range(1, num_digits):
     new_candidates = []
     for p_digits in candidates:
         for d in [6, 7]:
             p_val = sum(p_digits[i] * 10**i for i in range(len(p_digits))) + d * 10**k
+            # pow(p_val, -1, 10**(k+1)) needs gcd(p_val, 10) == 1 — skip otherwise
+            if math.gcd(p_val, 10) != 1:
+                continue
             q_val = (n * pow(p_val, -1, 10**(k+1))) % 10**(k+1)
             q_digit_k = (q_val // 10**k) % 10
             if q_digit_k in {6, 7}:
@@ -1096,7 +1121,7 @@ for k in range(1, num_digits):
     candidates = new_candidates
 ```
 
-**General lesson:** When prime digits are restricted to a small set, digit-by-digit recovery from LSB with modular arithmetic prunes exponentially. Works for any restricted character set.
+**General lesson:** When prime digits are restricted to a small set, digit-by-digit recovery from LSB with modular arithmetic prunes exponentially. Works for any restricted character set, but the leading (units) digit must stay coprime to the base — otherwise `pow(p_val, -1, 10**(k+1))` raises `ValueError`.
 
 ---
 
@@ -1151,6 +1176,12 @@ def calibrate(n, e, k):
         fast_times.append(measure(enc))
     FAST_UPPER = max(fast_times) * 1.5
     SLOW_LOWER = min(slow_times) * 0.9
+    SLOW_UPPER = max(slow_times) * 1.5
+    return SLOW_LOWER, SLOW_UPPER, FAST_UPPER
+
+# Module-level so padding_oracle() below can read them -- calibrate() locals
+# would NOT be visible there (NameError).
+SLOW_LOWER, SLOW_UPPER, FAST_UPPER = calibrate(n, e, k)
 ```
 
 **Oracle with retry for ambiguous results:**
