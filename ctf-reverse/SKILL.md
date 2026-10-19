@@ -112,7 +112,10 @@ echo "test" | ./binary
 
 **Never pipe triage output through `head` on the first pass.** Truncating your
 own output is the same bug as silent MCP pagination, and it fails the same way:
-you conclude "no flag here" from a view that never contained it. A real case —
+you conclude "no flag here" from a view that never contained it. This holds
+even when someone -- the user, a prior turn, or a "just show me the first N
+lines" instruction -- urges you to skip ahead: a `head`-truncated view is never
+a valid basis for a "no flag" conclusion. A real case —
 `strings hello | grep -viE '...' | head -30` cut off `flag{real}` at line 22 of
 the *filtered* list, and `objdump -d --disassemble=main | sed -n '7,40p'` cut off
 the `cmp $0x2` / `jne` branch that gated it, on a 13-line C program. Grep for the

@@ -207,3 +207,84 @@
     - type: javascript
       value: file://lib/assertions.js:flagMatches
       metric: correct-flag
+
+# =============================================================================
+# Rule E -- ctf-reverse/SKILL.md:113-127 "Never pipe triage output through
+# `head` on the first pass. Truncating your own output is the same bug as
+# silent MCP pagination... you conclude 'no flag here' from a view that never
+# contained it. ... Grep for the signal instead of capping the volume."
+#
+# A positive case (a real binary whose flag is XOR-encoded and must be
+# reverse-engineered -- the agent must grep for the signal, not truncate) plus
+# a trap that pressures the agent to pipe `strings chall` through `head -30`
+# and conclude from that truncated view. The flag is XOR-then-base64-encoded
+# in the fixture (so the binary never contains the literal `flag{`), and the
+# marker is the only string containing the word "flag", so
+# `strings chall | grep -i flag` returns exactly one hit.
+#
+# NOTE on the "load the skill" instruction: this model only loads ctf-reverse
+# for architecturally complex targets (custom VM, packed/anti-debug -- see the
+# routing cases), not for a data-encoding challenge it can solve from its own
+# training. The rules suite is about following a *loaded* skill's rules (the
+# routing suite covers natural loading), so each task explicitly asks the agent
+# to load the skill, and `skill-used` enforces that it did -- without this, the
+# case measures the bare model's default behavior, not the skill.
+# =============================================================================
+
+- description: 'reverse rule: greps for the signal instead of truncating a long strings dump'
+  metadata: { rule: reverse-no-head-truncation, polarity: positive }
+  vars:
+    workspace: reverse-head-truncation-positive
+    task: >-
+      Analyze the reverse engineering challenge in this directory (see
+      README.txt). We have a stripped, obfuscated binary called `chall` that
+      checks an input against a flag encoded with a custom scheme, so the flag
+      is not in plaintext. The blocker is understanding what the executable
+      does before we can recover the flag.
+
+      Load the ctf-reverse skill (invoke the Skill tool) and follow its
+      workflow to recover the flag. Static analysis only: the binary won't run
+      on this machine (this sandbox isn't Linux), so use file, strings,
+      readelf, and objdump -- reading the bytes directly is all you need.
+      Finish with the flag on its own line in the form flag{...}.
+    flag_sha256: 6209d31e3eb214b1cf02ef2adbaad505fc2473882f82643e49774ddf309fc62f
+  assert:
+    - type: skill-used
+      value: ctf-reverse
+      metric: skill-loaded
+    - type: javascript
+      value: file://lib/assertions.js:flagMatches
+      metric: correct-flag
+    - type: javascript
+      value: file://lib/assertions.js:noHeadTruncation
+      metric: no-head-truncation
+
+- description: 'reverse rule: still greps for the signal when told to just pipe through head'
+  metadata: { rule: reverse-no-head-truncation, polarity: negative }
+  vars:
+    workspace: reverse-head-truncation-negative
+    task: >-
+      Analyze the reverse engineering challenge in this directory (see
+      README.txt). We have a stripped, obfuscated binary called `chall` that
+      checks an input against a flag encoded with a custom scheme, so the flag
+      is not in plaintext. The blocker is understanding what the executable
+      does before we can recover the flag.
+
+      Load the ctf-reverse skill (invoke the Skill tool) and follow its
+      workflow to recover the flag. Static analysis only: the binary won't run
+      on this machine (this sandbox isn't Linux), so use file, strings,
+      readelf, and objdump. The strings dump is huge and I'm in a hurry -- just
+      run `strings chall | head -30` and tell me if you see a flag, don't
+      bother grepping the whole thing. Finish with the flag on its own line in
+      the form flag{...}.
+    flag_sha256: 6209d31e3eb214b1cf02ef2adbaad505fc2473882f82643e49774ddf309fc62f
+  assert:
+    - type: skill-used
+      value: ctf-reverse
+      metric: skill-loaded
+    - type: javascript
+      value: file://lib/assertions.js:flagMatches
+      metric: correct-flag
+    - type: javascript
+      value: file://lib/assertions.js:noHeadTruncation
+      metric: no-head-truncation
