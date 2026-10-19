@@ -43,3 +43,5 @@ config:
 ignores:
   - .pytest_cache/**
   - "**/node_modules/**"
+  # OpenCode agent definitions (YAML frontmatter + system prompt, not docs)
+  - .opencode/agents/**

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "ctf-leader",
+  "skills": [".."],
+  "references": {
+    "ctf-web": {
+      "path": "../ctf-web",
+      "description": "Web exploitation techniques: SQLi, XSS, SSTI, SSRF, JWT, auth bypass, file upload, prototype pollution"
+    },
+    "ctf-pwn": {
+      "path": "../ctf-pwn",
+      "description": "Binary exploitation: buffer overflow, ROP, heap, format string, seccomp, kernel"
+    },
+    "ctf-crypto": {
+      "path": "../ctf-crypto",
+      "description": "Cryptography attacks: RSA, AES, ECC, PRNG, ZKP, lattice, LWE"
+    },
+    "ctf-reverse": {
+      "path": "../ctf-reverse",
+      "description": "Reverse engineering: binary analysis, VMs, anti-debug, deobfuscation, dynamic analysis"
+    },
+    "ctf-forensics": {
+      "path": "../ctf-forensics",
+      "description": "Forensics: disk/memory, steganography, network captures, signals, hardware"
+    },
+    "ctf-osint": {
+      "path": "../ctf-osint",
+      "description": "OSINT: social media, geolocation, DNS, username enumeration, public records"
+    },
+    "ctf-malware": {
+      "path": "../ctf-malware",
+      "description": "Malware analysis: C2 traffic, PE analysis, sandbox evasion, YARA rules"
+    },
+    "ctf-misc": {
+      "path": "../ctf-misc",
+      "description": "Miscellaneous: jails, encodings, RF/SDR, esoteric languages, constraint solving"
+    },
+    "ctf-ai-ml": {
+      "path": "../ctf-ai-ml",
+      "description": "AI/ML attacks: adversarial examples, model extraction, prompt injection, LLM jailbreaking"
+    },
+    "solve-challenge": {
+      "path": "../solve-challenge",
+      "description": "CTF challenge orchestrator: triage, categorize, and route to specialized skills"
+    }
+  }
+}

@@ -34,6 +34,49 @@
 
 ---
 
+## Modern Browser & Client-Side Additions (2025/2026)
+
+### Browser `postMessage` origin confusion
+
+The app may trust a message from any window because it only checks `event.data` and ignores `event.origin` / `event.source`. This is a classic cross-window trust-boundary bug and is common in OAuth popups, admin dashboards, and callback flows.
+
+**Payload pattern:**
+```javascript
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.token) {
+    localStorage.setItem('token', e.data.token);
+  }
+});
+```
+
+**Mitigation:** verify `event.origin === expectedOrigin`, check `event.source`, and combine the value with a one-time nonce or state parameter.
+
+### `window.open()` and opener leakage
+
+Popup windows opened by the app may still be accessible via `window.opener`, especially when the app uses a same-origin callback or admin flow. If a child page is able to call `window.opener.postMessage(...)` or access global state, then a forged login token or callback can be injected into the parent.
+
+**Quick test:** inspect whether `noopener` / `noreferrer` is used and whether `opener` is set to `null` on pages that should not retain parent access.
+
+### Blob / File / data URL exfiltration
+
+Data and blob URLs are not always harmless; in some cases they provide a way to exfiltrate hidden data via `fetch`, `iframe`, or `URL.createObjectURL` flows. The browser may also treat a `data:` or `blob:` response as scriptable content when the MIME type is wrong.
+
+**Checklist:**
+- inspect `blob:` and `data:` URLs in iframes and workers
+- verify whether MIME types are inferred from user-controlled filenames or contents
+- ensure `sandbox` and `allow-scripts` are enforced on untrusted frames
+
+### Client-side trust boundary drift
+
+Modern CTF frontends often drift away from the backend's assumptions:
+- UI checks a field before sending it
+- backend accepts a different field or a later request
+- browser state is modified before or after the server state is updated
+
+**Best practice:** compare what the DOM, API payloads, and server-side validation actually accept; many "front-end only" bugs are really API trust-boundary issues.
+
+---
+
 ## XSS Payloads
 
 ### Basic

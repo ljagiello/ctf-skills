@@ -26,6 +26,51 @@ Unicode bypass, CSS-only exfiltration, behavioral JS frameworks, timing oracles,
 
 ---
 
+## Modern Browser Trust Boundary Additions (2025/2026)
+
+### Popup message and opener confusion
+
+Many modern challenge frontends allow a child popup to send a token or callback back to the parent without verifying the origin. This is usually a browser trust-boundary bug, not a backend crypto bug.
+
+```javascript
+window.addEventListener('message', function (event) {
+  if (event.data && event.data.token) {
+    setCookie(event.data.token);
+  }
+});
+```
+
+**Protection:** verify `event.origin` against an exact allowlist, require `event.source === popup`, and avoid putting raw tokens in URL fragments unless they are one-time nonces.
+
+### `Blob` / `data:` URL content confusion
+
+Some apps incorrectly trust `blob:` or `data:` URLs after reading generated content from a user-controlled source. This becomes dangerous when the browser runs the response as HTML, script, or an image after MIME confusion.
+
+**Checks:**
+- verify `Content-Type` and `X-Content-Type-Options`
+- inspect `URL.createObjectURL` / `data:` flows in pages and iframes
+- look for attacker-controlled filenames or MIME sniffing paths that flip text into executable content
+
+### OAuth popup + state reuse confusion
+
+The browser may hand control from one OAuth flow to another because the app stores only a partial `state` or uses a weak redirect matching function. A callback from one flow can be accepted in another flow if the state is not fully bound to the session and client ID.
+
+**Checklist:**
+- exact `client_id` match
+- exact `redirect_uri` match
+- nonce/state must be unique per login attempt and single-use
+
+### Redirect-based auth and login poisoning
+
+A page that redirects to a user-controlled URL after login can carry a value that is later interpreted as a user name, account ID, or session identifier. This is a classic "redirect then trust" bug.
+
+**Look for:**
+- `?next=`, `?redirect=` and `?return=` parameters
+- login callback flows that preserve a path fragment from the URL
+- subdomain-based redirect validation that only checks suffixes
+
+---
+
 ## Unicode Case Folding XSS Bypass (UNbreakable 2026)
 
 **Pattern (demolition):** Server-side sanitizer (Flask regex `<\s*/?\s*script`) only matches ASCII. A second processing layer (Go `strings.EqualFold`) applies Unicode case folding, which canonicalizes `ſ` (U+017F, Latin Long S) to `s`.

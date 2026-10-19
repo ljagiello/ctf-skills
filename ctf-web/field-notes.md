@@ -26,6 +26,7 @@ Long-form exploit notes that were moved out of `SKILL.md` so the main skill can 
 - [Apache CVE-2012-0053 HttpOnly Cookie Leak](#apache-cve-2012-0053-httponly-cookie-leak)
 - [Apache mod_status Information Disclosure](#apache-mod_status-information-disclosure)
 - [Open Redirect Chains](#open-redirect-chains)
+- [Modern Web CTF Patterns (2025/2026)](#modern-web-ctf-patterns-20252026)
 - [Subdomain Takeover](#subdomain-takeover)
 - [File Upload to RCE](#file-upload-to-rce)
 - [Multi-Stage Chain Patterns](#multi-stage-chain-patterns)
@@ -281,6 +282,164 @@ See [node-and-prototype.md](node-and-prototype.md) for detailed exploitation.
 - Express.js `%2F` middleware bypass, IDOR on WIP endpoints, git history credential leakage
 - CI/CD variable theft, identity provider API takeover (bypass MFA: `not_configured_action: skip`)
 - SAML SSO automation, Guacamole parameter extraction, login page poisoning, TeamCity REST API RCE
+
+## Modern Web CTF Patterns (2025/2026)
+
+These are the modern web patterns that keep appearing in recent CTFs and are easy to miss if you only rely on older notes.
+
+### OAuth/OIDC email canonicalization and subaddressing
+
+Common mistake: the app accepts `alice+debug@example.com` as a different login identity, but the downstream identity provider or database treats it as the same account after normalization.
+
+**What to look for:**
+- `email` compared with `lower()`, `trim()`, or `replace("+", "")`
+- flows that ignore `preferred_username`, `sub`, or `oid`
+- provider-specific canonicalization such as Gmail-style plus aliases
+
+**Quick test:**
+```bash
+alice@example.com
+alice+ctf@example.com
+ALICE+ctf@example.com
+alice%2Bctf@example.com
+```
+
+**Exploit pattern:** create a second alias, trigger password reset or login, then verify whether the app authenticates by the raw email string instead of the immutable subject claim.
+
+**Check:** compare `email`, `sub`, `oid`, `preferred_username`, and `azp`/`aud` claims; verify whether the server logs both raw and canonicalized values.
+
+### WebAuthn challenge fixation and replay
+
+Modern apps often validate the presence of a `challenge` but never bind it to the current session, origin, or registration request.
+
+**Pattern:** server stores a challenge in session, then accepts a previously observed challenge from another flow if the cryptographic signature is valid. The frontend may also allow cookie/session swap after `navigator.credentials.get()`.
+
+**Checks:**
+- `rpId` and `origin` must match the current page
+- challenge should be nonce-bound and single-use
+- `userHandle` or `allowCredentials` should not be accepted across sessions
+
+### Browser origin confusion via `window.open`, `postMessage`, and `opener`
+
+Recent CTFs often exploit apps that trust a child window without enforcing strict origin checks.
+
+```javascript
+const w = window.open('/oauth', '_blank');
+window.addEventListener('message', e => {
+  if (e.data.token) localStorage.setItem('token', e.data.token);
+});
+```
+
+**Pattern:** if the app accepts `e.data` without verifying `event.origin` and `event.source`, a malicious popup can forge a token and set it in local/session storage. Use `noopener`, `noreferrer`, and `opener = null` where appropriate.
+
+**Checklist:** verify `event.origin === expectedOrigin`, bind cryptographic nonce/challenge to the specific flow, and prefer PKCE over raw token fragments in URL hashes.
+
+### LLM / AI tool-call prompt injection
+
+The dangerous case is not only the model being tricked into printing secret text, but rather being allowed to call privileged tools in the wrong context.
+
+**Red flags:**
+- tool choice is `auto` without a policy gate
+- tool descriptions expose secrets or internal metadata
+- untrusted docs are inserted into the model context without sanitization
+
+**Mitigation:** verify tool calls in a policy layer, require allowlisted arguments, and force explicit user confirmation for sensitive actions.
+
+### SSRF parser confusion with hostname normalization
+
+Classic SSRF stays effective, but many modern tooling stacks disagree on the authority or host normalization.
+
+```text
+http://localhost@127.0.0.1
+http://127.0.0.1.nip.io
+http://127.0.0.1.xip.io
+http://0
+http://0x7f.0.0.1
+http://[::1]
+http://localhost.localdomain
+```
+
+**Why it matters:** `urllib.parse`, `curl`, Node's `URL`, and backend frameworks may disagree on whether the host is `localhost`, `127.0.0.1`, or a loopback alias. WAFs often block the obvious IP but allow a hostname that resolves to the local service.
+
+### GraphQL aliasing and nested-query confusion
+
+GraphQL is not magic: the bug usually comes from alias collisions, nested query merging, or missing auth binding after a mutated operation is built.
+
+**Red flags:**
+- `alias` names collide with existing fields
+- batched queries share one auth context but not one policy scope
+- custom directives or dynamic fields are mixed into the same payload
+
+**Quick proof:** use `alias` and nested fields to duplicate the same object under different names and see whether a single request gives the app more data than expected.
+
+### OAuth/OIDC `redirect_uri` and `state` reuse
+
+A lot of recent SSO challenges are really callback confusion bugs.
+
+**Typical failure:** `state` or `nonce` is present but not bound to a specific `client_id`, browser session, or `redirect_uri`; the backend accepts the callback across different tenants or subdomains.
+
+**Checklist:** validate exact matching for `client_id`, `redirect_uri`, `state`, and `nonce`; reject reused state values; enforce exact host/path checks rather than suffix/prefix checks.
+
+### WebSocket and SSE auth confusion
+
+Apps sometimes validate auth during handshake but never re-check the session on each message.
+
+**Pattern:** after role change or logout, the WS/SSE stream still accepts old tokens or unverified event payloads. Use `curl -N` and raw socket clients to verify whether the server revalidates session state across the stream.
+
+### Cookie boundary issues: SameSite, partitioning, and cross-subdomain leakage
+
+A lot of web challenges hide a basic trust-boundary bug behind cookie policy details.
+
+**Checks:**
+- `Set-Cookie` missing `SameSite` or using too-broad `Domain=`
+- sibling subdomains sharing auth cookies unexpectedly
+- user-controlled pages on the parent domain reading cookies meant for another app
+
+### Cache poisoning via ETag, Range, and `Vary`
+
+The cache layer is often a hidden trust boundary.
+
+**Patterns:** responses vary by headers but the server does not include them in `Vary`; a stale cached response is served after a crafted `If-None-Match` or partial `Range` request; CDN strips or rewrites `Host` or `X-Forwarded-Host` inconsistently.
+
+### Blob / File / data: URL exfiltration and renderer confusion
+
+The browser can pull active content from `blob:`, `data:`, and `file:` URLs, and many apps wrongly trust those contexts.
+
+**Checklist:** inspect `blob:` and `data:` flows in iframes, workers, and nested windows; look for `URL.createObjectURL` flows or same-origin handlers that do not enforce strict `origin`/`source` checks; verify whether a user-controlled MIME type flips text into active script.
+
+### SSRF + internal service pivot via localhost and metadata endpoints
+
+Modern CTF tasks frequently combine SSRF with local service discovery.
+
+```text
+http://169.254.169.254/
+http://metadata.google.internal/
+http://localhost:3000/
+http://host.docker.internal/
+http://127.0.0.1:2375/
+http://127.0.0.1:9200/
+http://127.0.0.1:6379/
+```
+
+**Why it matters:** many challenge apps expose internal admin services or debugging ports on loopback; metadata endpoints often leak instance metadata or another stage of the exploit.
+
+### Next.js / React edge rendering and RSC trust boundary mistakes
+
+Framework bugs are often just a new wrapper around the old problem: passing user-controlled state into a trusted server-render path.
+
+**Signs:** server components or flight data are serialized into the client; request headers or cookies are used as props without sanitization; route params are reflected into trusted HTML or component trees.
+
+**Quick tests:** inspect `RSC`/`Flight` headers, request cookies in server-rendered routes, and whether the app trusts a custom response generated on the server without verifying origin or auth policy.
+
+### Open redirect, login poisoning, and callback confusion with multi-tenant SSO
+
+Not every auth bug is JWT forgery. Many are just callback path confusion.
+
+**Pattern:** login page accepts an attacker-controlled redirect target, then uses the redirected user context to resolve the authenticated account; or the app compares only a suffix/prefix of the redirect URL instead of the full canonical value.
+
+**Checklist:** compare callback parameters, not just redirect URLs; check whether the backend binds callback state to a specific tenant or user before trust; test wildcard subdomains and multi-tenant hostnames.
+
+---
 
 ## Apache CVE-2012-0053 HttpOnly Cookie Leak
 

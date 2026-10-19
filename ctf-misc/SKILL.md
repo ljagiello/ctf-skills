@@ -38,6 +38,7 @@ brew install ffmpeg qrencode
 - [bashjails.md](bashjails.md) - Bash jail/restricted shell escape techniques, HISTFILE file read trick, bash -v verbose mode, ctypes.sh direct C library calls
 - [encodings.md](encodings.md) - Encodings, QR codes, esolangs, UTF-16 tricks, BCD encoding, multi-layer auto-decoding, indexed directory QR reassembly, multi-stage URL encoding chains
 - [encodings-advanced.md](encodings-advanced.md) - Verilog/HDL, Gray code cyclic encoding, RTF custom tag extraction, SMS PDU decoding, multi-encoding sequential solvers, UTF-9, pixel binary encoding, hexadecimal Sudoku + QR assembly, TOPKEK, MaxiCode
+- [audio.md](audio.md) - Audio steganography and signal analysis: Morse code extraction from audio channels with auto-detection, spectrogram analysis, SSTV decoding, amplitude envelope timing classification
 - [rf-sdr.md](rf-sdr.md) - RF/SDR/IQ signal processing (QAM-16, carrier recovery, timing sync)
 - [dns.md](dns.md) - DNS exploitation (ECS spoofing, NSEC walking, IXFR, rebinding, tunneling)
 - [games-and-vms.md](games-and-vms.md) - WASM patching, Roblox place file reversing, PyInstaller, marshal analysis, Python env RCE, Z3 (including boolean logic gate network SAT solving), K8s RBAC, floating-point precision exploitation, custom assembly language sandbox escape via Python MRO chain
@@ -172,9 +173,24 @@ See [encodings.md](encodings.md) for QR structure, repair techniques, chunk reas
 ## Audio Challenges
 
 ```bash
-sox audio.wav -n spectrogram  # Visual data
-qsstv                          # SSTV decoder
+# Spectrogram (hidden text/images in frequency domain)
+sox audio.wav -n spectrogram -o spec.png
+sox audio.wav -n spectrogram -o spec.png -x 2048 -y 1025  # higher resolution
+
+# Channel inspection (identify stereo vs mono, sample rate, bit depth)
+python3 -c "import wave; w=wave.open('audio.wav'); print(f'channels={w.getnchannels()}, rate={w.getframerate()}, width={w.getsampwidth()}')"
+
+# SSTV (Slow Scan TV decoder)
+qsstv                          # GUI - play audio + use pulseaudio loopback
 ```
+
+**Morse code extraction:** WAV file with Morse beeps hidden on one audio channel. Separate stereo interleaved channels (L=even idx, R=odd idx), auto-detect the Morse channel by peak-to-mean envelope ratio (beep channel = high ratio from alternating loud/silent), compute RMS envelope (50ms window), threshold to segment beeps, classify by duration: dots (~100–150ms) vs dashes (~250–350ms), then use gap timing (short gaps = intra-character, long gaps = inter-character) to group into Morse characters. Full auto-detection extraction script in [audio.md](audio.md#morse-code-in-audio-channel).
+
+**DTMF (phone keypad tones):** Dual-tone multi-frequency signaling decodes to digits, then map to letters via multi-tap keypad. See [encodings-advanced.md](encodings-advanced.md#dtmf-audio-with-multi-tap-phone-keypad-decoding-h4ckc0n-2017).
+
+**Music note steganography:** Note pairs encode nibbles via scale-degree mapping. See [encodings-advanced.md](encodings-advanced.md#music-note-interval-steganography-defcamp-2017).
+
+See [audio.md](audio.md) for full audio analysis techniques.
 
 ## RF / SDR / IQ Signal Processing
 

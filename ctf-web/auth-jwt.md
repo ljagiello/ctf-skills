@@ -14,6 +14,44 @@
 
 For general auth bypass, access control, and session attacks, see [auth-and-access.md](auth-and-access.md). For OAuth/OIDC, SAML, CI/CD credential theft, and infrastructure auth attacks, see [auth-infra.md](auth-infra.md).
 
+## Modern JWT/JWE Additions (2025/2026)
+
+### JWE public-key forgery when the public key is exposed
+
+If the application encrypts sensitive claims with JWE and exposes the public key (for example via JWKS, `/api/key`, or a static config file), an attacker can encrypt arbitrary claims with the public key and submit them to the server. If the server decrypts and trusts those claims without additional validation, the app effectively accepts attacker-signed or attacker-encrypted state.
+
+**Quick detection:** look for 5-part compact JWE values (`header.encrypted_key.iv.ciphertext.tag`) and public key endpoints in `.well-known`, metadata pages, config files, or app diagnostics.
+
+**Exploit pattern:**
+1. fetch the server's public key
+2. encrypt a forged JSON payload with `RSA-OAEP-*` / `A256GCM`
+3. send the token as cookie/header
+4. verify the server decrypts and trusts the forged claims
+
+### JWT claim confusion: identity vs authorization claims
+
+A common modern bug is trusting `email`, `username`, or `role` from the token after the server has already established an authenticated session or identity context. The app may compare token claims against the database but never rebind them to the actual user record.
+
+**Checks:**
+- compare `sub`, `oid`, `email`, `role`, and `scope`
+- ensure `sub` is immutable and not user-controlled
+- verify that the server re-checks the DB or IdP before granting elevated permissions
+
+### JWT replay and stale session acceptance
+
+When a challenge allows JWT replay, the old token can be reused after a password reset, MFA change, or admin demotion. This is often a state machine bug rather than a crypto bug.
+
+**Priority checks:** reissue token on password change, invalidate previous tokens, and require short-lived access tokens with server-side revocation or refresh-token rotation.
+
+### KID/JKU/JWK confusion with URL fetches
+
+A modern variant of JWT forgery is to make the server fetch a key from a remote or local path controlled by the token. The server then trusts the fetched key to verify the signature. If the URL or path is not strictly validated, the app turns into an SSRF-to-token-forgery primitive.
+
+**Example patterns:**
+- `kid` path traversal into `/dev/null` or a predictable file
+- `jku` pointing to an attacker-controlled JWKS endpoint
+- embedded `jwk` object with attacker-generated key material
+
 ---
 
 ## Algorithm None

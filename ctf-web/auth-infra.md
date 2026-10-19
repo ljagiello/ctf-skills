@@ -18,6 +18,53 @@
 
 For JWT/JWE token attacks, see [auth-jwt.md](auth-jwt.md). For general auth bypass and access control, see [auth-and-access.md](auth-and-access.md).
 
+## Modern OAuth/OIDC & Infra Additions (2025/2026)
+
+### OAuth email canonicalization and alias confusion
+
+The app may treat `alice+debug@example.com` as a separate identity while the provider normalizes it to the same account. This is especially common with Gmail and other providers that transform plus-addressing or case-folded addresses.
+
+**Check:**
+- compare raw tokens and server-side user records
+- ensure `sub`/`oid` is the canonical identity, not email text
+- test multiple aliases before trusting `email` as the unique identifier
+
+### `redirect_uri` exact-match bypasses
+
+A surprising number of SSO bugs are caused by weak redirect validation rather than improper token signing. A common bypass is accepting a callback that differs only by hostname, path normalization, or a subdomain suffix.
+
+**Typical payloads:**
+- `https://target.com/callback/../evil.com`
+- `https://target.com.evil.com`
+- double-encoded host components
+- path traversal or percent-encoded backslash tricks
+
+**Best practice:** compare the canonicalized redirect URL against an exact allowlist of origin/path pairs, not a prefix or suffix check.
+
+### State and nonce reuse across tenants
+
+If a backend accepts `state` or `nonce` without tying it to a specific `client_id`, browser session, or login challenge, then an attacker can replay one session's SSO callback in another request context.
+
+**Look for:**
+- callback accepted even when `client_id` differs
+- same `state` value reused across multiple login attempts
+- `nonce` present but not bound to a specific session or redirect URI
+
+### IdP API takeover via service-account tokens
+
+A service account or admin token used by the identity provider may be stored in CI/CD variables, application configs, or backup files. If reachable, it can be used to modify user registration, password resets, MFA state, and even SAML assertion generation.
+
+**Quick checks:**
+- inspect CI/CD variables, Git history, and config files for OIDC/IdP credentials
+- enumerate admin APIs for user management and password reset endpoints
+- see whether MFA has `not_configured_action: skip`
+
+### SAML and OIDC callback poisoning
+
+The callback may be missing or ignoring `RelayState`, `session_state`, or `state` on the final redirect. This lets the attacker chain a valid login response into a different user or tenant context.
+
+**Defensive guidance:** bind all callback parameters to the original request and compare them exactly before issuing a session.
+
 ---
 
 ## OAuth/OIDC Exploitation
