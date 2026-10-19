@@ -31,7 +31,7 @@ proof-of-concept: no
 
 A custom TFTP-like server (x86-64, Full RELRO, Canary, NX, PIE) running over UDP, using msgpack for packet serialization. The server allocates a UDP port per connection, parses msgpack arrays as commands (RRQ=1, WRQ=2, DATA=3, ACK=4, ERR=5, OACK=6), and supports file read/write with CRC32 verification and block size negotiation. A seccomp sandbox restricts syscalls to file I/O, networking (socket/sendto/recvfrom/bind), memory management (mmap/mprotect/brk), and select. The main loop runs under a `SIGALRM` timer (~60s); when it fires, `select()` fails and `main()` returns.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only

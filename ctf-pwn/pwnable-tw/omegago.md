@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A simplified Go game (19x19 board) binary (x86-64, No PIE, Partial RELRO, NX, No Canary) linked against glibc 2.23. The player plays black stones (`X`) against an AI opponent (`O`). The game supports commands: coordinate moves (e.g. `D19`), `regret` (undo last move pair), and `surrender`. The board state is stored as a 2-bit-per-cell bitmap in BSS, and a **history array** records pointers to heap-allocated board snapshots for each move.
 
-```
+```bash
 file ./omegago
   ELF 64-bit LSB executable, x86-64, dynamically linked, stripped
 
@@ -74,7 +74,7 @@ The player's coordinate input is read via `scanf("%10s", g_input)` into a fixed 
 
 **Root Cause:** The history array at `g_history` (~0x609460) has space for 364 pointers, but the code never checks the index against this limit. By exploiting Go's **ko rule** (repeated capture cycles), a player can generate far more than 182 move pairs in a single game, causing the history pointer writes to overflow past the array into the adjacent **`g_cur_state` board bitmap**.
 
-```
+```text
 BSS layout:
   0x609460: g_history[0..363]    (364 × 8 = 0xB60 bytes)
   0x609FC0: g_cur_state          (board bitmap, 12 qwords)
@@ -90,7 +90,7 @@ When `history_count > 364`, new history entries overwrite `g_cur_state.bitmap[0]
 
 **Root Cause:** The `regret` command undoes the last move by loading the board from `g_history[last]`. If the history has overflowed and `g_history[last]` now points to an attacker-controlled address (via V1), `regret` loads arbitrary heap/memory contents into the displayed board.
 
-```
+```python
 regret flow:
   1. Remove last 2 history entries
   2. Copy board from g_history[new_last] into g_cur_state

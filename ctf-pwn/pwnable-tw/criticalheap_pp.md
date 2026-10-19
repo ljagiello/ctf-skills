@@ -31,7 +31,7 @@ proof-of-concept: no
 
 A heap management program (x86-64, **Full RELRO**, Canary, NX, **no PIE** base `0x400000`) linked against glibc 2.23. It maintains up to 10 heap slots (in a BSS array at `0x604040`, each `0x48` bytes) with three types: Normal, Clock, and System. The binary contains **no explicit `free()` calls** — all heap frees happen indirectly through libc internals (`setenv`/`realloc`, `localtime`/`tzset`, `realpath`).
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only
@@ -224,7 +224,7 @@ heap_slots     = 0x604040
 ## Post-Shell: Getting the Real Flag
 
 The shell runs as `uid=1000`. The real flag is owned by `uid=1001` with mode `400`:
-```
+```text
 -r-------- 1 1001 1001   43 .You_found_the_fl4g
 -r-sr-xr-x 1 1001 1001 9232 get_flag          # setuid 1001
 ```

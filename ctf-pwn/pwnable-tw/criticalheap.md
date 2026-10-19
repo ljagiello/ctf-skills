@@ -31,7 +31,7 @@ proof-of-concept: no
 
 A heap management program (x86-64, Full RELRO, Canary, NX, **No PIE**, FORTIFY) built against glibc 2.23. It maintains up to 10 entries in a global BSS array (`0x604040`), each 0x48 bytes, in three types: Normal (content + format string), Clock (`localtime()`), and System (`setenv`/`unsetenv`/`getenv`/`realpath`). Menu: `1.Create / 2.Show / 3.Rename / 4.Play / 5.Delete / 6.Exit`.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only at runtime

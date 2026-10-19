@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A seccomp BPF rule editor/emulator (x86-64, PIE, Full RELRO, NX, Stack Canary) built against glibc 2.23. The program lets users create custom BPF (Berkeley Packet Filter) seccomp rules, disassemble them, emulate them, and install them into the kernel. It loads example rules from files via `fopen`/`fread` and validates that rules "allow ORW" before installing them. After loading an example, the `FILE *stream` pointer is stored in BSS and later `fclose`'d.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT not writable
@@ -44,7 +44,7 @@ checksec:
 
 **Root Cause:** The program's BPF emulator does **not** implement the `BPF_LD | BPF_LEN` instruction (opcode `0x80`). In the emulator, `A` remains 0 after this instruction. In the real Linux kernel seccomp, `BPF_LEN` loads `sizeof(struct seccomp_data)` = **64** into `A`.
 
-```
+```text
 Emulator:  BPF_LEN → A = 0  (unimplemented, A unchanged)
 Kernel:    BPF_LEN → A = 64 (sizeof(struct seccomp_data))
 ```
@@ -90,7 +90,7 @@ fclose(stream);  // → calls fake_vtable->__finish(fake_FILE)
 
 **Root Cause:** BPF filters can inspect `seccomp_data` fields including `instruction_pointer` (libc code address of the syscall instruction) and syscall arguments (`args[0]`–`args[5]`, which include buffer addresses). By returning `SECCOMP_RET_ERRNO` when a specific bit is set and `SECCOMP_RET_ALLOW` otherwise, the attacker creates a side-channel oracle.
 
-```
+```c
 struct seccomp_data {
     int   nr;                  // offset 0x00: syscall number
     __u32 arch;                // offset 0x04
@@ -200,7 +200,7 @@ one_gadgets       = [0x45216, 0x4526a, 0xef6c4, 0xf0567]
 
 ## `seccomp_data` Layout (for BPF Oracle)
 
-```
+```c
 struct seccomp_data {
     0x00: int   nr;                   // syscall number
     0x04: __u32 arch;                 // AUDIT_ARCH_X86_64 = 0xC000003E

@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A minimalist heap menu binary (x86-64, Full RELRO, PIE, NX, Canary, FORTIFY) built against glibc 2.23 (no tcache). The menu provides only Allocate, Free, and Exit — **no view/print functionality**. All allocations are capped at `size <= 0x78`, restricting everything to the fastbin range. A global pointer array `ptr[16]` in `.bss` holds up to 16 allocations (slots are never reused after free).
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO         # GOT not writable

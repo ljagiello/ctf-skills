@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A 32-bit file viewer binary (i386, No PIE, Partial RELRO, NX, Stack Canary) built against glibc 2.23. The program presents a menu to open, read, print, and close files. On exit it asks for a name and calls `fclose(fp)` on a global FILE pointer. The flag file cannot be opened directly (filename filter blocks "flag").
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO        # GOT writable
@@ -40,7 +40,7 @@ checksec:
 
 ### Binary Layout (BSS)
 
-```
+```python
 0x804B080  filename[64]     — stores the filename from openfile()
 0x804B0C0  magicbuf[400]    — fread() destination buffer
 0x804B260  name[32]         — scanf("%s", name) destination on exit
@@ -190,7 +190,7 @@ All 146 solutions follow essentially the same approach with minor variations in 
 
 3. **Craft the FSOP payload:** On exit, `scanf("%s", name)` writes starting at `0x804B260`:
 
-```
+```text
 +0x00: padding (32 bytes) — fills name[32]
 +0x20: p32(fake_fp_addr)  — overwrites fp to point to fake struct
 +0x24: fake _IO_FILE_plus  — starts here (or at +0x24)

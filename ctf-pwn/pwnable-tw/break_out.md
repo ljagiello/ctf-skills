@@ -27,7 +27,7 @@ proof-of-concept: no
 
 A prison management binary (x86-64, PIE, Full RELRO, NX, Stack Canary) built against glibc 2.23 (no tcache). It loads a prisoner database from a colon-separated file, and provides commands to `list` prisoners, write a `note` for a prisoner (using `realloc`), and `punish` a prisoner (frees the note). The key defense mechanism is `secure_read()`: it parses `/proc/self/maps` at startup to build a whitelist of writable regions, and every `read()` into a note buffer is validated against this whitelist — only writes into the **[heap]** region are permitted. This means a naive heap overflow can never directly touch libc/GOT/hooks.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only

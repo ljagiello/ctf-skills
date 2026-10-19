@@ -32,7 +32,7 @@ A heap note-taking binary (x86-64, Full RELRO, NX, Stack Canary, PIE disabled) b
 
 Based on BKP CTF 2017's "memo" challenge with bug fixes and control flow modifications.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT not writable
@@ -43,7 +43,7 @@ checksec:
 
 ## Global Data Layout (BSS)
 
-```
+```text
 0x602040  num_pages         (uint32_t, max 8)
 0x602060  author[0x40]      (char, NO NUL terminator if fully filled)
 0x6020A0  page_ptrs[8]      (char *[8])
@@ -204,7 +204,7 @@ This leverages the no-PIE property for a predictable vtable address without heap
 
 When corrupting the top chunk size, it must satisfy (`sysmalloc` checks):
 
-```
+```text
 1. (old_top + old_size) must be page-aligned (0x1000)
 2. old_size > MINSIZE (0x20)
 3. old_size has PREV_INUSE bit set (LSB = 1)

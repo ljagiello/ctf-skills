@@ -30,7 +30,7 @@ proof-of-concept: no
 
 A heap-menu binary (x86-64, Full RELRO, PIE, NX, Canary, FORTIFY) linked against **glibc 2.29** (Ubuntu 2.29-0ubuntu2). The program provides only two heap slots (`heap[0]`, `heap[1]`), allocations capped at `0x78` bytes, and **no view/print functionality**. All allocation uses `realloc()` under the hood — even the "free" operation is `realloc(ptr, 0)`.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO          # GOT not writable

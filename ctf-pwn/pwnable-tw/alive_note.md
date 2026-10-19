@@ -31,7 +31,7 @@ proof-of-concept: no
 
 A 32-bit i386 note-taking binary (No PIE, Partial RELRO, Stack Canary, **NX disabled / RWX heap**). The player can add, show, and delete "names" stored in a notes array. Each name is `strdup()`'d to the heap (max 8 bytes), and its content is validated to be **alphanumeric + space only**. An upgrade from the "Death Note" challenge — same GOT overwrite via negative index, but with a much stricter character set.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO        # GOT writable
@@ -60,13 +60,13 @@ free(notes[idx]);               // negative idx → free arbitrary GOT entry's v
 
 **Key offsets:**
 
-```
+```text
 notes[]   @ 0x0804a080   (11 slots, index 0..10)
 free@GOT  @ 0x0804a014
 atoi@GOT  @ 0x0804a034
 ```
 
-```
+```text
 index_free = (0x0804a014 - 0x0804a080) / 4 = -27
 index_atoi = (0x0804a034 - 0x0804a080) / 4 = -19
 ```
@@ -99,7 +99,7 @@ Each `strdup()` copies at most 8 bytes (7 useful + NUL terminator). With the hea
 
 Each note allocation via `strdup()` creates a `0x10`-byte chunk:
 
-```
+```text
 +0x00: prev_size (4 bytes)
 +0x04: size = 0x11 (4 bytes, includes PREV_INUSE bit)
 +0x08: user data (up to 8 bytes of alphanumeric shellcode)
@@ -111,7 +111,7 @@ Consecutive chunks are at `base + N*0x10`. The 8-byte chunk header between notes
 
 Each 8-byte note holds ~6 bytes of useful shellcode + a 2-byte conditional jump to reach the next note:
 
-```
+```text
 [6 bytes shellcode] [jne/jno/jae +0x38]
 ```
 

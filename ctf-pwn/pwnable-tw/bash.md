@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A restricted-environment challenge. The player is dropped into an interactive bash 4.3.0 shell running as the low-privilege `bash` user. The flag at `/flag` is root-owned (`chmod 400`), but a root-owned xinetd service on `127.0.0.1:1337` will `cat /flag` when connected. The goal is to make a TCP connection to `localhost:1337` from within the restricted shell.
 
-```
+```python
 Deployment (from Dockerfile):
   Base:       ubuntu:16.04
   Shell:      bash 4.3.0 (custom binary, --noprofile --norc -i)

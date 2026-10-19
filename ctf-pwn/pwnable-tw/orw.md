@@ -28,7 +28,7 @@ proof-of-concept: no
 
 A minimal i386 shellcode challenge. The binary reads up to 0xc8 (200) bytes of user input into a fixed BSS buffer at `0x804a060`, then jumps to it. Before execution, a seccomp BPF filter is installed via `prctl` that restricts syscalls to only `open`, `read`, `write` (plus `exit`, `exit_group`, `sigreturn`, `rt_sigreturn`). The goal is to read `/home/orw/flag` using only those three syscalls.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO
@@ -57,7 +57,7 @@ checksec:
 
 ### Seccomp Filter (BPF rules)
 
-```
+```text
  line  CODE  JT   JF      K
 =================================
  0000: 0x20 0x00 0x00 0x00000004  A = arch
@@ -250,7 +250,7 @@ shellcode = shellcraft.cat2("/home/orw/flag")
 
 The path must be pushed onto the stack as 32-bit dwords in reverse order, with padding for 4-byte alignment:
 
-```
+```asm
 "/home/orw/flag\x00" (15 bytes) → pad to 16 with extra '/'
 
 "///home/orw/flag\x00" pushed as:

@@ -36,7 +36,7 @@ A stripped x86-64 binary compiled with GCC's **`-fsplit-stack`** feature, linked
 5. **Release** — returns from the current recursive call (pops back to the previous frame/segment)
 6. **Exit**
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO            # GOT not writable

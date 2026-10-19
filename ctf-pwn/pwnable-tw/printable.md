@@ -31,7 +31,7 @@ proof-of-concept: no
 
 A minimal x86-64 No-PIE binary with Full RELRO, NX, and no stack canary check. The program reads 0x80 bytes, then `printf`s the buffer as a format string — but `close(1)` is called *before* the format string executes, making the output blind. After `printf`, `exit(0)` is called — the main function never returns.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO          # GOT is read-only
@@ -64,7 +64,7 @@ Key constraints:
 
 The binary's `.bss` contains copy-relocated libc FILE pointers:
 
-```
+```text
 0x601020 : FILE *stdout   → &_IO_2_1_stdout_
 0x601030 : FILE *stdin    → &_IO_2_1_stdin_
 0x601040 : FILE *stderr   → &_IO_2_1_stderr_

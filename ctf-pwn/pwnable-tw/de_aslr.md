@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A minimal x86-64 binary with `gets()` as the sole imported function — no output functions, no `syscall` gadget, no `write`/`puts`/`printf`. Full RELRO prevents GOT overwrites. The core challenge: defeat ASLR **without any leak channel** in the binary itself.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT is read-only

@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A "Starbound" space-themed game binary (i386, No PIE, Partial RELRO, NX, No Canary) built against glibc 2.23. The player interacts through a numbered main menu (1–7) offering actions like exploring, fighting, inventory, map viewing, settings, and multiplayer. The settings menu allows changing the player's name and IP address. The main dispatcher uses `strtol` to parse the menu choice and indexes into a **function pointer table** with **no bounds check**.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO        # GOT writable
@@ -68,7 +68,7 @@ Since `eax` can be **any signed integer** (including negative), the attacker can
 
 **Key Index:** Index **-33** makes the dispatch read from `0x08058154 + (-33)*4 = 0x080580D0` — which is the **player name buffer**. Since the name is set by the user via the settings menu, this gives a call to an **attacker-controlled address**.
 
-```
+```text
 cmds[-33] = *(0x080580D0) = name[0:4]
 ```
 

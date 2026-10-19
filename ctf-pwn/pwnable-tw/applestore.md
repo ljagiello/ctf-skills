@@ -30,7 +30,7 @@ proof-of-concept: no
 
 A 32-bit Apple device store simulator (i386, Partial RELRO, NX, Stack Canary, no PIE) built against glibc 2.23. The program maintains a shopping cart as a doubly-linked list of `malloc`'d device nodes. The user can list devices, add/remove items, view the cart, and checkout. When the cart total reaches exactly `$7174`, a special "iPhone 8" item is added — but its node lives **on the stack**, not the heap.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO        # GOT writable
@@ -125,7 +125,7 @@ delete('27' + p32(name) + p32(price) + p32(next_val) + p32(prev_val))
 
 **Root Cause:** `my_read(buf, 0x15)` reads exactly 21 bytes. The buffer starts at `ebp-0x22`. The iPhone 8 node's `name` field starts at `ebp-0x20` (just 2 bytes into the buffer). This means any input longer than 2 bytes directly overwrites the node structure.
 
-```
+```text
 Stack layout in handler/cart/delete:
   ebp-0x22: buf[0]  buf[1]  ← "y\x00" or "27"
   ebp-0x20: name[0] name[1] name[2] name[3]   ← node->name (4 bytes)

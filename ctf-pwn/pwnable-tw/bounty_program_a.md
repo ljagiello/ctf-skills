@@ -31,7 +31,7 @@ A bug bounty platform binary (x86-64, PIE, Full RELRO, NX, Stack Canary) built a
 
 The program features a user system (linked list), product/type/report management with complex heap interactions, and an evaluation flow that links reports to users. All string fields use `calloc`/`strdup`/`strtok` internally.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only

@@ -30,7 +30,7 @@ A 32-bit Linux binary that reads user input with `scanf("%s")` into a fixed RWX 
 
 The core challenge: write **alphanumeric shellcode that is simultaneously a valid chemical formula**.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO
@@ -41,7 +41,7 @@ checksec:
 
 ### Register State at `call eax`
 
-```
+```text
 EAX = 0x324F6E4D  (buffer address, also shellcode entry point)
 EBX = 0x00000000
 ECX = 0x00000000  (or ptr to element table, varies by libc)
@@ -161,7 +161,7 @@ int 0x80
 ```
 
 **Example minimal formula (solution 1155):**
-```
+```text
 PYKSXe4N410AcISXe420AcCCCCSXeKKKBBBBBBAu9
 ```
 

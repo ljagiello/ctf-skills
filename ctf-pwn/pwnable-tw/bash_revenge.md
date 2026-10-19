@@ -32,7 +32,7 @@ proof-of-concept: no
 
 You connect to a `chroot`-jailed bash 4.3.0(2) shell on x86-64. The jail contains **only bash and its libraries** — no `cat`, `ls`, `id`, or any other binary. The flag is at `/flag`, root-owned and outside the chroot. A separate root xinetd service on `127.0.0.1:1337` serves the flag via `/bin/cat /flag`. Bash is built **without `/dev/tcp` support**, so the only way to get the flag is to gain **arbitrary code execution** inside bash and use raw `socket()`/`connect()` syscalls to reach the loopback flag service.
 
-```
+```text
 bin/bash:
   Arch:     amd64-64-little
   RELRO:    Partial RELRO        # GOT writable
@@ -94,7 +94,7 @@ free(pushd_directory_list[i]);   // line 384 — OOB index
 
 If `pushd` was never called, `pushd_directory_list == NULL`, so:
 
-```
+```text
 popd +-N  →  free( *(void**)(8 * N) )
 ```
 

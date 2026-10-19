@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A classic heap-note management binary (i386, No PIE, Partial RELRO, NX, Stack Canary) built against glibc 2.23 (32-bit). The program provides four operations: Add Note, Delete Note, Print Note, and Exit. Each note consists of a **metadata struct** (with a function pointer) and a separate **content buffer**, both heap-allocated.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO        # GOT writable
@@ -137,7 +137,7 @@ add(16, "B"*16)   # note[1]: metadata=malloc(8), content=malloc(16)
 ```
 
 2. **Free both notes.** The fastbin freelist for the 0x10 bin (8-byte usable) now contains:
-```
+```text
 fastbin[0x10]: note1_meta → note0_meta → note1_content → note0_content
 ```
 (Exact order depends on content size; with size 16, content goes to a different bin.)

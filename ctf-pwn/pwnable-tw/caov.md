@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A C++ key-value database program (x86-64, Full RELRO, NX, No PIE, No Canary) compiled with g++ against glibc 2.23. The program manages a single `Data` object on the heap via a global pointer `D`. Users can set a name (stored in a 160-byte BSS buffer), create a key-value pair, and edit it up to 10 times. The name is "CAOV" — **Copy Assignment Operator Vulnerability**.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT not writable

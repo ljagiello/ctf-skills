@@ -32,7 +32,7 @@ A statically linked i386 binary with a trivial stack buffer overflow — but wit
 
 The flag is not directly `cat`-able: `/home/flag/I_am_fl4g` is owned by user `flag`, and a setuid helper `/home/flag/get_flag` must be invoked interactively (`echo ./I_am_fl4g | ./get_flag`).
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO
@@ -64,7 +64,7 @@ ret                        ; hijacked return address
 
 **Layout:**
 
-```
+```text
 [ebp-8]  buf (8 bytes)
 [ebp]    saved EBP (4 bytes)  ← 12 bytes padding total
 [ebp+4]  saved EIP            ← overflow target

@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A treap (tree-heap) based key-value store binary (x86-64, Full RELRO, PIE, NX, Stack Canary) running on **Ubuntu 17.04 with glibc 2.24** — the first glibc version to introduce `_IO_vtable_check`, and notably **without tcache**. A **seccomp** sandbox blocks `execve` and restricts `read` to `count <= 0x1337`, `mmap` to non-executable pages. No `free` is implemented. The flag must be read via ORW (open/read/write).
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only
@@ -143,13 +143,10 @@ glibc 2.24's `_IO_vtable_check` allows vtables within the `__libc_IO_vtables` se
 
 **Steps:**
 
-1-3. Same as Path A (null write, leak, extend `_IO_buf_end`).
-4. **Forge stdout**: Overwrite `_IO_2_1_stdout_` with a crafted FILE:
-   - `vtable = _IO_str_jumps - 0x20` (offset so `__xsputn` slot maps to `_IO_str_overflow`)
-   - `_IO_buf_end = (target_rdi - 100) / 2` (controls the `new_size` argument)
-   - `fp->_s._allocate_buffer = setcontext+53` (at `fp+0xe0`)
-5. **Trigger**: The `'E'` byte in the payload triggers `Exit` → `puts("Goodbye")` → `__xsputn` on stdout → `_IO_str_overflow` → `call [fp+0xe0]` = `setcontext+53`.
-6. `setcontext` pivots stack to ORW ROP chain.
+1. Same as Path A (null write, leak, extend `_IO_buf_end`).
+2. **Forge stdout**: Overwrite `_IO_2_1_stdout_` with a crafted FILE — set `vtable = _IO_str_jumps - 0x20` (so the `__xsputn` slot maps to `_IO_str_overflow`), `_IO_buf_end = (target_rdi - 100) / 2` (controls the `new_size` argument), and `fp->_s._allocate_buffer = setcontext+53` (at `fp+0xe0`).
+3. **Trigger**: The `'E'` byte in the payload triggers `Exit` → `puts("Goodbye")` → `__xsputn` on stdout → `_IO_str_overflow` → `call [fp+0xe0]` = `setcontext+53`.
+4. `setcontext` pivots stack to ORW ROP chain.
 
 ---
 

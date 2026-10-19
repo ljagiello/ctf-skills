@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A heap menu binary (x86-64, Full RELRO, PIE, NX, Canary) built against glibc 2.23. The player can add, show, and delete "secrets". Each secret metadata struct (0x30 bytes) lives in a random `mmap`'d region (seeded by `srand(time(0))`); its content buffer is `malloc`'d on the main heap. Max content size is 0x100, no edit primitive.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO         # GOT not writable

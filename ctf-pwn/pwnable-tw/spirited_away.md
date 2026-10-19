@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A 32-bit movie comment survey program (i386, no PIE, Partial RELRO, NX, Stack Canary) built against glibc 2.23. In a loop, the user is asked for name, age, reason, and comment. After each entry, they can choose to leave another comment. A global counter tracks total comments.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO        # GOT writable
@@ -78,7 +78,7 @@ void survey() {
 
 **Root Cause:** The `sprintf_buf` at `ebp-0xe8` is ~56 bytes, and the `name_comment_len` variable sits at `ebp-0xb0`. The sprintf format string `"%d comment so far. We will review them as soon as we can"` is 57+ characters. When `cnt` grows from 1 digit to 2 digits (count=10), the NUL terminator spills onto `name_comment_len`, setting it to **0**. When `cnt` reaches 3 digits (count=100), the trailing `"...can\0"` writes `'n' = 0x6e` (110) into `name_comment_len`.
 
-```
+```text
 sprintf_buf layout (cnt=100):
   ebp-0xe8: "100 comment so far. We will review them as soon as we can\0"
                                                                     ^
@@ -95,7 +95,7 @@ sprintf_buf layout (cnt=100):
 
 **Root Cause:** The `reason` buffer at `ebp-0xa8` is read with `read(0, reason, 0x50)` but never NUL-terminated. `printf("Reason: %s", reason)` prints past the 0x50 bytes into whatever follows on the stack.
 
-```
+```text
 Stack layout after reason buffer:
   ebp-0xa8: reason[0x50]
   ebp-0x58: ... (comment area / other locals)
@@ -202,7 +202,7 @@ send_choice("n")  # survey() returns → system("/bin/sh")
 
 ## Key Stack Layout
 
-```
+```text
 ebp-0xe8: sprintf_buf[0x38]       ← "%d comment so far..."
 ebp-0xb0: name_comment_len        ← overwritten by sprintf NUL/tail
 ebp-0xac: reason_len (0x50)

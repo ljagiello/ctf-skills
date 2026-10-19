@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A C++11 "programmer RPG" binary (x86-64, PIE, Full RELRO, NX, Canary) built against glibc 2.23. The player fights slimes in a rock-paper-scissors-like game to gain per-language EXP. When skill thresholds are met, the "stupid bosses" assign two projects (Trojan and Web), each containing two `Language*` slots that can be viewed and changed. The source (`stupid.cpp`) is provided.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only

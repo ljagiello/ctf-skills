@@ -110,7 +110,7 @@ grep -R "onerror" "ctf-web/payloads/PayloadsAllTheThings/XSS Injection" 2>/dev/n
 
 Or via agent tools (no clone required for the index itself):
 
-```
+```text
 Glob ctf-web/payloads/PayloadsAllTheThings/**/*.md
 Grep "union select" ctf-web/payloads/PayloadsAllTheThings
 ```

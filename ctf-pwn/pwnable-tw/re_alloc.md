@@ -27,7 +27,7 @@ proof-of-concept: no
 
 A heap menu challenge (x86-64, Partial RELRO, NX, Stack Canary, **No PIE**, FORTIFY) built against **glibc 2.29**. The program provides allocate, reallocate, and free operations on two heap slots (`heap[0]` and `heap[1]`), using `realloc()` as the core allocator. The key insight is that `realloc(ptr, 0)` is equivalent to `free(ptr)` in glibc 2.29, but the program **does not clear the pointer** from the heap table — creating a Use-After-Free.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Partial RELRO        # GOT writable
@@ -76,7 +76,7 @@ void rfree() {
 **Root Cause:** In glibc 2.29, `realloc(ptr, 0)` frees the chunk and returns `NULL`. In `reallocate()`, the return value (`NULL`) is stored back into `heap[idx]`, zeroing the slot. However, `rfree()` also calls `realloc(ptr, 0)` — the crucial difference is that `reallocate()` **can be called again on the same index** because after the free, `heap[idx] = NULL`, and a subsequent `realloc(NULL, new_size)` is equivalent to `malloc(new_size)`.
 
 The UAF arises from this sequence:
-```
+```python
 alloc(0, 0x18, "AAAA")       // heap[0] = chunk_A
 realloc(0, 0)                 // free(chunk_A), heap[0] = NULL
                               // chunk_A is now in tcache[0x20]
@@ -94,7 +94,7 @@ Since `alloc` checks `if (heap[idx])` to prevent double-allocation, but `realloc
 
 **Root Cause:** With Partial RELRO and no PIE, the GOT is at fixed known addresses. The `read_long()` function calls `atoll()` to convert user input strings to integers. By overwriting `atoll@GOT` with `printf@PLT`, every subsequent `read_long()` call becomes `printf(user_input)` — turning integer inputs into **format string attacks**.
 
-```
+```text
 Key GOT/PLT addresses (fixed, no PIE):
   atoll@GOT   = 0x404048
   printf@PLT  = 0x401070

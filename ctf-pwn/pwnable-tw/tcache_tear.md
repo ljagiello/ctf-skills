@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A simple heap note program (x86-64, No PIE, Full RELRO, NX, Canary, FORTIFY) built against **glibc 2.27** (tcache-enabled). The binary provides four operations: malloc+write, free, info (print name), and exit. The program stores a 0x20-byte "Name" in a BSS buffer at `0x602060`, then enters a menu loop with a single heap pointer tracked globally.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO            # GOT not writable
@@ -50,7 +50,7 @@ checksec:
 
 ### Key BSS Layout
 
-```
+```text
 0x602040  stdout (pointer to _IO_2_1_stdout_)
 0x602060  Name buffer (0x20 bytes, written once at start)
 0x602080  [padding]

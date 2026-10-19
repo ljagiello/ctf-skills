@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A 32-bit bubble-sort program (i386, Full RELRO, PIE, NX, Stack Canary, FORTIFY) built against glibc 2.23. It reads a name, asks how many unsigned integers to sort, reads them into a fixed-size stack buffer, bubble-sorts them, and prints the result.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Full RELRO           # GOT read-only
@@ -165,10 +165,10 @@ Since `system` and `"/bin/sh"` are both in the `0xf7xxxxxx` range and `canary` i
    - Index 34: `"/bin/sh"` address (argument to `system()`)
 
 5. **After sort, stack looks like:**
-   ```
+```text
    [0, 0, ..., 0, canary, system, system, ..., system, bin_sh]
     ^--- 24 ---^   ^24     ^--- indices 25..33 ---^     ^34
-   ```
+```
    Main returns → `system("/bin/sh")` → shell.
 
 **Reliability:** ~97% per connection (fails only when random canary > `"/bin/sh"` address, causing mis-sort).

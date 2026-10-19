@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A menu-driven "food store" game binary (x86-64, PIE, Full RELRO, NX, Stack Canary) running on Ubuntu 17.04 with glibc 2.24 (no tcache). The player manages recipes, cooks dishes, buys/sells ingredients at a shop, completes NPC assignments, and earns levels/power/money. A seccomp sandbox restricts syscalls to `open`/`read`/`write`/`close`/`mmap`/`munmap`/`exit` — no `execve`.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO            # GOT read-only

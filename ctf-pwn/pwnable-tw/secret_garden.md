@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A menu-based heap challenge binary (x86-64, Full RELRO, PIE, NX, Stack Canary) built against glibc 2.23. The program manages an array of "flower" structs on the heap — each flower has a name buffer (user-controlled size via `malloc`), a 24-byte color string, and an in-use flag. The menu provides: (1) Raise a flower, (2) Visit the garden, (3) Remove a flower, (4) Clean the garden, (5) Leave.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only

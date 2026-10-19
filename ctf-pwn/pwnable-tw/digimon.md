@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A multithreaded Digimon "game" binary (x86-64, PIE, Partial RELRO, NX, Stack Canary) built against glibc 2.23. The player navigates a 20x20 map, encounters wild digimon, battles/befriends them, manages a partner roster, runs tasks via `pthread` workers, visits a shop, and can recruit a hidden boss (Toolmon). The game parses commands from stdin using `strtok`.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Partial RELRO        # GOT writable

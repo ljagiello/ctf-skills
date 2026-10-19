@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A simple note management binary (i386, no PIE, Partial RELRO, **NX nominally enabled but heap is executable** due to missing `PT_GNU_STACK` header → `READ_IMPLIES_EXEC` on the old remote kernel). The program lets the user add, show, and delete notes stored in a global array. Input content is filtered to only allow **printable ASCII** bytes (0x20–0x7e).
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO        # GOT writable
@@ -134,7 +134,7 @@ All shellcode bytes must be in range `[0x20, 0x7e]`. This means bytes like `\xcd
 
 ### Memory Layout (BSS)
 
-```
+```text
 0x804a000  GOT start
 0x804a00c  read@got
 0x804a010  printf@got
@@ -260,7 +260,7 @@ All solutions exploit V1 (negative index GOT overwrite). They differ in which GO
 3. Jump to decoded shellcode → `execve("/bin/sh")`.
 
 **Example (msfvenom):**
-```
+```bash
 echo '\x83\xC4\x30\xC3' | msfvenom -a x86 --platform linux -p - -e x86/alpha_mixed BufferRegister=EDX
 ```
 

@@ -4,12 +4,9 @@ CTF Similar Challenge Search Script
 Uses Tavily API for search and content extraction
 """
 
-import sys
 import os
-import json
 import re
-import subprocess
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import sys
 
 # Configuration
 MAX_WORKERS = 5
@@ -94,7 +91,8 @@ def main():
         sys.exit(1)
 
     # Detect code/identifier queries (exempt from word limit):
-    # Contains code-like patterns: parens, braces, equals, colons, dots, underscores, quotes
+    # Contains code-like patterns: parens, braces, equals, colons, dots,
+    # underscores, quotes
     action = sys.argv[1]
 
     if action == "search":
@@ -105,7 +103,8 @@ def main():
         keyword = " ".join(sys.argv[2:])
         word_count = len(keyword.split())
 
-        is_code_query = bool(re.search(r'[(){}\[\]=\':"_.]|def |class |import |from |return ', keyword))
+        code_pat = r'[(){}\[\]=\':"_.]|def |class |import |from |return '
+        is_code_query = bool(re.search(code_pat, keyword))
 
         if not is_code_query and word_count > 3:
             print("=" * 60)
@@ -188,7 +187,7 @@ def main():
                 print(f"{i}. URL: {item.get('url', '')}")
                 if 'raw_content' in item:
                     content = item['raw_content'][:1000]
-                    print(f"   Content:")
+                    print("   Content:")
                     print(f"   {content}")
                 if 'images' in item and item['images']:
                     print(f"   Images: {len(item['images'])} found")

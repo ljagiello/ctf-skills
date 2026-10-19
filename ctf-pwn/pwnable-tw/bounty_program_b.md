@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A bug bounty platform binary (x86-64, Full RELRO, PIE, NX, Canary, FORTIFY) built against glibc 2.27. Users register/login, create products, submit vulnerability reports with descriptions, manage vulnerability types, and evaluate bugs. A `wrapper` binary sets one environment variable before executing the main program. This is the patched successor to "Bounty Program α" — `malloc` replaced with `calloc`, `strlen`-based password leak removed, `urandom`-based description initialization removed — but the core `strtok` UAF bug remains.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only

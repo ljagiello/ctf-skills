@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A C++ ghost management program (x86-64, PIE, Full RELRO, NX, Stack Canary) built against glibc 2.23. Source code (`ghostparty.cpp`) is provided. The player manages a `vector<Ghost*> ghostlist` of polymorphic ghost objects — 10 ghost subclasses (Werewolf, Devil, Zombie, Skull, Mummy, Dullahan, Vampire, Yuki-onna, Kasa-obake, Alan). Each has a vtable, virtual methods (`speak`, `changemsg`, `ghostinfo`, destructor), and class-specific fields (some raw `char*` pointers, some `std::string`).
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT read-only

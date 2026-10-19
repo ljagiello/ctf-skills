@@ -30,7 +30,7 @@ proof-of-concept: no
 
 A stripped x86-64 PIE binary with full protections, linked against glibc 2.23. The program implements a simple login/logout menu with a 16-byte random password read from `/dev/urandom`. The password also serves as a custom "canary" — it must remain intact for the program to `return` cleanly from `main` (checked via `memcmp` against an mmap'd backup). Two helper functions (`Login` and `Copy`) share the same stack frame location, enabling a `strcpy`-based overflow.
 
-```
+```bash
 checksec:
   Arch:     amd64-64-little
   RELRO:    Full RELRO           # GOT not writable
@@ -123,7 +123,7 @@ strncmp(buf, passwd, strlen(buf))
 
 **Root Cause:** `Login` and `Copy` share the same stack buffer location. `Login` can write up to 127 bytes into the buffer, but `Copy` only reads 63 bytes into it via `my_read`. When `Copy` then calls `strcpy(dst, buf)`, it copies from the shared buffer — but `strcpy` only stops at NUL. If `Login` previously filled bytes 63–126 with non-NUL data, `strcpy` copies **far past 63 bytes**, overflowing into `main`'s password slot, saved rbp, and return address.
 
-```
+```text
 Login fills: buf[0..126]  (127 bytes, no NUL at end if no '\n')
 Copy reads:  buf[0..62]   (63 bytes, overwrites only first 63)
 strcpy:      copies buf[0..NUL) → main's copy_dest (rbp-0x60)
@@ -228,7 +228,7 @@ This allows arbitrary ROP chains without NUL byte restrictions.
 
 ### Stack Layout — Login/Copy Shared Buffer
 
-```
+```text
              Login/Copy frame               main frame
              ┌──────────────┐          ┌──────────────────┐
 rbp-0x80     │ buf[0..126]  │          │                  │

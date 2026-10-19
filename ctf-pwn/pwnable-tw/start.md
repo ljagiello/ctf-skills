@@ -29,7 +29,7 @@ proof-of-concept: no
 
 A tiny hand-written x86-32 assembly program (67 bytes of `.text`). It prints `"Let's start the CTF:"`, reads up to 60 bytes from stdin into a 20-byte stack buffer, then returns. No libc, no protections — pure raw syscalls on a statically linked, non-stripped ELF.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    No RELRO
@@ -76,7 +76,7 @@ The entire binary is just two routines:
 
 ### Stack Layout at `read` (0x8048097)
 
-```
+```python
          ESP →  [ "Let'" ]           ← message[0:4]   (overwritten by input)
          +0x04  [ "s st" ]           ← message[4:8]
          +0x08  [ "art " ]           ← message[8:12]

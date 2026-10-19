@@ -30,7 +30,7 @@ proof-of-concept: no
 
 A statically linked, 32-bit calculator binary that evaluates arithmetic expressions. The user enters expressions like `1+2*3`, and the program prints the result. It supports `+`, `-`, `*`, `/`, and `%`. Input is read line-by-line; an empty line exits the calculator.
 
-```
+```bash
 checksec:
   Arch:     i386-32-little
   RELRO:    Partial RELRO
@@ -46,7 +46,7 @@ The binary is **not stripped** — symbols like `calc`, `parse_expr`, `eval`, `g
 
 ### `calc()` — main calculator loop
 
-```
+```asm
 calc():
   sub  esp, 0x5b8
   canary = gs:0x14             // stack canary at ebp-0xc
@@ -122,7 +122,7 @@ Sending `+361+<value>` causes eval to write `pool[360] + <value>` back to `pool[
 
 The pool is at `ebp - 0x5a0`, and the saved return address is at `ebp + 4`:
 
-```
+```text
 pool[0]   = ebp - 0x5a0          // operand count
 pool[1]   = ebp - 0x59c          // first operand
 ...
