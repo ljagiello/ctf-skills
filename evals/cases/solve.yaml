@@ -1,0 +1,45 @@
+# Solve cases for promptfooconfig.solve.yaml.
+#
+# vars:
+#   fixture      directory under evals/fixtures/ with the challenge files
+#   name, brief  what a CTF platform would show for the challenge
+#   expected     skill this fixture is meant to exercise (tracked metric)
+#   flag_sha256  sha256 of the exact flag string; the flag itself is never
+#                committed, so an agent with a shell cannot grep it out
+#
+# Adding a fixture: put the challenge files in evals/fixtures/<name>/ (no
+# flag in them), solve it yourself, then add the case with
+#   printf '%s' 'flag{...}' | shasum -a 256
+
+- description: 'crypto: rsa broadcast to three recipients'
+  metadata: { category: crypto }
+  vars:
+    fixture: crypto-broadcast
+    name: Party Line
+    brief: >-
+      The same announcement was encrypted for three different recipients.
+      Can you read it?
+    expected: ctf-crypto
+    flag_sha256: 31311828e3365309fa8f5fb4f671f8202bc1c702fe0f1f0993c0769f6195838f
+
+- description: 'misc: layered encodings with an unknown xor key'
+  metadata: { category: misc }
+  vars:
+    fixture: misc-layers
+    name: Onion Courier
+    brief: >-
+      We intercepted this blob from a covert channel. It has been wrapped
+      several times.
+    expected: ctf-misc
+    flag_sha256: 22f0c4e5041128bac7c707b8fdb1108490afd452ce850b5cd6d9ef00622a30d2
+
+- description: 'reverse: flag checker on a custom vm'
+  metadata: { category: reverse }
+  vars:
+    fixture: reverse-vm
+    name: Tiny Machine
+    brief: >-
+      The checker only says Correct! for the right flag. Figure out what it
+      wants.
+    expected: ctf-reverse
+    flag_sha256: f0e288ec27105afee15d5aaff628c32fb5fcb4c1a71333dc708246d7bfe46c60

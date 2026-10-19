@@ -1,0 +1,134 @@
+---
+name: Skill Evals
+
+# promptfoo evals that run Claude against the skills (see evals/README.md).
+# Config validation is free and runs on every relevant PR. The evals bill the
+# ANTHROPIC_API_KEY secret, so they only run on demand: manually, or on a PR
+# carrying the `run-evals` label.
+
+'on':
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - '**/SKILL.md'
+      - 'evals/**'
+      - '.github/workflows/skill-evals.yml'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Which suite to run
+        type: choice
+        options: [smoke, routing, solve, all]
+        default: routing
+      repeat:
+        description: Runs per case (raise to measure flakiness)
+        default: '1'
+
+concurrency:
+  group: skill-evals-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROMPTFOO_DISABLE_TELEMETRY: 'true'
+  PROMPTFOO_DISABLE_UPDATE: 'true'
+  PROMPTFOO_DISABLE_SHARING: 'true'
+  FORCE_COLOR: '0'
+
+jobs:
+  validate:
+    name: Validate eval configs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: evals
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: evals/package-lock.json
+
+      - name: Install promptfoo
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate configs
+        run: npm run validate
+
+  eval:
+    name: Run evals (${{ inputs.suite || 'routing' }})
+    needs: validate
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'run-evals')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SUITE: ${{ inputs.suite || 'routing' }}
+      REPEAT: ${{ inputs.repeat || '1' }}
+      # Stop before the job timeout so result files still get written.
+      PROMPTFOO_MAX_EVAL_TIME_MS: '3000000'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check for API key
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY secret is not set (fork PRs do not get secrets)."
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: evals/package-lock.json
+
+      - name: Install promptfoo
+        run: npm ci --no-audit --no-fund
+
+      # Routing is a regression gate: tolerate one flaky case in ~20.
+      - name: Routing suite
+        if: env.SUITE == 'routing' || env.SUITE == 'all'
+        env:
+          PROMPTFOO_PASS_RATE_THRESHOLD: '90'
+        run: npm run eval:routing -- --repeat "$REPEAT" --no-progress-bar --no-table
+
+      - name: Smoke suite
+        if: env.SUITE == 'smoke'
+        env:
+          PROMPTFOO_PASS_RATE_THRESHOLD: '90'
+        run: npm run eval:smoke -- --repeat "$REPEAT" --no-progress-bar --no-table
+
+      # Solve is a with/without-skills comparison, not a gate: the baseline is
+      # expected to miss some flags, so failures never fail the job.
+      - name: Solve suite
+        if: env.SUITE == 'solve' || env.SUITE == 'all'
+        env:
+          PROMPTFOO_FAILED_TEST_EXIT_CODE: '0'
+        run: npm run eval:solve -- --repeat "$REPEAT" --no-progress-bar --no-table
+
+      - name: Job summary
+        if: always()
+        run: npm run --silent summary >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: skill-eval-results
+          path: evals/out/
+          retention-days: 14

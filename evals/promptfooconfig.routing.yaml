@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Routing suite: given a realistic challenge description, does Claude load the
+# right ctf-* skill and stay away from the wrong ones? This is the real-model
+# counterpart of tests/test_skill_discoverability.py, so it catches description
+# regressions that a keyword heuristic cannot.
+#
+# Run: npm run eval:routing   (from evals/)
+description: ctf-skills routing (skill selection from challenge descriptions)
+
+extensions:
+  - file://lib/hooks.js:stageRouting
+
+prompts:
+  - id: challenge
+    label: challenge
+    raw: '{{task}}'
+
+providers:
+  - id: anthropic:claude-agent-sdk
+    label: routing
+    config:
+      model: claude-sonnet-5-5
+      # Authenticate with ANTHROPIC_API_KEY when set, otherwise with the local
+      # Claude Code login (`claude /login`).
+      apiKeyRequired: false
+      working_dir: .work/routing
+      setting_sources: ['project']
+      skills: all
+      # With working_dir set, the default toolset is Read/Grep/Glob/LS plus the
+      # Skill tool added by `skills`. No shell, no writes, no network.
+      max_turns: 12
+      max_budget_usd: 1.0
+      persist_session: false
+      append_system_prompt: >-
+        This session evaluates how you start a CTF challenge. The challenge
+        files and remote services mentioned by the user are not available
+        here, so do not search for them. Load whichever skills (if any) you
+        would rely on for this task, then reply with a short plan of at most
+        five bullet points. Do not ask clarifying questions.
+
+defaultTest:
+  options:
+    # Keep list vars (forbidden) intact instead of fanning them into tests.
+    disableVarExpansion: true
+  assert:
+    - type: skill-used
+      value: '{{expected}}'
+      metric: expected-skill
+    - type: javascript
+      value: file://lib/assertions.js:noForbiddenSkills
+      metric: no-wrong-skill
+    # Tracked, never failing: how often the right skill is loaded first rather
+    # than via the solve-challenge dispatcher.
+    - type: javascript
+      value: file://lib/assertions.js:routedDirectly
+      metric: routed-directly
+      weight: 0
+
+tests: file://cases/routing.yaml
+
+evaluateOptions:
+  maxConcurrency: 4
+  timeoutMs: 300000
