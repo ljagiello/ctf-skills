@@ -38,6 +38,44 @@
 
 For JWT/JWE token attacks, see [auth-jwt.md](auth-jwt.md). For OAuth/OIDC, SAML, CI/CD credential theft, and infrastructure auth attacks, see [auth-infra.md](auth-infra.md).
 
+## Modern Auth & Access Patterns (2025/2026)
+
+### OAuth/OIDC email canonicalization and subaddressing
+
+A common mistake is comparing `email` strings instead of immutable provider identifiers (`sub`, `oid`, `preferred_username`). The app may accept both `alice@example.com` and `alice+ctf@example.com` as separate accounts even though the identity provider canonicalizes them to the same principal.
+
+**Checks:**
+- sign up with multiple variants of the same mailbox
+- confirm which value is used during auth, password reset, and profile lookups
+- compare raw claim values against canonicalized ones
+
+**Exploit:** If the user resets a password or logs into the alias variant, the app may bind the session to the canonical identity and create an account-confusion or takeover primitive.
+
+### WebAuthn challenge fixation and replay
+
+Apps sometimes verify only the cryptographic signature without binding the challenge to the current browser session. Reusing a captured challenge across another login or registration attempt can grant access to a different account.
+
+**Checklist:**
+- bind challenge to `origin`, `rpId`, and user session
+- reject reused `challenge` values
+- verify `userHandle` and `allowCredentials` match the current flow
+
+### Same-site vs cross-site session confusion
+
+A challenge may look like a classic auth bypass but is actually a trust-boundary problem between subdomains, cookies, and SSO callbacks.
+
+**Useful probes:**
+- `document.cookie` from nested app domains
+- `Set-Cookie: Domain=.target.com` being too broad
+- requests to `app.target.com` and `admin.target.com` sharing the same login cookies
+- callback URLs that validate only a prefix or suffix rather than the exact canonical redirect
+
+### WS/SSE replay after logout or role change
+
+Some apps validate auth only on the initial socket upgrade and trust subsequent messages forever. If a user logs out or the role changes, the stream may still accept privileged actions until it is reopened.
+
+**Quick test:** connect, capture the connection token, log out, then replay a POST or WS message using the same credential. If the server still accepts it, the auth state is not being revalidated.
+
 ---
 
 ## Password/Secret Inference from Public Data
