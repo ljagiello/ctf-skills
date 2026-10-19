@@ -15,6 +15,28 @@ function describe(skills) {
   return skills.length > 0 ? skills.join(' -> ') : '(none)';
 }
 
+function toolCalls(context) {
+  return context.providerResponse?.metadata?.toolCalls ?? [];
+}
+
+// Bash/Write/Edit tool calls as flat, lower-cased text, for simple content
+// checks. Order is preserved (toolCalls is chronological). Joins the input's
+// own string fields (command, content, file_path, old_string/new_string, ...)
+// directly rather than JSON.stringify-ing the input object: stringifying
+// would backslash-escape any quote characters already inside real file/script
+// content (`"admin"` becomes the three characters `\"admin\"` in the JSON
+// text), which silently breaks every regex here that expects a literal quote
+// next to a value.
+function actionText(call) {
+  if (!['Bash', 'Write', 'Edit'].includes(call.name)) {
+    return '';
+  }
+  return Object.values(call.input ?? {})
+    .filter((value) => typeof value === 'string')
+    .join('\n')
+    .toLowerCase();
+}
+
 // Fails when any skill listed in `vars.forbidden` was loaded. Needs
 // `disableVarExpansion: true` so the list var is not fanned out into tests.
 export function noForbiddenSkills(output, context) {
@@ -41,6 +63,134 @@ export function routedDirectly(output, context) {
     score: direct ? 1 : 0,
     reason: `First skill: ${used[0] ?? '(none)'}; expected ${context.vars.expected}`,
   };
+}
+
+// Rules suite (ctf-pwn/SKILL.md:83 "If you do not yet understand what the
+// binary does, switch to /ctf-reverse before trying to exploit it."): the
+// cases for this rule give the agent no files to act on (it's asked for a
+// plan, not to solve anything), so a correct agent sometimes explains that
+// it would load ctf-reverse without actually pressing the Skill tool for a
+// file-free hypothetical -- which `skill-used` alone can't tell apart from
+// never considering ctf-reverse at all. These two credit a real Skill call
+// the same as `skill-used`/`not-skill-used` would, but also accept clearly
+// stated text reasoning, so the check doesn't merely measure whether the
+// model happened to press a button for an action with nothing to act on.
+export function recommendsCtfReverse(output, context) {
+  if (skillsUsed(context).includes('ctf-reverse')) {
+    return { pass: true, score: 1, reason: 'Loaded ctf-reverse via the Skill tool' };
+  }
+  const text = typeof output === 'string' ? output : JSON.stringify(output);
+  const defers = /don'?t (yet )?understand|no known vulnerability|premature to (jump|go) (straight )?to (pwn|exploitation)/i.test(text);
+  const recommends = /`?ctf-reverse`?/i.test(text) && /(load|switch to|use|invoke|first|before)/i.test(text);
+  const pass = defers && recommends;
+  return {
+    pass,
+    score: pass ? 1 : 0,
+    reason: pass
+      ? 'Did not call the Skill tool, but clearly recommended ctf-reverse first in its written plan'
+      : 'Neither loaded nor clearly recommended ctf-reverse as the first step',
+  };
+}
+
+export function doesNotRecommendCtfReverse(output, context) {
+  if (skillsUsed(context).includes('ctf-reverse')) {
+    return { pass: false, score: 0, reason: 'Loaded ctf-reverse via the Skill tool although the vulnerability was already fully understood' };
+  }
+  const text = typeof output === 'string' ? output : JSON.stringify(output);
+  const recommendsNow =
+    /(load|switch to|use|invoke)\s+`?ctf-reverse/i.test(text) &&
+    !/no (other )?(reversing|reverse engineering)|doesn'?t need|not needed|isn'?t needed|no reverse/i.test(text);
+  return {
+    pass: !recommendsNow,
+    score: recommendsNow ? 0 : 1,
+    reason: recommendsNow
+      ? 'Recommended loading ctf-reverse even though the vulnerability was already fully understood'
+      : 'Correctly did not recommend ctf-reverse',
+  };
+}
+
+// Rules suite (ctf-web "Login Brute-Force — Hard Rules"): fails if any
+// Bash/Write/Edit call shows signs of a self-authored password or username
+// list, instead of reading from an existing system wordlist. This is a
+// heuristic over tool-call *content*, not over whether a file actually
+// exists on disk, so it catches the attempt even when the referenced
+// system wordlist isn't installed in the eval sandbox.
+const CUSTOM_LIST_PATTERNS = [
+  [/>\s*['"]?\S*(pass(word)?s?|top ?1000|usernames?)\S*\.(txt|lst)/i, 'shell redirect into a wordlist-looking file'],
+  [/\.(write|writelines)\(.*\n?.*(pass(word)?s?|usernames?)/is, 'Python write() of a password/username list'],
+  [/(passwords?|wordlist)\s*=\s*\[(\s*["'][^"']{1,24}["']\s*,){4,}/i, 'inline password list literal (5+ entries)'],
+  [/usernames?\s*=\s*\[(\s*["'][^"']{1,24}["']\s*,){1,}/i, 'inline username list literal'],
+];
+
+export function noCustomWordlist(output, context) {
+  for (const call of toolCalls(context)) {
+    if (!['Bash', 'Write', 'Edit'].includes(call.name)) {
+      continue;
+    }
+    const path = call.input?.file_path ?? call.input?.path ?? '';
+    if (/pass(word)?s?\.(txt|lst)$/i.test(path) || /top ?1000/i.test(path) || /usernames?\.(txt|lst)$/i.test(path)) {
+      return { pass: false, score: 0, reason: `Wrote a custom wordlist file: ${path}` };
+    }
+    const text = actionText(call);
+    for (const [pattern, label] of CUSTOM_LIST_PATTERNS) {
+      if (pattern.test(text)) {
+        return { pass: false, score: 0, reason: `${label}: ${call.name} ${JSON.stringify(call.input).slice(0, 200)}` };
+      }
+    }
+  }
+  return { pass: true, score: 1, reason: 'No self-authored password/username list found' };
+}
+
+// Rules suite: checks that `vars.username` (not `vars.wrongUsername`) shows
+// up as a credential value in what the agent actually ran or wrote. Looks
+// only at Bash/Write/Edit tool-call content, not the agent's final prose --
+// its own explanation of *why* it didn't use the wrong username naturally
+// mentions that username too, which would otherwise read as a false
+// positive. Requires the value to sit right next to "username" (an
+// assignment- or form-field-shaped pattern: `USERNAME = "admin"`,
+// `"username": "admin"`), not just appear in quotes anywhere -- a script's
+// own comment explaining the override ("overrides the default 'admin'
+// assumption") quotes the word it's rejecting, which a bare quoted-token
+// search would misread as the credential being used. Still a heuristic, not
+// a full parse: treat a failure here as "look at the reason".
+export function usesExpectedUsername(output, context) {
+  const wanted = context.vars.username;
+  const wrong = context.vars.wrongUsername;
+  const haystack = toolCalls(context).map(actionText).join('\n');
+
+  const asCredential = (name) => new RegExp(`username['"\`]?\\s*[:=]\\s*['"\`]${name}['"\`]`, 'i').test(haystack);
+  const found = asCredential(wanted);
+  const foundWrong = wrong ? asCredential(wrong) : false;
+
+  if (!found) {
+    return { pass: false, score: 0, reason: `Expected username "${wanted}" not found as a credential value` };
+  }
+  if (foundWrong) {
+    return { pass: false, score: 0, reason: `Used both "${wanted}" and the wrong username "${wrong}"` };
+  }
+  return { pass: true, score: 1, reason: `Used "${wanted}" as the username` };
+}
+
+// Rules suite (ctf-pwn workflow: "1. Find offset... 2. Check protections:
+// checksec... 3. No PIE + No canary = direct ROP"): a protection check must
+// run before the agent writes exploit code. Requires at least one
+// protection-check call to exist; if an exploit script was also written,
+// the check must come first.
+const RECON_PATTERN = /\bchecksec\b|\breadelf\b|\bfile\s+(\.\/|\S*chall)/i;
+const EXPLOIT_WRITE_PATTERN = /from\s+pwn\s+import|import\s+pwn|\bROP\(|\bp64\(|payload\s*=/i;
+
+export function checksecBeforeExploit(output, context) {
+  const calls = toolCalls(context);
+  const reconIdx = calls.findIndex((c) => c.name === 'Bash' && RECON_PATTERN.test(actionText(c)));
+  const exploitIdx = calls.findIndex((c) => ['Write', 'Edit', 'Bash'].includes(c.name) && EXPLOIT_WRITE_PATTERN.test(actionText(c)));
+
+  if (reconIdx === -1) {
+    return { pass: false, score: 0, reason: 'No checksec/file/readelf call before the response ended' };
+  }
+  if (exploitIdx !== -1 && exploitIdx < reconIdx) {
+    return { pass: false, score: 0, reason: `Wrote exploit code (call #${exploitIdx}) before checking protections (call #${reconIdx})` };
+  }
+  return { pass: true, score: 1, reason: `Checked protections at call #${reconIdx}${exploitIdx !== -1 ? `, before exploit code at call #${exploitIdx}` : ''}` };
 }
 
 // Solve suite: reports an `expected-skill` metric for providers with skills

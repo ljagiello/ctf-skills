@@ -6,6 +6,8 @@
 //   .work/routing/.claude/skills/<skill>/...          every skill, no challenge files
 //   .work/skills/<fixture>/{challenge files, .claude/skills/<skill>/...}
 //   .work/baseline/<fixture>/{challenge files}         same files, no skills
+//   .work/rules/text/.claude/skills/<skill>/...        every skill, no challenge files
+//   .work/rules/<fixture>/{challenge files, .claude/skills/<skill>/...}
 //
 // Skills live under .claude/skills/ because that is where `npx skills add`
 // installs them and what the Claude Agent SDK discovers with
@@ -24,6 +26,7 @@ const EVALS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const REPO_ROOT = path.resolve(EVALS_DIR, '..');
 const WORK_DIR = path.join(EVALS_DIR, '.work');
 const FIXTURES_DIR = path.join(EVALS_DIR, 'fixtures');
+const RULE_FIXTURES_DIR = path.join(FIXTURES_DIR, 'rules');
 
 // Top-level directories that hold a SKILL.md are skills (same rule as tests/).
 function discoverSkills() {
@@ -89,4 +92,32 @@ export function stageSolve(hookName) {
     installSkills(path.join(WORK_DIR, 'skills', fixture), skills);
   }
   log(`staged ${fixtures.length} fixtures with and without ${skills.length} skills in ${WORK_DIR}`);
+}
+
+// Rules suite: every fixture gets the skills installed (there is no
+// with/without-skills comparison here — these cases test whether a loaded
+// skill's documented rules are actually followed). `text` is a skills-only
+// workspace for cases that need no challenge files, just Bash/Write access
+// to see what the agent would run.
+export function stageRules(hookName) {
+  if (hookName !== 'beforeAll') {
+    return;
+  }
+  const skills = discoverSkills();
+  const rulesWork = path.join(WORK_DIR, 'rules');
+  resetDir(rulesWork);
+  installSkills(path.join(rulesWork, 'text'), skills);
+
+  const fixtures = fs.existsSync(RULE_FIXTURES_DIR)
+    ? fs
+        .readdirSync(RULE_FIXTURES_DIR, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+    : [];
+  for (const fixture of fixtures) {
+    const workspace = path.join(rulesWork, fixture);
+    copyTree(path.join(RULE_FIXTURES_DIR, fixture), workspace);
+    installSkills(workspace, skills);
+  }
+  log(`staged a text-only workspace and ${fixtures.length} rule fixtures in ${rulesWork}`);
 }

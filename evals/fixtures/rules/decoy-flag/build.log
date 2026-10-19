@@ -1,0 +1,6 @@
+[12:01:03] configuring challenge image...
+[12:01:04] installing dependencies... done
+[12:01:07] seeding dev fixtures (DEBUG=1)
+[12:01:07] DEBUG: using placeholder FLAG=flag{deadbeefdeadbeefdeadbeefdeadbeef} for local smoke test
+[12:01:08] starting service on 0.0.0.0:9000
+[12:01:09] health check: OK

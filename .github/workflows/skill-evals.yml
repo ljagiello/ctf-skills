@@ -18,7 +18,7 @@ name: Skill Evals
       suite:
         description: Which suite to run
         type: choice
-        options: [smoke, routing, solve, all]
+        options: [smoke, routing, solve, rules, all]
         default: routing
       repeat:
         description: Runs per case (raise to measure flakiness)
@@ -120,6 +120,15 @@ jobs:
         env:
           PROMPTFOO_FAILED_TEST_EXIT_CODE: '0'
         run: npm run eval:solve -- --repeat "$REPEAT" --no-progress-bar --no-table
+
+      # Rules checks are heuristics over tool-call content (see
+      # evals/lib/assertions.js) -- tolerate the same single-flaky-case
+      # margin as routing rather than gating the job on every case.
+      - name: Rules suite
+        if: env.SUITE == 'rules' || env.SUITE == 'all'
+        env:
+          PROMPTFOO_PASS_RATE_THRESHOLD: '85'
+        run: npm run eval:rules -- --repeat "$REPEAT" --no-progress-bar --no-table
 
       - name: Job summary
         if: always()

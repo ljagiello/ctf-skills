@@ -5,6 +5,7 @@ Behavioral tests for the skills in this repo, run with [promptfoo](https://www.p
 | Suite | Config | Question it answers |
 |-------|--------|---------------------|
 | Routing | `promptfooconfig.routing.yaml` + `cases/routing.yaml` | Given a challenge description, does Claude load the right `ctf-*` skill and avoid the wrong ones? |
+| Rules | `promptfooconfig.rules.yaml` + `cases/rules.yaml` + `fixtures/rules/` | Once a skill is loaded, does Claude actually follow the specific rules written into it? |
 | Solve | `promptfooconfig.solve.yaml` + `cases/solve.yaml` + `fixtures/` | Can Claude recover the flag from small offline challenges, with skills vs. without? |
 
 ## Quick start
@@ -23,9 +24,10 @@ npm run view            # browse results in the promptfoo web UI
 
 | Command | What it runs |
 |---------|--------------|
-| `npm run validate` | Schema-check both configs (free, no model calls) |
+| `npm run validate` | Schema-check all three configs (free, no model calls) |
 | `npm run eval:smoke` | Routing cases tagged `tier: smoke` |
 | `npm run eval:routing` | All routing cases (about $0.12 and 15 s per case) |
+| `npm run eval:rules` | All rule-following cases (seconds to ~2 min and well under $1 per case) |
 | `npm run eval:solve` | Every fixture, with and without skills (minutes and dollars per case) |
 | `npm run summary` | Markdown pass/metric/cost table from `out/*.json` |
 | `npm run view` | promptfoo web viewer |
@@ -49,16 +51,44 @@ Results go to `out/` (gitignored): JSON for scripts, HTML for sharing.
   - `expected-skill`: the `skill-used` assertion on `vars.expected`.
   - `no-wrong-skill`: none of `vars.forbidden` was loaded.
   - `routed-directly`: the expected skill came first, rather than after the `solve-challenge` dispatcher. Tracked only; it never fails a case.
+- **Rules suite.** See [below](#rules-suite).
 - **Solve suite.**
   - **Providers.** Each case runs on two providers that are identical except for skills: `with-skills` and `no-skills`. Both get Bash/Write/Edit, no web tools, and a fresh copy of the fixture per run (`copy_working_dir: copy`).
   - **`solved`.** Checks the final answer for a flag whose SHA-256 matches `vars.flag_sha256`. Plaintext flags are never committed.
   - **`expected-skill`.** Reports whether the with-skills run loaded the skill the fixture targets. Tracked only; it never fails a case.
 
-Assertion helpers live in `lib/assertions.js`. They read `metadata.skillCalls`, which promptfoo builds from the agent's `Skill` tool calls.
+Assertion helpers live in `lib/assertions.js`. They read `metadata.skillCalls` and `metadata.toolCalls`, which promptfoo builds from the agent's tool calls.
+
+## Rules suite
+
+Routing checks whether the right skill gets loaded. This suite checks whether, once loaded, Claude actually follows the specific rules written into that skill — not just its one-line frontmatter description. Each case in `cases/rules.yaml` targets one rule quoted directly from a `SKILL.md`, as a pair:
+
+- a **positive** case, where the rule should fire or be followed, and
+- a **negative or trap** case — either a contrasting scenario where the rule correctly stays quiet, or an adversarial prompt that pressures the agent to break the rule anyway.
+
+| Rule (source) | Positive case | Negative/trap case | How it's checked |
+|---|---|---|---|
+| ctf-pwn: escalate to `ctf-reverse` when the binary isn't understood yet (`ctf-pwn/SKILL.md:83`) | Stripped, anti-debugged binary, no known bug | Vulnerability and binary already fully characterized | `recommendsCtfReverse` / `doesNotRecommendCtfReverse` — credits a real `Skill` call like `skill-used` would, but also accepts clearly-stated text reasoning (these cases give no files to act on, so a correct agent sometimes explains its choice instead of pressing the tool for a hypothetical) |
+| ctf-web: brute force always uses `admin` unless the challenge gives a different username; never fabricate a wordlist (`ctf-web/SKILL.md:150-156`) | No username given → defaults to `admin` | Challenge says "the username is root" → uses `root`, not `admin` | `usesExpectedUsername` + `noCustomWordlist` (regex over tool-call content, not file existence) |
+| ctf-pwn: check protections (`checksec`) before writing exploit code (`ctf-pwn/SKILL.md:145-149`) | Plain request to start exploiting a binary | Prompt explicitly says to skip recon and "just write the exploit now" | `checksecBeforeExploit` (orders `toolCalls` by index) |
+| solve-challenge: validate flag candidates, don't report metadata noise or an obvious decoy (`solve-challenge/SKILL.md:192-195`) | A stale, unlabeled flag-shaped string sits in a build log; the real flag needs one small decode step | Same mechanism, no competing string (control: confirms a pass isn't just luck) | `flagMatches` (SHA-256 of the final answer) |
+
+This pilot covers 4 rules across `solve-challenge`, `ctf-web`, and `ctf-pwn` — the skills with the most explicit, mechanically-checkable "always/never/do this before that" language, picked over the broader catalog of techniques. Extending it to another skill means finding a rule with the same property (a concrete, falsifiable behavior, not just "use technique X for problem shape Y") and writing a case the same way.
+
+**Known flake.** Each `copy_working_dir: copy` call makes its own ephemeral copy of a case's source fixture, but two calls copying the *same* source directory at the same time have reproducibly left one of them empty -- seen whenever two cases (or `--repeat`'s multiple runs of one case) shared a fixture directory under enough concurrency. The fix here is to never share a source directory between cases (`pwn-checksec-order-positive` / `-negative` are identical content in two directories for exactly this reason) and to keep `maxConcurrency` low (2). That doesn't help `--repeat N > 1` on a single case, which still copies the same source N times; if a repeat run errors or fails with an empty-looking workspace, re-run it with `-j 1` before assuming the skill (or the assertion) is at fault.
+
+Not every real rule in these skills fits a cheap tool-call check. `solve-challenge/difficulty-routing.md` in particular has a dense, genuinely interesting rule set (evidence-gated complexity signals, a stop-loss policy, an escalation-packet format) that's fundamentally about the agent's *reasoning*, not which tools it calls — testing it well would need `llm-rubric`-style grading of the agent's stated justification, which is a different (and pricier) verification style than the rest of this suite. Deliberately left out of this pilot; worth a dedicated follow-up suite rather than forcing it into this one.
 
 ## Adding cases
 
 **Routing:** append to `cases/routing.yaml` with `description`, `vars.task`, `vars.expected` and `vars.forbidden`. Tag cheap, high-signal cases with `metadata.tier: smoke`. `tests/test_eval_coverage.py` fails if any skill has no routing case, so a new skill needs at least one.
+
+**Rules:**
+
+1. Find a concrete, falsifiable "always/never/do X before Y" statement in a `SKILL.md` or one of its technique files — quote it verbatim in a comment block in `cases/rules.yaml`.
+2. Decide what a violation would look like in terms of tool calls or the final answer (a skill (not) being loaded, a command (not) run before another, specific content (not) appearing) — that's your assertion.
+3. If the case needs files, add a small one under `fixtures/rules/<name>/` (staged with the skills by `lib/hooks.js:stageRules`); otherwise set `vars.workspace: text` to reuse the skills-only workspace.
+4. Add a positive case and a negative/trap case, both tagged `metadata: { rule: <id>, polarity: positive|negative }` — `tests/test_eval_coverage.py` fails if a rule has only one polarity.
 
 **Solve:**
 
@@ -66,9 +96,9 @@ Assertion helpers live in `lib/assertions.js`. They read `metadata.skillCalls`, 
 2. Solve it yourself and hash the flag: `printf '%s' 'flag{...}' | shasum -a 256`.
 3. Add a case to `cases/solve.yaml` with `fixture`, `name`, `brief`, `expected` and `flag_sha256`.
 
-Keep fixtures small and offline (Python stdlib where possible). The agent runs on your machine, or the CI runner, with whatever tools are installed there.
+Keep fixtures small and offline (Python stdlib where possible). The agent runs on your machine, or the CI runner, with whatever tools are installed there. `evals/fixtures-src/` holds non-staged source/build notes for fixtures that are a compiled artifact (currently just the pwn-checksec-order toy binary) — anything placed there is for maintainers only and is never copied into an agent's workspace.
 
-The three starter fixtures are deliberately easy. They prove the pipeline works end to end, and current models solve them in a few turns with or without skills. To measure what the skills add, write fixtures that hinge on techniques the skills document and that a bare model tends to miss, then compare `solved` across providers with `--repeat 3` or more. A single run says little about a nondeterministic agent.
+The three starter solve fixtures are deliberately easy. They prove the pipeline works end to end, and current models solve them in a few turns with or without skills. To measure what the skills add, write fixtures that hinge on techniques the skills document and that a bare model tends to miss, then compare `solved` across providers with `--repeat 3` or more. A single run says little about a nondeterministic agent.
 
 ## Comparing skill versions
 
