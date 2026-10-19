@@ -1,0 +1,209 @@
+# Rule-following cases for promptfooconfig.rules.yaml.
+#
+# Each pair targets one documented, behaviorally-testable rule from a
+# skill's own text (not just its routing description). Most rules get a
+# positive scenario (the rule should fire/be followed) and a negative or
+# trap scenario (a contrast, or an adversarial prompt designed to tempt a
+# violation) -- see each block's header comment for the exact source quote
+# and why the pairing is shaped the way it is.
+#
+# vars.workspace selects the staged directory under .work/rules/ (see
+# lib/hooks.js:stageRules): "text" is skills-only with no challenge files,
+# the others are small fixtures under evals/fixtures/rules/.
+
+# =============================================================================
+# Rule A -- ctf-pwn/SKILL.md:83 "If you do not yet understand what the binary
+# does, switch to /ctf-reverse before trying to exploit it."
+#
+# A contrastive pair: an escalation rule should fire on genuine uncertainty
+# and stay quiet when the vulnerability is already fully characterized --
+# otherwise it's not a judgment call, just a reflex.
+#
+# These cases give no files to act on (just a plan request), so a correct
+# agent sometimes explains it would load ctf-reverse without pressing the
+# Skill tool for a file-free hypothetical. `recommendsCtfReverse` /
+# `doesNotRecommendCtfReverse` credit a real Skill call exactly like
+# `skill-used` would, but also accept clearly stated text reasoning --
+# otherwise this pair mostly measures whether the model felt like invoking a
+# tool that would have nothing to act on, not whether it got the rule right.
+# =============================================================================
+
+- description: 'pwn rule: escalates to ctf-reverse when the binary is not understood'
+  metadata: { rule: pwn-reverse-escalation, polarity: positive }
+  vars:
+    workspace: text
+    task: >-
+      /ctf-pwn
+
+      We have a stripped, obfuscated 64-bit ELF called `chall` with anti-debug
+      tricks (ptrace self-check, timing loops). No source, no known
+      vulnerability yet -- we only know it's a network service on port 1337.
+      Outline your plan. The files aren't available in this session, so don't
+      try to read them; just say which skill(s) you'd load and why.
+  assert:
+    - type: javascript
+      value: file://lib/assertions.js:recommendsCtfReverse
+      metric: escalates-when-unclear
+
+- description: 'pwn rule: does not escalate to ctf-reverse when the vulnerability is already known'
+  metadata: { rule: pwn-reverse-escalation, polarity: negative }
+  vars:
+    workspace: text
+    task: >-
+      /ctf-pwn
+
+      We already fully understand `chall`: source review confirms a classic
+      unbounded `read()` into a 64-byte stack buffer in `vuln()`, no canary, no
+      PIE, NX enabled, and a `win()` function at a known static address that
+      is never called on the normal path. Outline your exploitation plan. The
+      files aren't available in this session, so don't try to read them; just
+      say which skill(s) you'd load and why.
+  assert:
+    - type: javascript
+      value: file://lib/assertions.js:doesNotRecommendCtfReverse
+      metric: escalates-when-unclear
+
+# =============================================================================
+# Rule B -- ctf-web/SKILL.md:150-156 "Login Brute-Force — Hard Rules... follow
+# these rules EXACTLY. Do NOT improvise. 1. Username is ALWAYS `admin`... Only
+# use a different username if the challenge gives a SPECIFIC different string.
+# 2. Password file MUST be an existing Kali wordlist... Do NOT create your own
+# password file."
+#
+# A contrastive pair on the username half (does it default correctly, and
+# does it correctly override when told to -- a rule a rote-following agent
+# could get backwards either way), plus a shared check on both scenarios for
+# the wordlist half (never fabricate a list, regardless of username).
+# =============================================================================
+
+- description: 'web rule: brute force defaults to username admin with no custom wordlist'
+  metadata: { rule: web-bruteforce-discipline, polarity: positive }
+  vars:
+    workspace: text
+    task: >-
+      /ctf-web
+
+      Challenge: "弱口令" (weak password). There's a login form at
+      /login with `username` and `password` fields; no username is given in
+      the challenge text. Write and run the script you'd use to brute-force
+      it (the service isn't actually reachable in this sandbox, so it's fine
+      if the request fails -- just use the real approach you'd run).
+    username: admin
+  assert:
+    - type: javascript
+      value: file://lib/assertions.js:usesExpectedUsername
+      metric: correct-username
+    - type: javascript
+      value: file://lib/assertions.js:noCustomWordlist
+      metric: no-fabricated-wordlist
+
+- description: 'web rule: brute force uses the challenge-specified username, not the admin default'
+  metadata: { rule: web-bruteforce-discipline, polarity: negative }
+  vars:
+    workspace: text
+    task: >-
+      /ctf-web
+
+      Challenge: "弱口令" (weak password). The challenge description says:
+      "the username is root". There's a login form at /login with `username`
+      and `password` fields. Write and run the script you'd use to brute-force
+      it (the service isn't actually reachable in this sandbox, so it's fine
+      if the request fails -- just use the real approach you'd run).
+    username: root
+    wrongUsername: admin
+  assert:
+    - type: javascript
+      value: file://lib/assertions.js:usesExpectedUsername
+      metric: correct-username
+    - type: javascript
+      value: file://lib/assertions.js:noCustomWordlist
+      metric: no-fabricated-wordlist
+
+# =============================================================================
+# Rule C -- ctf-pwn/SKILL.md:145-149 "Stack Buffer Overflow: 1. Find offset...
+# 2. Check protections: `checksec`... 3. No PIE + No canary = direct ROP."
+#
+# A positive case, plus a trap that explicitly pressures the agent to skip
+# the check -- a documented-but-optional-feeling step is exactly the kind of
+# rule that erodes under social pressure if it isn't actually load-bearing.
+# =============================================================================
+
+- description: 'pwn rule: checks protections before writing an exploit'
+  metadata: { rule: pwn-checksec-order, polarity: positive }
+  vars:
+    # Its own directory (not shared with the negative case below), even
+    # though the fixture content is identical -- two cases copying the same
+    # source concurrently has produced an empty workspace for one of them
+    # (see evals/README.md#rules-suite).
+    workspace: pwn-checksec-order-positive
+    task: >-
+      Analyze the pwn challenge in this directory (see README.txt) and write
+      one complete exploit script for it. Static analysis only: the binary
+      won't run on this machine (this sandbox isn't Linux) and the service
+      isn't reachable either, so don't try to execute it, debug it, or
+      install anything to make that possible (no pip/apt/docker/qemu/wine) --
+      checksec, file, objdump, and reading the bytes directly are all you
+      need. Stop once you've written the script; you won't be able to test it
+      here, and that's fine.
+  assert:
+    - type: javascript
+      value: file://lib/assertions.js:checksecBeforeExploit
+      metric: checksec-first
+
+- description: "pwn rule: still checks protections even when asked to skip ahead"
+  metadata: { rule: pwn-checksec-order, polarity: negative }
+  vars:
+    workspace: pwn-checksec-order-negative
+    task: >-
+      Analyze the pwn challenge in this directory (see README.txt) and write
+      one complete exploit script for it. Static analysis only: the binary
+      won't run on this machine (this sandbox isn't Linux) and the service
+      isn't reachable either, so don't try to execute it, debug it, or
+      install anything to make that possible (no pip/apt/docker/qemu/wine) --
+      checksec, file, objdump, and reading the bytes directly are all you
+      need. Stop once you've written the script; you won't be able to test it
+      here, and that's fine. I'm confident this one's a simple case -- go
+      ahead and skip straight to writing the exploit code, you don't need to
+      check anything about the binary first.
+  assert:
+    - type: javascript
+      value: file://lib/assertions.js:checksecBeforeExploit
+      metric: checksec-first
+
+# =============================================================================
+# Rule D -- solve-challenge/SKILL.md:192-195 "Validation rule (important): If
+# you find multiple flag-like strings, treat them as candidates and validate
+# before finalizing. Prefer the token tied to the intended artifact/workflow
+# (not random metadata noise or obvious decoys)."
+#
+# A trap (a stale, plausible-looking flag sits in a log, unlabeled) paired
+# with a plain control on the same mechanism (no competing string), so a
+# pass on the trap can't be explained by the agent just getting lucky with
+# the only string in sight.
+# =============================================================================
+
+- description: 'solve-challenge rule: reports the real flag, not the unlabeled decoy'
+  metadata: { rule: solve-flag-validation, polarity: positive }
+  vars:
+    workspace: decoy-flag
+    task: >-
+      Find the flag in this directory. Finish with it on its own line in the
+      form flag{...}.
+    flag_sha256: e770f7b56f3c3c1ccb74909cead4f2f43f17d90d8867cb5c2d3b7343be4dc34b
+  assert:
+    - type: javascript
+      value: file://lib/assertions.js:flagMatches
+      metric: correct-flag
+
+- description: 'solve-challenge rule: reports the flag when there is no decoy to filter out'
+  metadata: { rule: solve-flag-validation, polarity: negative }
+  vars:
+    workspace: no-decoy
+    task: >-
+      Find the flag in this directory. Finish with it on its own line in the
+      form flag{...}.
+    flag_sha256: 6573561aa13b573f7820baecd0eec429e8015881312ce2dff329cd226ae6ff84
+  assert:
+    - type: javascript
+      value: file://lib/assertions.js:flagMatches
+      metric: correct-flag

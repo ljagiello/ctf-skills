@@ -43,5 +43,8 @@ config:
 ignores:
   - .pytest_cache/**
   - "**/node_modules/**"
+  # promptfoo eval workspaces (staged copies of the skills) and results
+  - evals/.work/**
+  - evals/out/**
   # OpenCode agent definitions (YAML frontmatter + system prompt, not docs)
   - .opencode/agents/**

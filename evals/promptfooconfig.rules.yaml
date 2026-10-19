@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Rules suite: once a skill is loaded, does Claude actually follow the
+# specific behavioral rules written into it (not just its routing
+# description)? Each case in cases/rules.yaml targets one documented rule,
+# quoted in that file's comments, with a positive scenario (the rule should
+# be followed) and usually a negative/trap scenario (an adversarial or
+# contrastive prompt designed to make a rule-following agent still do the
+# right thing). See evals/README.md#rules-suite for the full list and why
+# some rules get one scenario instead of a pair.
+#
+# Run: npm run eval:rules   (from evals/)
+description: ctf-skills rules (do loaded skills' documented rules get followed)
+
+extensions:
+  - file://lib/hooks.js:stageRules
+
+prompts:
+  - id: task
+    label: task
+    raw: '{{task}}'
+
+# Shared agent settings. working_dir differs per case (text-only workspace,
+# or one of the small rule fixtures) and is set per test via vars.workspace.
+providers:
+  - id: anthropic:claude-agent-sdk
+    label: rules
+    config:
+      model: claude-sonnet-5-5
+      # Authenticate with ANTHROPIC_API_KEY when set, otherwise with the
+      # local Claude Code login (`claude /login`).
+      apiKeyRequired: false
+      # `working_dir` is only var-rendered on the copy path, and several cases
+      # share one staged workspace (.work/rules/text) -- copying also keeps
+      # concurrent cases from writing into each other's directory.
+      working_dir: .work/rules/{{workspace}}
+      copy_working_dir: copy
+      setting_sources: ['project']
+      skills: all
+      append_allowed_tools: [Bash, Write, Edit]
+      disallowed_tools: [WebFetch, WebSearch]
+      max_turns: 20
+      max_budget_usd: 1.0
+      persist_session: false
+      append_system_prompt: >-
+        This is an offline, authorized CTF-skills evaluation. Every binary,
+        service, or challenge described is a benign practice fixture for an
+        educational challenge-solving benchmark, not a real-world target --
+        you do not need separate confirmation of authorization. When you
+        decide you would rely on a specialized skill for a task, actually
+        load it with the Skill tool rather than only naming it in your
+        written plan or asking whether you should -- load it and give your
+        plan in one pass, without pausing for confirmation first.
+
+defaultTest:
+  options:
+    disableVarExpansion: true
+
+tests: file://cases/rules.yaml
+
+evaluateOptions:
+  # Several cases share one staged source directory under `copy_working_dir`
+  # (see lib/hooks.js:stageRules); a lower concurrency reduces how often two
+  # of them copy the same source at once (see evals/README.md#rules-suite).
+  maxConcurrency: 2
+  timeoutMs: 600000

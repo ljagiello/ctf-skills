@@ -1,0 +1,22 @@
+{
+  "name": "ctf-skills-evals",
+  "private": true,
+  "description": "promptfoo evals for the ctf-skills Agent Skills",
+  "type": "module",
+  "scripts": {
+    "validate": "promptfoo validate -c promptfooconfig.routing.yaml && promptfoo validate -c promptfooconfig.solve.yaml && promptfoo validate -c promptfooconfig.rules.yaml",
+    "eval:routing": "promptfoo eval -c promptfooconfig.routing.yaml --no-cache -o out/routing.json -o out/routing.html",
+    "eval:solve": "promptfoo eval -c promptfooconfig.solve.yaml --no-cache -o out/solve.json -o out/solve.html",
+    "eval:rules": "promptfoo eval -c promptfooconfig.rules.yaml --no-cache -o out/rules.json -o out/rules.html",
+    "eval:smoke": "promptfoo eval -c promptfooconfig.routing.yaml --no-cache --filter-metadata tier=smoke -o out/smoke.json",
+    "summary": "node lib/summary.js out/*.json",
+    "view": "promptfoo view"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.303",
+    "promptfoo": "0.124.1"
+  }
+}

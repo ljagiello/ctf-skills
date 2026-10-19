@@ -23,6 +23,11 @@ ctf-web/payloads/
 # Generated
 _site/
 
+# promptfoo evals (staged agent workspaces, results, deps)
+evals/.work/
+evals/out/
+evals/node_modules/
+
 # Playwright MCP artifacts (snapshots, console logs, saved response bodies)
 .playwright-mcp/
 

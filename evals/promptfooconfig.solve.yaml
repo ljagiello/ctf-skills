@@ -1,0 +1,75 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Solve suite: can the agent recover the flag from small offline fixtures, and
+# do the skills help? Every case runs twice with the same model and tools:
+# once with all skills installed (with-skills) and once without (no-skills).
+# Each run gets a fresh copy of its workspace, so files the agent writes never
+# leak between cases.
+#
+# Run: npm run eval:solve   (from evals/)
+description: ctf-skills solve (offline fixtures, with vs without skills)
+
+extensions:
+  - file://lib/hooks.js:stageSolve
+
+prompts:
+  - id: solve
+    label: solve
+    raw: |-
+      Solve the CTF challenge "{{name}}". All challenge files are in the current working directory.
+
+      {{brief}}
+
+      Work offline with the files provided. When you have the flag, end your answer with it on its own line in the form flag{...}.
+
+# Shared agent settings. Only the workspace and skill settings differ below.
+x-solver: &solver
+  model: claude-sonnet-5-5
+  # Authenticate with ANTHROPIC_API_KEY when set, otherwise with the local
+  # Claude Code login (`claude /login`).
+  apiKeyRequired: false
+  # Fresh plain copy of working_dir per eval step (rendered with test vars).
+  copy_working_dir: copy
+  append_allowed_tools: [Bash, Write, Edit]
+  # Offline only: no looking up public writeups.
+  disallowed_tools: [WebFetch, WebSearch]
+  max_turns: 40
+  max_budget_usd: 3.0
+  persist_session: false
+  # Runs execute concurrently on one machine; shared paths like /tmp/solve.py
+  # would let one run clobber another's scripts.
+  append_system_prompt: >-
+    Keep every file you create inside the current working directory; do not
+    write to /tmp or other shared locations.
+
+providers:
+  - id: anthropic:claude-agent-sdk
+    label: with-skills
+    config:
+      <<: *solver
+      working_dir: .work/skills/{{fixture}}
+      setting_sources: ['project']
+      skills: all
+
+  - id: anthropic:claude-agent-sdk
+    label: no-skills
+    config:
+      <<: *solver
+      working_dir: .work/baseline/{{fixture}}
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://lib/assertions.js:flagMatches
+      metric: solved
+    # Tracked, never failing: whether the with-skills run loaded the skill
+    # this fixture is meant to exercise.
+    - type: javascript
+      value: file://lib/assertions.js:expectedSkillLoaded
+      weight: 0
+
+tests: file://cases/solve.yaml
+
+evaluateOptions:
+  maxConcurrency: 3
+  timeoutMs: 900000

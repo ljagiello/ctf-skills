@@ -1,0 +1,206 @@
+# Routing cases for promptfooconfig.routing.yaml.
+#
+# vars:
+#   task       the user message sent to the agent
+#   expected   skill that must be loaded (checked by `skill-used`)
+#   forbidden  skills that must NOT be loaded (checked by noForbiddenSkills)
+# metadata.tier: smoke = cheap subset for quick checks (--filter-metadata tier=smoke)
+#
+# tests/test_eval_coverage.py requires every skill directory to appear as
+# `expected` at least once, so add a case here when you add a skill.
+
+# --- web -------------------------------------------------------------------
+- description: 'web: flask app with jwt, upload, admin bot'
+  metadata: { category: web, tier: smoke }
+  vars:
+    task: >-
+      The target is a Flask website with JWT cookies, a file upload form, and
+      an admin bot that visits reported URLs. We already see template
+      injection in the profile page and a possible stored XSS. How should we
+      approach this?
+    expected: ctf-web
+    forbidden: [ctf-pwn, ctf-reverse, ctf-crypto]
+
+- description: 'web: misc is fallback, not default (unusual but still web)'
+  metadata: { category: web }
+  vars:
+    task: >-
+      The website exposes OAuth redirects, JWT sessions, and a browser admin
+      panel. It feels unusual, but the core bug family is still web. Where do
+      we start?
+    expected: ctf-web
+    forbidden: [ctf-misc, ctf-pwn]
+
+# --- pwn -------------------------------------------------------------------
+- description: 'pwn: heap uaf with libc leak'
+  metadata: { category: pwn, tier: smoke }
+  vars:
+    task: >-
+      We already confirmed a heap use-after-free in an ELF service, have a
+      libc leak, and need tcache poisoning plus a ROP chain to get a shell.
+      What is the plan?
+    expected: ctf-pwn
+    forbidden: [ctf-web, ctf-crypto, ctf-forensics]
+
+- description: 'pwn vs reverse boundary: known format string bug'
+  metadata: { category: pwn }
+  vars:
+    task: >-
+      We already know the bug is a format string in a native service. The
+      remaining task is stack control, a libc leak, and ret2libc
+      exploitation.
+    expected: ctf-pwn
+    forbidden: [ctf-reverse, ctf-web]
+
+# --- reverse ---------------------------------------------------------------
+- description: 'reverse: stripped binary with custom vm'
+  metadata: { category: reverse, tier: smoke }
+  vars:
+    task: >-
+      The challenge gives a stripped binary with a custom VM and obfuscated
+      bytecode. The blocker is understanding what the executable does before
+      we can get the flag.
+    expected: ctf-reverse
+    forbidden: [ctf-pwn, ctf-web]
+
+- description: 'reverse vs pwn boundary: packed elf with anti-debug'
+  metadata: { category: reverse }
+  vars:
+    task: >-
+      We have a packed ELF with anti-debug tricks and no known vulnerability.
+      First we need to unpack it and recover the protocol it speaks.
+    expected: ctf-reverse
+    forbidden: [ctf-pwn]
+
+# --- crypto ----------------------------------------------------------------
+- description: 'crypto: rsa with small public exponent'
+  metadata: { category: crypto, tier: smoke }
+  vars:
+    task: >-
+      We got n, e = 3 and a ciphertext c. The plaintext is a short flag and
+      there is no padding. How do we recover it?
+    expected: ctf-crypto
+    forbidden: [ctf-web, ctf-pwn, ctf-misc]
+
+- description: 'crypto: ecdsa signatures with repeated nonce'
+  metadata: { category: crypto }
+  vars:
+    task: >-
+      A signing service returned two ECDSA signatures over different messages
+      and both have the same r value. We want the private key.
+    expected: ctf-crypto
+    forbidden: [ctf-web, ctf-forensics]
+
+# --- forensics -------------------------------------------------------------
+- description: 'forensics: memory dump plus pcap'
+  metadata: { category: forensics, tier: smoke }
+  vars:
+    task: >-
+      We have a Windows 10 memory image (.raw) and a pcap from the same
+      incident. We need to find what the intruder copied off the machine.
+    expected: ctf-forensics
+    forbidden: [ctf-web, ctf-pwn, ctf-crypto]
+
+- description: 'forensics: stego in an innocent-looking png'
+  metadata: { category: forensics }
+  vars:
+    task: >-
+      The only file is a PNG of a cat that looks normal. The challenge text
+      says "look closer at the bits". How do we find the hidden data?
+    expected: ctf-forensics
+    forbidden: [ctf-web, ctf-pwn]
+
+# --- osint -----------------------------------------------------------------
+- description: 'osint: geolocate a street photo'
+  metadata: { category: osint, tier: smoke }
+  vars:
+    task: >-
+      We are given a photo of a street corner with a shop sign in Cyrillic
+      and a tram line. The flag is the street name. How do we geolocate it?
+    expected: ctf-osint
+    forbidden: [ctf-forensics, ctf-web]
+
+# --- malware ---------------------------------------------------------------
+- description: 'malware: obfuscated dropper with encrypted c2'
+  metadata: { category: malware, tier: smoke }
+  vars:
+    task: >-
+      We have an obfuscated PowerShell dropper and a pcap of its beacon
+      traffic, which looks RC4-encrypted. We need to extract the C2 config
+      and decrypt the commands it received.
+    expected: ctf-malware
+    forbidden: [ctf-web, ctf-pwn]
+
+# --- misc ------------------------------------------------------------------
+- description: 'misc: python jail with unicode filtering'
+  metadata: { category: misc, tier: smoke }
+  vars:
+    task: >-
+      The service is a Python jail with weird unicode filtering and QR code
+      clues. It looks like a hybrid sandbox puzzle rather than web or binary
+      exploitation.
+    expected: ctf-misc
+    forbidden: [ctf-web, ctf-pwn]
+
+# --- ai/ml -----------------------------------------------------------------
+- description: 'ai-ml: chatbot guarding a secret in its system prompt'
+  metadata: { category: ai-ml, tier: smoke }
+  vars:
+    task: >-
+      The challenge is an LLM chatbot whose system prompt contains the flag.
+      It refuses to reveal it when asked directly. How do we get it out?
+    expected: ctf-ai-ml
+    forbidden: [ctf-pwn, ctf-crypto]
+
+- description: 'ai-ml: adversarial example against an image classifier'
+  metadata: { category: ai-ml }
+  vars:
+    task: >-
+      We get a Keras image classifier and a picture of a dog. The server
+      gives the flag if we submit an image that is visually the same but
+      classified as "panda".
+    expected: ctf-ai-ml
+    forbidden: [ctf-forensics, ctf-web]
+
+# --- orchestration and utility skills --------------------------------------
+- description: 'dispatcher: unknown category bundle'
+  metadata: { category: dispatcher, tier: smoke }
+  vars:
+    task: >-
+      Here is a zip bundle from a CTF and a remote nc service. I do not know
+      the category yet and need to figure out where to start.
+    expected: solve-challenge
+    forbidden: []
+
+- description: 'writeup: document a solved challenge'
+  metadata: { category: writeup }
+  vars:
+    task: >-
+      We just solved the challenge "baby-rsa" with a cube root attack on a
+      small exponent. Write the submission writeup for the organizers.
+    expected: ctf-writeup
+    forbidden: [solve-challenge]
+
+- description: 'similar-search: find related writeups'
+  metadata: { category: similar-search }
+  vars:
+    task: >-
+      We are stuck on a heap challenge called "babyheap" from a 2019 CTF.
+      Find writeups of similar challenges so we can compare approaches.
+    expected: ctf-similar-search
+    forbidden: [ctf-web]
+
+# --- negative control ------------------------------------------------------
+- description: 'negative: ordinary coding question loads no ctf skill'
+  metadata: { category: negative, tier: smoke }
+  options:
+    disableDefaultAsserts: true
+  vars:
+    task: Write a Python function that reverses a singly linked list in place.
+  assert:
+    - type: not-skill-used
+      value: { pattern: 'ctf-*' }
+      metric: no-wrong-skill
+    - type: not-skill-used
+      value: solve-challenge
+      metric: no-wrong-skill
