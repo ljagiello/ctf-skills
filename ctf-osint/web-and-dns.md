@@ -67,7 +67,8 @@ https://www.google.com/search?q="orange"+"alternant"+site:linkedin.com&tbm=isch&
 Flags often in TXT records of subdomains, not root domain:
 ```bash
 dig -t txt subdomain.ctf.domain.com
-dig -t any domain.com
+dig +short -t cname domain.com
+dig +short -t mx domain.com
 dig axfr @ns.domain.com domain.com  # Zone transfer
 ```
 
@@ -76,7 +77,8 @@ dig axfr @ns.domain.com domain.com  # Zone transfer
 ```bash
 dig TXT ctf.domain.org
 dig TXT _dmarc.domain.org
-dig ANY domain.org
+dig +short -t cname domain.org
+dig +short -t mx domain.org
 ```
 
 **Lesson:** DNS TXT records are publicly queryable. Always check TXT, CNAME, MX for CTF domains and subdomains.
