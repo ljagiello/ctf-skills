@@ -44,6 +44,10 @@ Each category skill's `SKILL.md` has a **Prerequisites** section listing only th
 
 ## Workflow
 
+Before selecting or escalating a model, read
+[difficulty-routing.md](difficulty-routing.md). Use its evidence-based scoring,
+stop-loss rules, and tier gates throughout the workflow.
+
 ### Step 0: CTFd Platform Detection
 
 If the CTF platform URL is known, check if it runs CTFd and switch to API-driven navigation:
