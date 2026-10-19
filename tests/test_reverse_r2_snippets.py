@@ -321,30 +321,41 @@ class TestReverseR2Integration(unittest.TestCase):
 
             fns = _run_r2_json(["-c", "aflj", exe])
             self.assertIsInstance(fns, list)
-            self.assertEqual(len(fns), 9, "check binary has 9 functions after -A")
+            # The exact function count depends on the platform's C runtime:
+            # glibc ELF appends ~7 startup stubs (entry0, __libc_csu_*,
+            # *tm_clones, ...) while Mach-O adds none. Assert the source
+            # functions are present rather than pinning a platform-specific
+            # count.
+            self.assertGreaterEqual(
+                len(fns), 2, f"expected at least check+main, got {[f['name'] for f in fns]}"
+            )
             names = {f["name"] for f in fns}
-            self.assertIn("sym.check", names)
+            # Symbol decoration differs by target: "sym.check" on ELF,
+            # "sym._check" on Mach-O (leading underscore). Match either.
+            check_name = next(
+                (n for n in names if n == "check" or n.endswith("check")), None
+            )
+            self.assertIsNotNone(check_name, f"check fn not found among {sorted(names)}")
             self.assertIn("main", names)
-            self.assertIn("entry0", names)
+
             for f in fns:
                 self.assertIsInstance(f["is-pure"], str, "r2 emits is-pure quoted")
                 self.assertIsInstance(f["addr"], int)
                 self.assertIsInstance(f["size"], int)
-
-            # axt means "who calls this": sym.check has exactly one caller, main.
-            xrefs = _run_r2_json(["-c", "axtj @ sym.check", exe])
-            self.assertIsInstance(xrefs, list)
-            self.assertEqual(len(xrefs), 1)
-            self.assertEqual(xrefs[0]["fcn_name"], "main")
-            self.assertEqual(xrefs[0]["type"], "CALL")
-            self.assertEqual(xrefs[0]["opcode"], "call sym.check")
-
-            # aflj size vs realsz both exist and are decimal ints
-            clones = [f for f in fns if f["name"].startswith("sym.") and "tm_clones" in f["name"]]
-            self.assertEqual(len(clones), 2)
-            for f in clones:
-                self.assertIsInstance(f["size"], int)
                 self.assertIsInstance(f["realsz"], int)
+
+            # axt means "who calls this": check has exactly one *caller* (main).
+            # Some targets also report a data-reference xref (type "NULL"), so
+            # filter to CALL xrefs. The call mnemonic is arch-specific ("call"
+            # on x86, "bl" on arm64), so verify the caller and the referenced
+            # name, not the opcode string.
+            xrefs = _run_r2_json(["-c", f"axtj @ {check_name}", exe])
+            self.assertIsInstance(xrefs, list)
+            callers = [x for x in xrefs if x.get("type") == "CALL"]
+            self.assertEqual(1, len(callers), f"expected one CALL xref, got {xrefs}")
+            self.assertEqual("main", callers[0].get("fcn_name"))
+            self.assertEqual("CALL", callers[0].get("type"))
+            self.assertEqual(check_name, callers[0].get("refname"))
 
 
 if __name__ == "__main__":

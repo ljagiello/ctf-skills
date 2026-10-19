@@ -193,6 +193,35 @@ export function checksecBeforeExploit(output, context) {
   return { pass: true, score: 1, reason: `Checked protections at call #${reconIdx}${exploitIdx !== -1 ? `, before exploit code at call #${exploitIdx}` : ''}` };
 }
 
+// Rules suite (ctf-reverse/SKILL.md:113-127 "Never pipe triage output through
+// `head` on the first pass"): the agent must not cap its own triage output
+// with `head` and then conclude "no flag here". Fails if any Bash call pipes
+// one of the large-dump commands the rule is about (strings/objdump/xxd/...)
+// through `head`. Deliberate `sed -n 'N,Mp'` paging is NOT caught (the rule
+// itself sanctions it: "page it deliberately... and say which slice you read"),
+// `readelf`/`grep` output is small or already filtered, and the rule's real
+// failure mode is concluding "no flag" from a dump too big to have been seen
+// in full.
+const FULL_DUMP = '(strings|objdump|xxd|hexdump|od|rabin2|cat)\\s';
+const HEAD_TRUNCATION_PATTERNS = [
+  new RegExp(`\\b${FULL_DUMP}[^|]*\\|\\s*head(\\s|$)`, 'i'),
+];
+
+export function noHeadTruncation(output, context) {
+  for (const call of toolCalls(context)) {
+    if (call.name !== 'Bash') {
+      continue;
+    }
+    const text = actionText(call);
+    for (const pattern of HEAD_TRUNCATION_PATTERNS) {
+      if (pattern.test(text)) {
+        return { pass: false, score: 0, reason: `piped a full dump through \`head\`: ${call.input?.command ?? ''}` };
+      }
+    }
+  }
+  return { pass: true, score: 1, reason: 'No `head` truncation of full triage output' };
+}
+
 // Solve suite: reports an `expected-skill` metric for providers with skills
 // enabled. It emits the metric itself (instead of the assertion's `metric:`
 // field) so the baseline column has no meaningless 100% score for it.
