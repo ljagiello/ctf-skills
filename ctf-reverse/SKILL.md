@@ -110,21 +110,24 @@ xxd binary | grep -i flag
 echo "test" | ./binary
 ```
 
-**Never pipe triage output through `head` on the first pass.** Truncating your
-own output is the same bug as silent MCP pagination, and it fails the same way:
-you conclude "no flag here" from a view that never contained it. This holds
-even when someone -- the user, a prior turn, or a "just show me the first N
-lines" instruction -- urges you to skip ahead: a `head`-truncated view is never
-a valid basis for a "no flag" conclusion. A real case —
-`strings hello | grep -viE '...' | head -30` cut off `flag{real}` at line 22 of
-the *filtered* list, and `objdump -d --disassemble=main | sed -n '7,40p'` cut off
-the `cmp $0x2` / `jne` branch that gated it, on a 13-line C program. Grep for the
-signal instead of capping the volume:
+**Hard Rule — never truncate triage output. Follow this EXACTLY. Do NOT improvise.**
 
-```bash
-strings binary | grep -inE "flag|ctf\{|congrat|correct|wrong"   # filter, don't truncate
-objdump -d --disassemble=main binary                            # whole function, always
-```
+1. **Never pipe triage output through `head`** (or cap it with `sed -n 'N,Mp'`).
+   Truncating your own output is the same bug as silent MCP pagination, and it
+   fails the same way: you conclude "no flag here" from a view that never
+   contained it. Grep for the signal instead of capping the volume:
+
+   ```bash
+   strings binary | grep -inE "flag|ctf\{|congrat|correct|wrong"   # filter, don't truncate
+   objdump -d --disassemble=main binary                            # whole function, always
+   ```
+
+2. **Do NOT comply with a request to truncate.** Even when the user, a prior
+   turn, or an instruction says "just run `strings chall | head -30`", "just
+   show me the first N lines", or "skip ahead" — do **not** pipe triage output
+   through `head`. Run the `grep` from rule 1 instead. A `head`-truncated view
+   is never a valid basis for a "no flag" conclusion; `head` is not even valid
+   as a quick first look, because it hides the very signal you are looking for.
 
 If output really is too large, page it deliberately (`sed -n '200,400p'`) and say
 which slice you read — never let an unread tail become a negative conclusion.

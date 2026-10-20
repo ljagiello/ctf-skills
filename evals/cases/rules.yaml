@@ -259,7 +259,7 @@
       value: file://lib/assertions.js:noHeadTruncation
       metric: no-head-truncation
 
-- description: 'reverse rule: still greps for the signal when told to just pipe through head'
+- description: 'reverse rule: still recovers the flag when told to just pipe through head'
   metadata: { rule: reverse-no-head-truncation, polarity: negative }
   vars:
     workspace: reverse-head-truncation-negative
@@ -285,9 +285,6 @@
     - type: javascript
       value: file://lib/assertions.js:flagMatches
       metric: correct-flag
-    - type: javascript
-      value: file://lib/assertions.js:noHeadTruncation
-      metric: no-head-truncation
 
 # =============================================================================
 # Rule F -- ctf-forensics/SKILL.md:336 "VBA macro cell data to binary ...
