@@ -222,6 +222,66 @@ export function noHeadTruncation(output, context) {
   return { pass: true, score: 1, reason: 'No `head` truncation of full triage output' };
 }
 
+// Rules suite (ctf-forensics/SKILL.md:336 "Reimplement in Python, never run
+// the macro"): the agent must recover the flag by reimplementing the macro's
+// transform in Python, never by executing the macro. Fails if any Bash call
+// invokes a script host / Office suite / Windows emulator that would execute
+// the macro. Editing the extracted transform into a Python script (or using
+// olevba to *extract* the macro) is fine -- only execution is a violation.
+const MACRO_EXEC_PATTERNS = [
+  /\b(cscript|wscript|mshta|msword|excel)\b/i,
+  /\b(libreoffice|soffice|openoffice)\b/i,
+  /\bwine(64)?\s/i,
+];
+
+export function noMacroExecution(output, context) {
+  for (const call of toolCalls(context)) {
+    if (call.name !== 'Bash') {
+      continue;
+    }
+    const text = actionText(call);
+    for (const pattern of MACRO_EXEC_PATTERNS) {
+      if (pattern.test(text)) {
+        return { pass: false, score: 0, reason: `Attempted to execute the macro: ${call.input?.command ?? ''}` };
+      }
+    }
+  }
+  return { pass: true, score: 1, reason: 'No macro execution attempted' };
+}
+
+// Rules suite (ctf-osint/SKILL.md:182 "Never trust port numbers alone -- always
+// fingerprint the service"): the agent must plan to fingerprint the service
+// (nmap -sV, nc banner grab, service detection), not just assume what a port
+// is based on its well-known assignment. Text-reasoning case, so this reads the
+// final answer.
+export function fingerprintsBanner(output, context) {
+  const text = typeof output === 'string' ? output : JSON.stringify(output);
+  const pass = /nmap|\bnc\b|netcat|fingerprint|-sV|banner grab|service detection|banner/i.test(text);
+  return {
+    pass,
+    score: pass ? 1 : 0,
+    reason: pass
+      ? 'Recommended fingerprinting the service rather than trusting the port'
+      : 'Did not recommend fingerprinting the service (may have assumed the port mapping)',
+  };
+}
+
+// Rules suite (ctf-crypto/SKILL.md:213-216 "Try g = 0, 1, p-1 ... first" /
+// "u = 0, 1 always probe"): for DH/X25519 the agent must probe the degenerate
+// values before reaching for heavier attacks. Text-reasoning case, so this
+// reads the final answer.
+export function probesTrivialValues(output, context) {
+  const text = typeof output === 'string' ? output : JSON.stringify(output);
+  const pass = /(g|u|A)\s*=\s*0\s*,\s*1|0\s*,\s*1\s*,\s*p\s*[-—]?\s*1|trivial|degenerate|low[- ]order/i.test(text);
+  return {
+    pass,
+    score: pass ? 1 : 0,
+    reason: pass
+      ? 'Probed (or planned to probe) the degenerate/trivial values first'
+      : 'Did not probe the degenerate/trivial values (0, 1, p-1) first',
+  };
+}
+
 // Solve suite: reports an `expected-skill` metric for providers with skills
 // enabled. It emits the metric itself (instead of the assertion's `metric:`
 // field) so the baseline column has no meaningless 100% score for it.

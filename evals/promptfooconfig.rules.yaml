@@ -30,11 +30,13 @@ providers:
       # Authenticate with ANTHROPIC_API_KEY when set, otherwise with the
       # local Claude Code login (`claude /login`).
       apiKeyRequired: false
-      # `working_dir` is only var-rendered on the copy path, and several cases
-      # share one staged workspace (.work/rules/text) -- copying also keeps
-      # concurrent cases from writing into each other's directory.
+      # `working_dir` points at the staged workspace whose .claude/skills are
+      # SYMLINKS to the live source folders (see lib/hooks.js:stageRules), so
+      # the rules suite always tests the skill files as they are on disk right
+      # now -- no copy. copy_working_dir must be 'false': promptfoo's copy mode
+      # rejects symlinks that point outside the workspace.
       working_dir: .work/rules/{{workspace}}
-      copy_working_dir: copy
+      copy_working_dir: false
       setting_sources: ['project']
       skills: all
       append_allowed_tools: [Bash, Write, Edit]
@@ -59,8 +61,8 @@ defaultTest:
 tests: file://cases/rules.yaml
 
 evaluateOptions:
-  # Several cases share one staged source directory under `copy_working_dir`
-  # (see lib/hooks.js:stageRules); a lower concurrency reduces how often two
-  # of them copy the same source at once (see evals/README.md#rules-suite).
-  maxConcurrency: 2
+  # Runs are serialized (concurrency 1): the beforeAll hook captures the shared
+  # provider config and beforeEach rewrites its working_dir per test, which is
+  # a process-global mutation and would race across concurrent cases.
+  maxConcurrency: 1
   timeoutMs: 600000
