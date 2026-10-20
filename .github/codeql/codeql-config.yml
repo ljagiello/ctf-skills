@@ -1,0 +1,17 @@
+# CodeQL configuration for code scanning (default setup).
+#
+# This file is applied by GitHub's code scanning default setup via the
+# `github-codeql-config-file` repository property (set to this path). See the
+# repo's Security > Code scanning settings.
+#
+# evals/fixtures-src/ holds the SOURCE for intentional-vulnerability fixtures:
+# deliberately exploitable toy binaries used by the promptfoo eval suite to
+# confirm the agent follows a skill's workflow (for example
+# evals/fixtures-src/rules/pwn-checksec-order/vuln.c has a textbook
+# `read(0, buf, 512)` into a 64-byte stack buffer). These are not production
+# code, so CodeQL should not flag their planted bugs.
+
+name: "ctf-skills"
+
+paths-ignore:
+  - 'evals/fixtures-src/**'
