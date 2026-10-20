@@ -3,16 +3,22 @@
 // skills exactly as they are on disk right now (including uncommitted edits).
 //
 // Layout produced (all gitignored):
-//   .work/routing/.claude/skills/<skill>/...          every skill, no challenge files
-//   .work/skills/<fixture>/{challenge files, .claude/skills/<skill>/...}
+//   .work/routing/.claude/skills/<skill>/...          every skill (copy), no challenge files
+//   .work/skills/<fixture>/{challenge files, .claude/skills/<skill>/...}   (copy)
 //   .work/baseline/<fixture>/{challenge files}         same files, no skills
-//   .work/rules/text/.claude/skills/<skill>/...        every skill, no challenge files
-//   .work/rules/<fixture>/{challenge files, .claude/skills/<skill>/...}
+//   .work/rules/text/.claude/skills/<skill> -> ../../../../../../<skill>   (SYMLINK, no copy)
+//   .work/rules/<fixture>/{challenge files, .claude/skills/<skill> -> ...} (SYMLINK, no copy)
 //
 // Skills live under .claude/skills/ because that is where `npx skills add`
 // installs them and what the Claude Agent SDK discovers with
 // `setting_sources: ['project']`, so skill names stay unnamespaced (ctf-pwn,
 // not plugin:ctf-pwn).
+//
+// The routing and solve suites COPY the skills into .work/ (their configs use
+// copy_working_dir: copy, which rejects symlinks that leave the workspace).
+// The rules suite instead SYMLINKS them straight to the live source folders and
+// runs with copy_working_dir: false, so a rules case always tests the skill
+// files as they are on disk right now -- never a stale snapshot.
 //
 // Each suite has its own stager and only replaces its own directories, so the
 // routing and solve suites can run at the same time. They are not named after
@@ -51,6 +57,21 @@ function copyTree(src, dest) {
 function installSkills(workspace, skills) {
   for (const skill of skills) {
     copyTree(path.join(REPO_ROOT, skill), path.join(workspace, '.claude', 'skills', skill));
+  }
+}
+
+// Rules suite loads skills straight from the live source folders (NO COPY):
+// symlink each repo skill into <workspace>/.claude/skills/<name> so the
+// Skill tool reads the actual SKILL.md and technique files on disk, never a
+// stale snapshot. The rules provider must set copy_working_dir: false, since
+// promptfoo's copy_working_dir rejects symlinks that point outside the
+// workspace.
+function linkSkills(workspace, skills) {
+  const skillsDir = path.join(workspace, '.claude', 'skills');
+  fs.mkdirSync(skillsDir, { recursive: true });
+  for (const skill of skills) {
+    const target = path.relative(skillsDir, path.join(REPO_ROOT, skill));
+    fs.symlinkSync(target, path.join(skillsDir, skill));
   }
 }
 
@@ -94,30 +115,68 @@ export function stageSolve(hookName) {
   log(`staged ${fixtures.length} fixtures with and without ${skills.length} skills in ${WORK_DIR}`);
 }
 
-// Rules suite: every fixture gets the skills installed (there is no
+// Rules suite: every fixture gets the skills symlinked (there is no
 // with/without-skills comparison here — these cases test whether a loaded
 // skill's documented rules are actually followed). `text` is a skills-only
 // workspace for cases that need no challenge files, just Bash/Write access
-// to see what the agent would run.
-export function stageRules(hookName) {
-  if (hookName !== 'beforeAll') {
+// to see what the agent would run. Unlike routing/solve, the skills are
+// linked straight to the live source folders (NO COPY) so the eval always
+// exercises the skill files as they are on disk right now.
+//
+// promptfoo only renders {{vars}} in `working_dir` on the `copy_working_dir`
+// path; with copy_working_dir false (required for symlinks) the raw
+// `{{workspace}}` reaches the provider. So we capture the shared provider
+// config at beforeAll and rewrite its `working_dir` per test at beforeEach.
+export function stageRules(hookName, context) {
+  if (hookName === 'beforeAll') {
+    stages.rulesProviderConfig = context?.suite?.providers?.[0]?.config ?? null;
+    const skills = discoverSkills();
+    const rulesWork = path.join(WORK_DIR, 'rules');
+    resetDir(rulesWork);
+    linkSkills(path.join(rulesWork, 'text'), skills);
+
+    const fixtures = fs.existsSync(RULE_FIXTURES_DIR)
+      ? fs
+          .readdirSync(RULE_FIXTURES_DIR, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name)
+      : [];
+    for (const fixture of fixtures) {
+      const workspace = path.join(rulesWork, fixture);
+      copyTree(path.join(RULE_FIXTURES_DIR, fixture), workspace);
+      linkSkills(workspace, skills);
+    }
+    log(`staged a text-only workspace and ${fixtures.length} rule fixtures in ${rulesWork} (skills symlinked, no copy)`);
     return;
   }
-  const skills = discoverSkills();
-  const rulesWork = path.join(WORK_DIR, 'rules');
-  resetDir(rulesWork);
-  installSkills(path.join(rulesWork, 'text'), skills);
 
-  const fixtures = fs.existsSync(RULE_FIXTURES_DIR)
-    ? fs
-        .readdirSync(RULE_FIXTURES_DIR, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-    : [];
-  for (const fixture of fixtures) {
-    const workspace = path.join(rulesWork, fixture);
-    copyTree(path.join(RULE_FIXTURES_DIR, fixture), workspace);
-    installSkills(workspace, skills);
+  if (hookName === 'beforeEach' && stages.rulesProviderConfig) {
+    const workspace = context?.test?.vars?.workspace;
+    if (typeof workspace === 'string' && workspace && !String(workspace).includes('{{')) {
+      stages.rulesProviderConfig.working_dir = path.join('.work', 'rules', workspace);
+      // The `text` workspace is shared by several text-only cases; without
+      // copy_working_dir its files live across cases, so clear any prior
+      // case's writes (leaving the .claude/skills symlinks alone).
+      if (workspace === 'text') {
+        cleanWorkspaceFiles(path.join(WORK_DIR, 'rules', 'text'));
+      }
+    }
   }
-  log(`staged a text-only workspace and ${fixtures.length} rule fixtures in ${rulesWork}`);
+  return context;
 }
+
+// Remove every entry in a workspace except the .claude/ skills symlinks.
+function cleanWorkspaceFiles(workspace) {
+  if (!fs.existsSync(workspace)) {
+    return;
+  }
+  for (const entry of fs.readdirSync(workspace, { withFileTypes: true })) {
+    if (entry.name === '.claude') {
+      continue;
+    }
+    fs.rmSync(path.join(workspace, entry.name), { recursive: true, force: true });
+  }
+}
+
+// Module state shared between the beforeAll and beforeEach hook invocations.
+const stages = { rulesProviderConfig: null };
