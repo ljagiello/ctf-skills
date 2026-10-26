@@ -87,3 +87,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and contribution gu
 ## License
 
 MIT
+
+Created by [Lukasz Jagiello](https://lukasz.jagiello.org).
