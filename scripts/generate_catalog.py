@@ -338,6 +338,8 @@ def build_html(skills: list[dict]) -> str:
       <a href="https://agentskills.io">Agent Skills</a>
       &middot;
       MIT License
+      &middot;
+      Made by <a href="https://lukasz.jagiello.org" rel="author">Lukasz Jagiello</a>
     </footer>
   </div>
 </body>
