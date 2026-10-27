@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use ctf-skills in your work, please cite it using these metadata."
+title: ctf-skills
+type: software
+authors:
+  - given-names: Lukasz
+    family-names: Jagiello
+    website: "https://lukasz.jagiello.org"
+repository-code: "https://github.com/ljagiello/ctf-skills"
+url: "https://ljagiello.github.io/ctf-skills/"
+license: MIT
+abstract: >-
+  Agent skills for solving CTF challenges: web exploitation, binary pwn,
+  crypto, reverse engineering, forensics, OSINT, and more.

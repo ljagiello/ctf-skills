@@ -7,6 +7,7 @@ allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
 metadata:
   user-invocable: "true"
   argument-hint: "[challenge-name]"
+  author: Lukasz Jagiello
 ---
 
 # CTF Write-up Generator

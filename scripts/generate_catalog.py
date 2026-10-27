@@ -2,6 +2,7 @@
 """Generate a static HTML skill catalog for GitHub Pages."""
 
 import html
+import json
 import subprocess
 from pathlib import Path
 
@@ -10,6 +11,14 @@ OUT_DIR = REPO_ROOT / "_site"
 
 # Fallback if git remote is unavailable (e.g., in CI without full clone)
 _DEFAULT_REPO_URL = "https://github.com/ljagiello/ctf-skills"
+
+SITE_URL = "https://ljagiello.github.io/ctf-skills/"
+SITE_DESCRIPTION = (
+    "Agent skills for solving CTF challenges - web exploitation, binary pwn,"
+    " crypto, reverse engineering, forensics, OSINT, and more"
+)
+AUTHOR_NAME = "Lukasz Jagiello"
+AUTHOR_URL = "https://lukasz.jagiello.org"
 
 
 def _detect_repo_url() -> str:
@@ -121,6 +130,27 @@ def count_techniques(skill_dir: Path) -> list[dict[str, str]]:
     return techniques
 
 
+def build_json_ld() -> str:
+    """Build schema.org JSON-LD describing the repository and its author."""
+    data = {
+        "@context": "https://schema.org",
+        "@type": "SoftwareSourceCode",
+        "name": "ctf-skills",
+        "description": SITE_DESCRIPTION,
+        "codeRepository": _get_repo_url(),
+        "url": SITE_URL,
+        "license": "https://spdx.org/licenses/MIT.html",
+        "author": {
+            "@type": "Person",
+            "@id": f"{AUTHOR_URL}/#person",
+            "name": AUTHOR_NAME,
+            "url": AUTHOR_URL,
+        },
+    }
+    # Escape "</" so a value can never close the <script> element early.
+    return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+
+
 def build_html(skills: list[dict]) -> str:
     """Build the full HTML catalog page."""
     total_techniques = sum(len(s["techniques"]) for s in skills)
@@ -168,6 +198,9 @@ def build_html(skills: list[dict]) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CTF Skills Catalog</title>
+  <meta name="description" content="{html.escape(SITE_DESCRIPTION)}">
+  <meta name="author" content="{html.escape(AUTHOR_NAME)}">
+  <script type="application/ld+json">{build_json_ld()}</script>
   <!-- Google Tag Manager -->
   <script>(function(w,d,s,l,i){{w[l]=w[l]||[];w[l].push({{'gtm.start':
   new Date().getTime(),event:'gtm.js'}});var f=d.getElementsByTagName(s)[0],

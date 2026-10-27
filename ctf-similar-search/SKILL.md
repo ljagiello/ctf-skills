@@ -7,6 +7,7 @@ allowed-tools: Bash Read Write Glob Grep Skill
 metadata:
   user-invocable: "true"
   argument-hint: "<challenge-name-or-clues>"
+  author: Lukasz Jagiello
 ---
 
 # CTF Similar Challenge Search
