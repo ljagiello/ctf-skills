@@ -7,6 +7,7 @@ allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch Skill
 metadata:
   user-invocable: "true"
   argument-hint: "[category] [challenge-file-or-url]"
+  author: Lukasz Jagiello
 ---
 
 # CTF Challenge Solver
