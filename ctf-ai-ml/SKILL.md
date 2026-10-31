@@ -1,4 +1,5 @@
 ---
+user-invocable: false
 name: ctf-ai-ml
 description: Provides AI and machine learning techniques for CTF challenges. Use when attacking ML models, crafting adversarial examples, performing model extraction, prompt injection, membership inference, training data poisoning, fine-tuning manipulation, neural network analysis, LoRA adapter exploitation, LLM jailbreaking, or solving AI-related puzzles.
 license: MIT

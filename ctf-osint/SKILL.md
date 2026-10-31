@@ -1,4 +1,5 @@
 ---
+user-invocable: false
 name: ctf-osint
 description: Provides open source intelligence techniques for CTF challenges. Use when gathering information from public sources, social media, geolocation, DNS records, username enumeration, reverse image search, Google dorking, Wayback Machine, Tor relays, FEC filings, or identifying unknown data like hashes and coordinates.
 license: MIT

@@ -1,0 +1,23 @@
+{
+  "name": "ctf-skills",
+  "version": "0.1.0",
+  "description": "CTF technique reference skills (crypto, pwn, web, reverse, forensics, malware, misc, osint, ai-ml) for CyberSheeple solver repos. Fork of ljagiello/ctf-skills.",
+  "author": {
+    "name": "Lukasz Jagiello"
+  },
+  "repository": "https://github.com/CyberSheeple/ctf-skills",
+  "license": "MIT",
+  "keywords": ["ctf", "crypto", "pwn", "web", "reverse", "forensics", "malware", "osint"],
+  "skills": [
+    "./ctf-ai-ml",
+    "./ctf-crypto",
+    "./ctf-forensics",
+    "./ctf-malware",
+    "./ctf-misc",
+    "./ctf-osint",
+    "./ctf-pwn",
+    "./ctf-reverse",
+    "./ctf-web",
+    "./ctf-similar-search"
+  ]
+}
