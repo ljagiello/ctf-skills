@@ -91,10 +91,15 @@ security assessment, you can [sponsor the project on GitHub](https://github.com/
 
 - **$5/month** keeps the lights on and lists you in the thanks below.
 - **$25/month** adds your name and a link below.
-- **$100/month** puts your logo in this section.
-- **$250/month** puts your logo at the top of this README and in release notes.
-- **$1,000/month** adds priority on issues and feature requests and a quarterly call about using
-  ctf-skills in your team.
+- **$100/month** puts your logo below.
+- **$1,500/month: featured sponsor.** A dedicated section near the top of this README with your
+  name, logo, a short description and a link, labelled "Sponsored". You draft the text, I approve
+  it. Three-month minimum, paid in advance; month to month or quarterly after that. Bank transfer
+  or GitHub Sponsors, invoice on request.
+
+Because ctf-skills serves a security-focused audience, I review every sponsor before accepting:
+expect questions about how your product handles access, credentials and data retention. API
+credits or discount codes for users are welcome in addition to a sponsorship, not instead of one.
 
 No sponsor yet. Be the first.
 
