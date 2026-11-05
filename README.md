@@ -84,6 +84,25 @@ Skills are loaded automatically based on context. You can also invoke the orches
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and contribution guidelines.
 
+## Sponsors
+
+ctf-skills is maintained in my spare time. If it saves your team hours during a competition or a
+security assessment, you can [sponsor the project on GitHub](https://github.com/sponsors/ljagiello).
+
+- **$5/month** keeps the lights on and lists you in the thanks below.
+- **$25/month** adds your name and a link below.
+- **$100/month** puts your logo below.
+- **$1,500/month: featured sponsor.** A dedicated section near the top of this README with your
+  name, logo, a short description and a link, labelled "Sponsored". You draft the text, I approve
+  it. Three-month minimum, paid in advance; month to month or quarterly after that. Bank transfer
+  or GitHub Sponsors, invoice on request.
+
+Because ctf-skills serves a security-focused audience, I review every sponsor before accepting:
+expect questions about how your product handles access, credentials and data retention. API
+credits or discount codes for users are welcome in addition to a sponsorship, not instead of one.
+
+No sponsor yet. Be the first.
+
 ## License
 
 MIT
