@@ -107,4 +107,4 @@ No sponsor yet. Be the first.
 
 MIT
 
-Created by [Lukasz Jagiello](https://lukasz.jagiello.org).
+Created by [Lukasz Jagiello](https://lukasz.jagiello.org). Write-up: [lukasz.jagiello.org/projects/ctf-skills](https://lukasz.jagiello.org/projects/ctf-skills).
