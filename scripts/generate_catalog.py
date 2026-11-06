@@ -373,6 +373,8 @@ def build_html(skills: list[dict]) -> str:
       MIT License
       &middot;
       Made by <a href="https://lukasz.jagiello.org" rel="author">Lukasz Jagiello</a>
+      &middot;
+      <a href="https://lukasz.jagiello.org/projects/ctf-skills">Project write-up</a>
     </footer>
   </div>
 </body>
