@@ -18,5 +18,9 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.303",
     "promptfoo": "0.125.1"
+  },
+  "overrides": {
+    "glob": "^14.0.5",
+    "minimatch": "^11.0.8"
   }
 }
