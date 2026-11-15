@@ -20,6 +20,8 @@
     "promptfoo": "0.125.1"
   },
   "overrides": {
+    "@hono/node-server": "^2.1.7",
+    "basic-ftp": "^6.2.6",
     "glob": "^14.0.5",
     "minimatch": "^11.0.8"
   }
